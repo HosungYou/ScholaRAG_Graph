@@ -2,8 +2,9 @@
 Configuration management for ScholaRAG_Graph backend.
 """
 
+import os
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, List
 from pydantic_settings import BaseSettings
 
 
@@ -26,15 +27,25 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimension: int = 1536
 
-    # CORS
+    # CORS - comma-separated list of allowed origins
+    cors_origins: str = "http://localhost:3000,https://scholarag-graph.vercel.app"
     frontend_url: str = "http://localhost:3000"
 
+    # Server
+    host: str = "0.0.0.0"
+    port: int = 8000
+
     # Debug
-    debug: bool = True
+    debug: bool = False
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS origins into list."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 @lru_cache()
