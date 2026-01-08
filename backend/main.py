@@ -5,26 +5,46 @@ AGENTiGraph-style GraphRAG platform for visualizing and exploring
 knowledge graphs built from ScholaRAG literature review data.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
+from database import db, init_db, close_db
 from routers import chat, graph, import_, projects
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
-    print("🚀 ScholaRAG_Graph Backend starting...")
-    print(f"   Database: {settings.database_url[:50]}...")
-    print(f"   Default LLM: {settings.default_llm_provider}/{settings.default_llm_model}")
+    logger.info("ScholaRAG_Graph Backend starting...")
+    logger.info(f"   Database: {settings.database_url[:50]}...")
+    logger.info(f"   Default LLM: {settings.default_llm_provider}/{settings.default_llm_model}")
+
+    # Initialize database connection
+    try:
+        await init_db()
+        logger.info("   Database connected successfully")
+
+        # Check pgvector availability
+        if await db.check_pgvector():
+            logger.info("   pgvector extension: available")
+        else:
+            logger.warning("   pgvector extension: NOT available")
+    except Exception as e:
+        logger.error(f"   Database connection failed: {e}")
+        logger.warning("   Running in memory-only mode")
 
     yield
 
     # Shutdown
-    print("👋 ScholaRAG_Graph Backend shutting down...")
+    logger.info("ScholaRAG_Graph Backend shutting down...")
+    await close_db()
 
 
 app = FastAPI(
@@ -63,9 +83,21 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check."""
+    db_status = "disconnected"
+    pgvector_status = "unavailable"
+
+    try:
+        if await db.health_check():
+            db_status = "connected"
+        if await db.check_pgvector():
+            pgvector_status = "available"
+    except Exception:
+        pass
+
     return {
         "status": "healthy",
-        "database": "connected",  # TODO: actual DB check
+        "database": db_status,
+        "pgvector": pgvector_status,
         "llm_provider": settings.default_llm_provider,
     }
 
