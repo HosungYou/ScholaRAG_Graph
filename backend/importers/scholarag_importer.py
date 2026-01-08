@@ -101,16 +101,19 @@ class ScholarAGImporter:
         self,
         llm_provider=None,
         db_connection=None,
+        graph_store=None,
         progress_callback: Optional[Callable[[ImportProgress], None]] = None,
     ):
         self.llm = llm_provider
         self.db = db_connection
+        self.graph_store = graph_store
         self.progress_callback = progress_callback
         self.progress = ImportProgress()
 
-        # Entity deduplication cache
-        self._author_cache: dict[str, str] = {}  # name -> entity_id
-        self._concept_cache: dict[str, str] = {}  # name -> entity_id
+        # Entity deduplication cache: maps name -> entity_id (UUID)
+        self._author_cache: dict[str, str] = {}
+        self._concept_cache: dict[str, str] = {}
+        self._paper_id_map: dict[str, str] = {}  # paper_id (from CSV) -> entity_id (UUID)
 
     def _update_progress(
         self,
@@ -247,11 +250,31 @@ class ScholarAGImporter:
             self._update_progress("extracting", 0.1, "Parsing configuration...")
             config = await self._parse_config(folder)
 
-            # Create project
+            # Create project in database
             project_id = str(uuid4())
+            project_name_final = project_name or config.name
+            logger.info(f"Creating project: {project_name_final} (ID: {project_id})")
+
+            if self.db:
+                try:
+                    await self.db.execute(
+                        """
+                        INSERT INTO projects (id, name, research_question, source_path)
+                        VALUES ($1, $2, $3, $4)
+                        """,
+                        project_id,
+                        project_name_final,
+                        config.research_question,
+                        folder_path,
+                    )
+                    logger.info(f"Project created in database: {project_id}")
+                except Exception as e:
+                    logger.error(f"Failed to create project in database: {e}")
+                    raise
+
             project = {
                 "id": project_id,
-                "name": project_name or config.name,
+                "name": project_name_final,
                 "research_question": config.research_question,
                 "source_path": folder_path,
                 "created_at": datetime.now().isoformat(),
@@ -340,12 +363,16 @@ class ScholarAGImporter:
             all_relationships.extend(concept_relationships)
 
             # Store in database
-            self._update_progress("building_graph", 0.9, "Storing in database...")
-            await self._store_entities(project_id, all_entities)
-            await self._store_relationships(project_id, all_relationships)
+            self._update_progress("building_graph", 0.9, "Storing entities in database...")
+            id_mapping = await self._store_entities(project_id, all_entities)
+
+            self._update_progress("building_graph", 0.95, "Storing relationships in database...")
+            await self._store_relationships(project_id, all_relationships, id_mapping)
 
             self.progress.entities_created = len(all_entities)
             self.progress.relationships_created = len(all_relationships)
+
+            logger.info(f"Import complete: {len(all_entities)} entities, {len(all_relationships)} relationships")
 
             # Complete
             self._update_progress("completed", 1.0, "Import completed successfully!")
@@ -435,9 +462,12 @@ class ScholarAGImporter:
             reader = csv.DictReader(f)
 
             for i, row in enumerate(reader):
-                # Skip excluded papers if decision column exists
+                # Skip explicitly excluded papers if decision column exists
                 decision = row.get("decision", "").lower()
-                if decision and decision not in ["yes", "include", "included", ""]:
+                # Reject: no, exclude, excluded, reject, rejected
+                # Accept everything else (including human-review, auto-include, yes, include, empty, etc.)
+                rejected_decisions = ["no", "exclude", "excluded", "reject", "rejected", "auto-exclude"]
+                if decision in rejected_decisions:
                     continue
 
                 # Parse authors
@@ -626,16 +656,152 @@ class ScholarAGImporter:
 
     async def _store_entities(
         self, project_id: str, entities: list[ExtractedEntity]
-    ):
-        """Store entities in database."""
-        # TODO: Implement actual database storage
+    ) -> dict[str, str]:
+        """
+        Store entities in database.
+
+        Returns a mapping from local entity IDs (e.g., "paper_xxx") to database UUIDs.
+        """
         logger.info(f"Storing {len(entities)} entities for project {project_id}")
 
+        id_mapping: dict[str, str] = {}  # local_id -> database_uuid
+        author_name_to_uuid: dict[str, str] = {}  # author_name.lower() -> uuid
+        concept_name_to_uuid: dict[str, str] = {}  # concept_name.lower() -> uuid
+
+        if not self.db:
+            logger.warning("No database connection - skipping entity storage")
+            return id_mapping
+
+        # Count by type for logging
+        type_counts = {}
+
+        # Batch insert entities
+        for i, entity in enumerate(entities):
+            try:
+                entity_uuid = str(uuid4())
+
+                # Track type counts
+                type_counts[entity.entity_type] = type_counts.get(entity.entity_type, 0) + 1
+
+                # Determine the local ID for this entity
+                if entity.entity_type == "Paper":
+                    paper_id = entity.properties.get("paper_id", str(i))
+                    local_id = f"paper_{paper_id}"
+                    # Also store in paper_id_map
+                    self._paper_id_map[paper_id] = entity_uuid
+
+                elif entity.entity_type == "Author":
+                    normalized_name = entity.name.strip().lower()
+                    # Check if we already stored this author
+                    if normalized_name in author_name_to_uuid:
+                        continue  # Skip duplicate author
+                    local_id = self._author_cache.get(normalized_name, f"author_{normalized_name}")
+                    author_name_to_uuid[normalized_name] = entity_uuid
+
+                elif entity.entity_type == "Concept":
+                    normalized_name = entity.name.strip().lower()
+                    # Check if we already stored this concept
+                    if normalized_name in concept_name_to_uuid:
+                        continue  # Skip duplicate concept
+                    local_id = self._concept_cache.get(normalized_name, f"concept_{entity.name[:50]}")
+                    concept_name_to_uuid[normalized_name] = entity_uuid
+
+                else:
+                    local_id = f"{entity.entity_type.lower()}_{i}"
+
+                # Store mapping
+                id_mapping[local_id] = entity_uuid
+
+                # Insert into database
+                await self.db.execute(
+                    """
+                    INSERT INTO entities (id, project_id, entity_type, name, properties)
+                    VALUES ($1, $2, $3::entity_type, $4, $5)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    entity_uuid,
+                    project_id,
+                    entity.entity_type,
+                    entity.name[:500],  # Truncate name to fit VARCHAR(500)
+                    json.dumps(entity.properties),
+                )
+
+                if (i + 1) % 100 == 0:
+                    logger.info(f"  Stored {i + 1}/{len(entities)} entities...")
+
+            except Exception as e:
+                logger.error(f"Failed to store entity {entity.name}: {e}")
+                continue
+
+        # Update caches with UUID mappings for relationship resolution
+        for name, local_id in self._author_cache.items():
+            if name in author_name_to_uuid:
+                id_mapping[local_id] = author_name_to_uuid[name]
+
+        for name, local_id in self._concept_cache.items():
+            if name in concept_name_to_uuid:
+                id_mapping[local_id] = concept_name_to_uuid[name]
+
+        logger.info(f"Stored entities successfully: {type_counts}")
+        return id_mapping
+
     async def _store_relationships(
-        self, project_id: str, relationships: list[ExtractedRelationship]
+        self, project_id: str, relationships: list[ExtractedRelationship], id_mapping: dict[str, str]
     ):
-        """Store relationships in database."""
-        # TODO: Implement actual database storage
-        logger.info(
-            f"Storing {len(relationships)} relationships for project {project_id}"
-        )
+        """
+        Store relationships in database.
+
+        Args:
+            project_id: Project UUID
+            relationships: List of extracted relationships
+            id_mapping: Mapping from local IDs to database UUIDs
+        """
+        logger.info(f"Storing {len(relationships)} relationships for project {project_id}")
+
+        if not self.db:
+            logger.warning("No database connection - skipping relationship storage")
+            return
+
+        stored_count = 0
+        for i, rel in enumerate(relationships):
+            try:
+                # Resolve source and target IDs
+                source_uuid = id_mapping.get(rel.source_id)
+                target_uuid = id_mapping.get(rel.target_id)
+
+                if not source_uuid or not target_uuid:
+                    # Try to find by paper_id directly
+                    if rel.source_id.startswith("paper_"):
+                        paper_id = rel.source_id[6:]  # Remove "paper_" prefix
+                        source_uuid = self._paper_id_map.get(paper_id)
+
+                    # Skip if we still can't resolve
+                    if not source_uuid or not target_uuid:
+                        continue
+
+                rel_uuid = str(uuid4())
+
+                await self.db.execute(
+                    """
+                    INSERT INTO relationships (id, project_id, source_id, target_id, relationship_type, properties, weight)
+                    VALUES ($1, $2, $3, $4, $5::relationship_type, $6, $7)
+                    ON CONFLICT (source_id, target_id, relationship_type) DO NOTHING
+                    """,
+                    rel_uuid,
+                    project_id,
+                    source_uuid,
+                    target_uuid,
+                    rel.relationship_type,
+                    json.dumps(rel.properties),
+                    rel.properties.get("weight", 1.0),
+                )
+                stored_count += 1
+
+                if (i + 1) % 100 == 0:
+                    logger.info(f"  Stored {i + 1}/{len(relationships)} relationships...")
+
+            except Exception as e:
+                logger.error(f"Failed to store relationship {rel.relationship_type}: {e}")
+                continue
+
+        logger.info(f"Stored {stored_count} relationships successfully")

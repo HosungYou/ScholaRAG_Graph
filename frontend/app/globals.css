@@ -2,6 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS Variables for theming */
+:root {
+  --color-background: 255 255 255;
+  --color-foreground: 17 24 39;
+  --color-muted: 107 114 128;
+  --color-border: 229 231 235;
+  --color-card: 255 255 255;
+  --color-accent: 59 130 246;
+}
+
+.dark {
+  --color-background: 17 24 39;
+  --color-foreground: 243 244 246;
+  --color-muted: 156 163 175;
+  --color-border: 55 65 81;
+  --color-card: 31 41 55;
+  --color-accent: 96 165 250;
+}
+
+/* Base layer with dark mode support */
+@layer base {
+  body {
+    @apply bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200;
+  }
+}
+
 /* React Flow custom styles */
 .react-flow__node {
   cursor: pointer;
@@ -16,6 +42,25 @@
   stroke-width: 2;
 }
 
+/* Dark mode React Flow */
+.dark .react-flow__background {
+  background-color: rgb(17 24 39);
+}
+
+.dark .react-flow__controls button {
+  background-color: rgb(31 41 55);
+  color: rgb(243 244 246);
+  border-color: rgb(55 65 81);
+}
+
+.dark .react-flow__controls button:hover {
+  background-color: rgb(55 65 81);
+}
+
+.dark .react-flow__minimap {
+  background-color: rgb(31 41 55);
+}
+
 /* Custom node styles */
 .custom-node {
   @apply rounded-lg shadow-md border-2 p-3 transition-all duration-200;
@@ -26,23 +71,23 @@
 }
 
 .custom-node.paper {
-  @apply bg-blue-50 border-blue-400;
+  @apply bg-blue-50 border-blue-400 dark:bg-blue-900/30 dark:border-blue-500;
 }
 
 .custom-node.author {
-  @apply bg-green-50 border-green-400;
+  @apply bg-green-50 border-green-400 dark:bg-green-900/30 dark:border-green-500;
 }
 
 .custom-node.concept {
-  @apply bg-purple-50 border-purple-400;
+  @apply bg-purple-50 border-purple-400 dark:bg-purple-900/30 dark:border-purple-500;
 }
 
 .custom-node.method {
-  @apply bg-amber-50 border-amber-400;
+  @apply bg-amber-50 border-amber-400 dark:bg-amber-900/30 dark:border-amber-500;
 }
 
 .custom-node.finding {
-  @apply bg-red-50 border-red-400;
+  @apply bg-red-50 border-red-400 dark:bg-red-900/30 dark:border-red-500;
 }
 
 /* Highlighted nodes */
@@ -60,22 +105,54 @@
   }
 }
 
+/* Shimmer animation for skeleton loading */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(229 231 235) 0%,
+    rgb(243 244 246) 50%,
+    rgb(229 231 235) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.dark .animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(55 65 81) 0%,
+    rgb(75 85 99) 50%,
+    rgb(55 65 81) 100%
+  );
+  background-size: 200% 100%;
+}
+
 /* Chat styles */
 .chat-message {
   @apply p-4 rounded-lg mb-4;
 }
 
 .chat-message.user {
-  @apply bg-blue-100 ml-12;
+  @apply bg-blue-100 ml-12 dark:bg-blue-900/30;
 }
 
 .chat-message.assistant {
-  @apply bg-gray-100 mr-12;
+  @apply bg-gray-100 mr-12 dark:bg-gray-800;
 }
 
 /* Citation card */
 .citation-card {
   @apply inline-block px-2 py-1 bg-blue-100 text-blue-700 rounded cursor-pointer hover:bg-blue-200 transition-colors;
+  @apply dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50;
 }
 
 /* Scrollbar */
@@ -85,9 +162,61 @@
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-gray-100 rounded;
+  @apply bg-gray-100 rounded dark:bg-gray-800;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 rounded hover:bg-gray-400;
+  @apply bg-gray-300 rounded hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500;
+}
+
+/* Focus styles for accessibility */
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-blue-500;
+}
+
+/* Skip link for accessibility */
+.skip-link {
+  @apply absolute -top-10 left-4 bg-blue-600 text-white px-4 py-2 rounded z-50 transition-all;
+}
+
+.skip-link:focus {
+  @apply top-4;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Mobile-specific utilities */
+@layer utilities {
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-inset-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Touch-friendly tap targets */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }

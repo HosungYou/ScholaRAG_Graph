@@ -1,28 +1,40 @@
 import { create } from 'zustand';
 import { api } from '@/lib/api';
+import type { GraphData, GraphEntity, EntityType } from '@/types';
 
-interface GraphData {
-  nodes: any[];
-  edges: any[];
+interface FilterState {
+  entityTypes: EntityType[];
+  yearRange: [number, number] | null;
+  searchQuery: string;
 }
 
 interface GraphStore {
   // State
   graphData: GraphData | null;
-  selectedNode: any | null;
+  selectedNode: GraphEntity | null;
   highlightedNodes: string[];
   highlightedEdges: string[];
   isLoading: boolean;
   error: string | null;
+  filters: FilterState;
 
   // Actions
   fetchGraphData: (projectId: string) => Promise<void>;
-  setSelectedNode: (node: any | null) => void;
+  setSelectedNode: (node: GraphEntity | null) => void;
   setHighlightedNodes: (nodeIds: string[]) => void;
   setHighlightedEdges: (edgeIds: string[]) => void;
   clearHighlights: () => void;
   expandNode: (nodeId: string) => Promise<void>;
+  setFilters: (filters: Partial<FilterState>) => void;
+  resetFilters: () => void;
+  getFilteredData: () => GraphData | null;
 }
+
+const defaultFilters: FilterState = {
+  entityTypes: ['Paper', 'Author', 'Concept', 'Method', 'Finding'],
+  yearRange: null,
+  searchQuery: '',
+};
 
 export const useGraphStore = create<GraphStore>((set, get) => ({
   // Initial state
@@ -32,6 +44,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   highlightedEdges: [],
   isLoading: false,
   error: null,
+  filters: { ...defaultFilters },
 
   // Actions
   fetchGraphData: async (projectId: string) => {
@@ -72,10 +85,10 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
       // Merge subgraph with existing data
       const existingNodeIds = new Set(graphData.nodes.map((n) => n.id));
-      const newNodes = subgraph.nodes.filter((n: any) => !existingNodeIds.has(n.id));
+      const newNodes = subgraph.nodes.filter((n: GraphEntity) => !existingNodeIds.has(n.id));
 
       const existingEdgeIds = new Set(graphData.edges.map((e) => e.id));
-      const newEdges = subgraph.edges.filter((e: any) => !existingEdgeIds.has(e.id));
+      const newEdges = subgraph.edges.filter((e: { id: string }) => !existingEdgeIds.has(e.id));
 
       set({
         graphData: {
@@ -86,5 +99,60 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     } catch (error) {
       console.error('Failed to expand node:', error);
     }
+  },
+
+  setFilters: (newFilters) => {
+    set((state) => ({
+      filters: { ...state.filters, ...newFilters },
+    }));
+  },
+
+  resetFilters: () => {
+    set({ filters: { ...defaultFilters } });
+  },
+
+  getFilteredData: () => {
+    const { graphData, filters } = get();
+    if (!graphData) return null;
+
+    // Filter nodes
+    const filteredNodes = graphData.nodes.filter((node) => {
+      // Filter by entity type
+      if (!filters.entityTypes.includes(node.entity_type)) {
+        return false;
+      }
+
+      // Filter by year range (only for Papers)
+      if (filters.yearRange && node.entity_type === 'Paper') {
+        const year = (node.properties as { year?: number }).year;
+        if (year && (year < filters.yearRange[0] || year > filters.yearRange[1])) {
+          return false;
+        }
+      }
+
+      // Filter by search query
+      if (filters.searchQuery) {
+        const query = filters.searchQuery.toLowerCase();
+        const nameMatch = node.name.toLowerCase().includes(query);
+        const propsMatch = Object.values(node.properties || {}).some(
+          (v) => typeof v === 'string' && v.toLowerCase().includes(query)
+        );
+        if (!nameMatch && !propsMatch) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // Get IDs of filtered nodes
+    const filteredNodeIds = new Set(filteredNodes.map((n) => n.id));
+
+    // Filter edges to only include those connecting filtered nodes
+    const filteredEdges = graphData.edges.filter(
+      (edge) => filteredNodeIds.has(edge.source) && filteredNodeIds.has(edge.target)
+    );
+
+    return { nodes: filteredNodes, edges: filteredEdges };
   },
 }));

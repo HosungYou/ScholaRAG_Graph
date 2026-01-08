@@ -12,8 +12,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from datetime import datetime
 
-from ..agents.orchestrator import AgentOrchestrator
-from ..llm.claude_provider import ClaudeProvider
+from agents.orchestrator import AgentOrchestrator
+from llm.claude_provider import ClaudeProvider
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

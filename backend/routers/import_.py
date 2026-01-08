@@ -4,6 +4,7 @@ Import API Router
 Handles data import from ScholaRAG folders, PDFs, and CSVs.
 """
 
+import logging
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
@@ -11,6 +12,11 @@ from pydantic import BaseModel
 from datetime import datetime
 from enum import Enum
 
+from database import db
+from graph.graph_store import GraphStore
+from importers.scholarag_importer import ScholarAGImporter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -199,57 +205,75 @@ async def _run_scholarag_import(
     extract_entities: bool,
 ):
     """Background task to run ScholaRAG import."""
-    import asyncio
+    logger.info(f"[Import {job_id}] Starting import from: {folder_path}")
+
+    def progress_callback(progress):
+        """Update job status from importer progress."""
+        status_map = {
+            "validating": ImportStatus.VALIDATING,
+            "extracting": ImportStatus.EXTRACTING,
+            "processing": ImportStatus.PROCESSING,
+            "building_graph": ImportStatus.BUILDING_GRAPH,
+            "completed": ImportStatus.COMPLETED,
+            "failed": ImportStatus.FAILED,
+        }
+        _import_jobs[job_id]["status"] = status_map.get(progress.status, ImportStatus.PROCESSING)
+        _import_jobs[job_id]["progress"] = progress.progress
+        _import_jobs[job_id]["message"] = progress.message
+        _import_jobs[job_id]["updated_at"] = datetime.now()
+        logger.info(f"[Import {job_id}] {progress.status}: {progress.progress:.1%} - {progress.message}")
 
     try:
-        # Update status: Validating
-        _import_jobs[job_id]["status"] = ImportStatus.VALIDATING
-        _import_jobs[job_id]["progress"] = 0.1
-        _import_jobs[job_id]["message"] = "Validating folder structure..."
+        # Create importer with database connection and GraphStore
+        graph_store = GraphStore(db=db)
+        importer = ScholarAGImporter(
+            db_connection=db,
+            graph_store=graph_store,
+            progress_callback=progress_callback,
+        )
+
+        # Run the import
+        result = await importer.import_folder(
+            folder_path=folder_path,
+            project_name=project_name,
+            extract_entities=extract_entities,
+        )
+
+        if result["success"]:
+            # Update job with results
+            _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
+            _import_jobs[job_id]["progress"] = 1.0
+            _import_jobs[job_id]["message"] = "Import completed successfully!"
+            _import_jobs[job_id]["project_id"] = result.get("project_id")
+            _import_jobs[job_id]["stats"] = result.get("stats", {})
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+
+            logger.info(f"[Import {job_id}] Completed successfully: {result.get('stats', {})}")
+        else:
+            # Import failed
+            _import_jobs[job_id]["status"] = ImportStatus.FAILED
+            _import_jobs[job_id]["message"] = f"Import failed: {result.get('error', 'Unknown error')}"
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+            _import_jobs[job_id]["stats"] = {
+                "papers_imported": 0,
+                "authors_extracted": 0,
+                "concepts_extracted": 0,
+                "relationships_created": 0,
+            }
+
+            logger.error(f"[Import {job_id}] Failed: {result.get('error')}")
+
+    except Exception as e:
+        logger.exception(f"[Import {job_id}] Exception during import: {e}")
+        _import_jobs[job_id]["status"] = ImportStatus.FAILED
+        _import_jobs[job_id]["message"] = f"Import failed: {str(e)}"
         _import_jobs[job_id]["updated_at"] = datetime.now()
-
-        await asyncio.sleep(1)  # Simulate work
-
-        # Update status: Extracting
-        _import_jobs[job_id]["status"] = ImportStatus.EXTRACTING
-        _import_jobs[job_id]["progress"] = 0.3
-        _import_jobs[job_id]["message"] = "Extracting data from CSV..."
-        _import_jobs[job_id]["updated_at"] = datetime.now()
-
-        await asyncio.sleep(2)  # Simulate work
-
-        # Update status: Processing
-        _import_jobs[job_id]["status"] = ImportStatus.PROCESSING
-        _import_jobs[job_id]["progress"] = 0.6
-        _import_jobs[job_id]["message"] = "Processing entities..."
-        _import_jobs[job_id]["updated_at"] = datetime.now()
-
-        await asyncio.sleep(2)  # Simulate work
-
-        # Update status: Building graph
-        _import_jobs[job_id]["status"] = ImportStatus.BUILDING_GRAPH
-        _import_jobs[job_id]["progress"] = 0.9
-        _import_jobs[job_id]["message"] = "Building knowledge graph..."
-        _import_jobs[job_id]["updated_at"] = datetime.now()
-
-        await asyncio.sleep(1)  # Simulate work
-
-        # Complete
-        _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
-        _import_jobs[job_id]["progress"] = 1.0
-        _import_jobs[job_id]["message"] = "Import completed successfully!"
         _import_jobs[job_id]["stats"] = {
             "papers_imported": 0,
             "authors_extracted": 0,
             "concepts_extracted": 0,
             "relationships_created": 0,
         }
-        _import_jobs[job_id]["updated_at"] = datetime.now()
-
-    except Exception as e:
-        _import_jobs[job_id]["status"] = ImportStatus.FAILED
-        _import_jobs[job_id]["message"] = f"Import failed: {str(e)}"
-        _import_jobs[job_id]["updated_at"] = datetime.now()
 
 
 @router.get("/status/{job_id}", response_model=ImportJobResponse)
