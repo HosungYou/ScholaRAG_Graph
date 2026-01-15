@@ -149,7 +149,10 @@ async def get_nodes(
         ]
     except Exception as e:
         logger.error(f"Failed to get nodes: {e}")
-        return []
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
+        )
 
 
 @router.get("/edges", response_model=List[EdgeResponse])
@@ -204,7 +207,10 @@ async def get_edges(
         ]
     except Exception as e:
         logger.error(f"Failed to get edges: {e}")
-        return []
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
+        )
 
 
 @router.get("/visualization/{project_id}", response_model=GraphDataResponse)
@@ -287,7 +293,10 @@ async def get_visualization_data(
         return GraphDataResponse(nodes=nodes, edges=edges)
     except Exception as e:
         logger.error(f"Failed to get visualization data: {e}")
-        return GraphDataResponse(nodes=[], edges=[])
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
+        )
 
 
 @router.get("/subgraph/{node_id}", response_model=GraphDataResponse)
@@ -449,7 +458,10 @@ async def search_nodes(
         ]
     except Exception as e:
         logger.error(f"Failed to search nodes: {e}")
-        return []
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
+        )
 
 
 @router.get("/similar/{node_id}", response_model=List[NodeResponse])
@@ -521,7 +533,10 @@ async def get_similar_nodes(
         raise
     except Exception as e:
         logger.error(f"Failed to get similar nodes: {e}")
-        return []
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
+        )
 
 
 @router.get("/gaps/{project_id}", response_model=List[NodeResponse])
@@ -572,7 +587,10 @@ async def get_research_gaps(
         ]
     except Exception as e:
         logger.error(f"Failed to get research gaps: {e}")
-        return []
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
+        )
 
 
 @router.get("/entity/{entity_id}", response_model=NodeResponse)
@@ -764,12 +782,9 @@ async def get_gap_analysis(
 
     except Exception as e:
         logger.error(f"Failed to get gap analysis: {e}")
-        return GapAnalysisResponse(
-            clusters=[],
-            gaps=[],
-            centrality_metrics=[],
-            total_concepts=0,
-            total_relationships=0,
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
         )
 
 
@@ -910,7 +925,7 @@ async def refresh_gap_analysis(
 
     except Exception as e:
         logger.error(f"Failed to refresh gap analysis: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to refresh gap analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to refresh gap analysis. Please try again later.")
 
 
 @router.get("/gaps/detail/{gap_id}", response_model=StructuralGapResponse)

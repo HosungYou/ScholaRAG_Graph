@@ -152,3 +152,129 @@ def require_auth_if_configured(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+# =============================================================================
+# Policy-Based Auth Dependencies
+# =============================================================================
+
+def get_auth_dependency_for_route(path: str):
+    """
+    Returns appropriate auth dependency based on route policy.
+    
+    This function provides a factory for creating route-specific authentication
+    dependencies based on the centralized policy configuration.
+    
+    Args:
+        path: The route path (e.g., "/api/projects")
+        
+    Returns:
+        A FastAPI dependency function appropriate for the route's auth level.
+        
+    Example:
+        @router.get("/custom-endpoint")
+        async def custom_endpoint(
+            user = Depends(get_auth_dependency_for_route("/api/custom-endpoint"))
+        ):
+            ...
+    """
+    from .policies import get_auth_level, AuthLevel
+    
+    level = get_auth_level(path)
+    
+    if level == AuthLevel.NONE:
+        return _no_auth
+    elif level == AuthLevel.REQUIRED:
+        return require_auth
+    elif level == AuthLevel.OWNER:
+        return require_auth  # Ownership check done separately
+    else:  # OPTIONAL
+        return require_auth_if_configured
+
+
+async def _no_auth() -> None:
+    """No authentication required - returns None."""
+    return None
+
+
+def get_policy_based_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    path: str = None
+) -> Optional[User]:
+    """
+    Get user based on the auth policy for the current route.
+    
+    Note: This is a lower-level function. For most use cases,
+    use the specific dependency functions or get_auth_dependency_for_route().
+    """
+    from .policies import get_auth_level, AuthLevel
+    
+    if path is None:
+        # Fall back to optional behavior if path not provided
+        return require_auth_if_configured
+    
+    level = get_auth_level(path)
+    
+    if level == AuthLevel.NONE:
+        return None
+    elif level == AuthLevel.REQUIRED or level == AuthLevel.OWNER:
+        return require_auth
+    else:
+        return require_auth_if_configured
+
+
+# =============================================================================
+# Request State Helpers (for use with AuthMiddleware)
+# =============================================================================
+
+def get_user_from_state(request) -> Optional[User]:
+    """
+    Get authenticated user from request state (set by AuthMiddleware).
+    
+    This is useful when the middleware has already validated the token
+    and you just need to access the user data.
+    
+    Args:
+        request: FastAPI Request object
+        
+    Returns:
+        User object or None if not authenticated
+    """
+    user_data = getattr(request.state, "user", None)
+    
+    if not user_data:
+        return None
+    
+    return User(
+        id=user_data["id"],
+        email=user_data["email"],
+        email_confirmed=user_data.get("email_confirmed", False),
+        created_at=user_data.get("created_at"),
+        full_name=user_data.get("user_metadata", {}).get("full_name"),
+        avatar_url=user_data.get("user_metadata", {}).get("avatar_url"),
+    )
+
+
+def require_user_from_state(request) -> User:
+    """
+    Get authenticated user from request state, raising if not present.
+    
+    Args:
+        request: FastAPI Request object
+        
+    Returns:
+        User object
+        
+    Raises:
+        HTTPException 401 if user not in state
+    """
+    user = get_user_from_state(request)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    return user

@@ -5,7 +5,8 @@ Handles project CRUD operations with PostgreSQL persistence.
 
 Security:
 - All endpoints require authentication in production (configurable via REQUIRE_AUTH)
-- Project ownership is enforced via user_id field
+- Project ownership is enforced via owner_id field
+- Team members can access shared projects via team_projects junction table
 """
 
 import logging
@@ -21,6 +22,55 @@ from auth.models import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def check_project_access(database, project_id: UUID, user_id: str) -> bool:
+    """
+    Check if a user has access to a project.
+    Access is granted if:
+    1. User is the owner of the project
+    2. User is a collaborator on the project
+    3. User is a member of a team that has access to the project
+    4. Project is public
+
+    Returns True if access is allowed, False otherwise.
+    """
+    # Check ownership, collaboration, team membership, or public visibility
+    row = await database.fetchrow(
+        """
+        SELECT EXISTS(
+            SELECT 1 FROM projects p
+            WHERE p.id = $1 AND (
+                p.owner_id = $2
+                OR p.visibility = 'public'
+                OR EXISTS (
+                    SELECT 1 FROM project_collaborators pc
+                    WHERE pc.project_id = p.id AND pc.user_id = $2
+                )
+                OR EXISTS (
+                    SELECT 1 FROM team_projects tp
+                    JOIN team_members tm ON tp.team_id = tm.team_id
+                    WHERE tp.project_id = p.id AND tm.user_id = $2
+                )
+            )
+        ) as has_access
+        """,
+        project_id,
+        user_id,
+    )
+    return row["has_access"] if row else False
+
+
+async def check_project_ownership(database, project_id: UUID, user_id: str) -> bool:
+    """
+    Check if a user is the owner of a project.
+    Only owners can delete or modify certain project settings.
+    """
+    row = await database.fetchrow(
+        "SELECT owner_id FROM projects WHERE id = $1",
+        project_id,
+    )
+    return row and str(row["owner_id"]) == user_id
 
 
 # Pydantic Models
@@ -67,15 +117,45 @@ async def list_projects(
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """List all projects from PostgreSQL. Requires authentication in production."""
+    """
+    List projects accessible to the current user.
+
+    Returns projects where the user is:
+    - The owner
+    - A collaborator
+    - A member of a team with access to the project
+    - Or the project is public
+
+    Requires authentication in production.
+    """
     try:
-        rows = await database.fetch(
-            """
-            SELECT id, name, research_question, source_path, created_at, updated_at
-            FROM projects
-            ORDER BY created_at DESC
-            """
-        )
+        # If no auth is configured (development mode), return all projects
+        if current_user is None:
+            rows = await database.fetch(
+                """
+                SELECT id, name, research_question, source_path, created_at, updated_at
+                FROM projects
+                ORDER BY created_at DESC
+                """
+            )
+        else:
+            # Filter by user access: owned, collaborated, team-shared, or public
+            rows = await database.fetch(
+                """
+                SELECT DISTINCT p.id, p.name, p.research_question, p.source_path,
+                       p.created_at, p.updated_at
+                FROM projects p
+                LEFT JOIN project_collaborators pc ON p.id = pc.project_id
+                LEFT JOIN team_projects tp ON p.id = tp.project_id
+                LEFT JOIN team_members tm ON tp.team_id = tm.team_id
+                WHERE p.owner_id = $1
+                   OR pc.user_id = $1
+                   OR tm.user_id = $1
+                   OR p.visibility = 'public'
+                ORDER BY p.created_at DESC
+                """,
+                current_user.id,
+            )
 
         projects = []
         for row in rows:
@@ -96,8 +176,10 @@ async def list_projects(
         return projects
     except Exception as e:
         logger.error(f"Failed to list projects: {e}")
-        # Fallback to empty list if DB not available
-        return []
+        raise HTTPException(
+            status_code=503,
+            detail="Database temporarily unavailable. Please try again later."
+        )
 
 
 @router.post("/", response_model=ProjectResponse)
@@ -106,23 +188,34 @@ async def create_project(
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Create a new project in PostgreSQL. Requires authentication in production."""
+    """
+    Create a new project in PostgreSQL.
+
+    The current authenticated user becomes the owner of the project.
+    Requires authentication in production.
+    """
     project_id = uuid4()
     now = datetime.now()
+
+    # Set owner_id from authenticated user (None if auth not configured)
+    owner_id = current_user.id if current_user else None
 
     try:
         await database.execute(
             """
-            INSERT INTO projects (id, name, research_question, source_path, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO projects (id, name, research_question, source_path, owner_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             """,
             project_id,
             project.name,
             project.research_question,
             project.source_path,
+            owner_id,
             now,
             now,
         )
+
+        logger.info(f"Created project {project_id} for owner {owner_id}")
 
         return ProjectResponse(
             id=project_id,
@@ -144,8 +237,27 @@ async def get_project(
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Get project by ID from PostgreSQL. Requires authentication in production."""
+    """
+    Get project by ID from PostgreSQL.
+
+    Access control:
+    - Owner can always access
+    - Collaborators can access
+    - Team members can access if team has project access
+    - Anyone can access public projects
+
+    Requires authentication in production.
+    """
     try:
+        # Verify access if auth is configured
+        if current_user is not None:
+            has_access = await check_project_access(database, project_id, current_user.id)
+            if not has_access:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You don't have permission to access this project"
+                )
+
         row = await database.fetchrow(
             """
             SELECT id, name, research_question, source_path, created_at, updated_at
@@ -183,8 +295,39 @@ async def update_project(
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Update project details. Requires authentication in production."""
+    """
+    Update project details.
+
+    Access control:
+    - Only the owner can update a project
+    - Team admins with 'admin' role can also update
+
+    Requires authentication in production.
+    """
     try:
+        # Verify ownership if auth is configured
+        if current_user is not None:
+            # Check if user is owner or has admin role on the project
+            is_owner = await check_project_ownership(database, project_id, current_user.id)
+
+            # Also check if user is an admin collaborator
+            is_admin = await database.fetchval(
+                """
+                SELECT EXISTS(
+                    SELECT 1 FROM project_collaborators
+                    WHERE project_id = $1 AND user_id = $2 AND role IN ('admin', 'owner')
+                )
+                """,
+                project_id,
+                current_user.id,
+            )
+
+            if not is_owner and not is_admin:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the project owner or admin can update this project"
+                )
+
         # Build dynamic update query
         updates = []
         values = []
@@ -218,7 +361,7 @@ async def update_project(
             *values,
         )
 
-        return await get_project(project_id, database)
+        return await get_project(project_id, database, current_user)
     except HTTPException:
         raise
     except Exception as e:
@@ -232,17 +375,42 @@ async def delete_project(
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Delete project and all associated data. Requires authentication in production."""
+    """
+    Delete project and all associated data.
+
+    Access control:
+    - Only the project owner can delete a project
+    - This action is irreversible
+
+    Requires authentication in production.
+    """
     try:
         # Check project exists
         row = await database.fetchrow(
-            "SELECT id FROM projects WHERE id = $1",
+            "SELECT id, owner_id FROM projects WHERE id = $1",
             project_id,
         )
         if not row:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Delete in order: relationships, entities, project
+        # Verify ownership if auth is configured - only owner can delete
+        if current_user is not None:
+            is_owner = await check_project_ownership(database, project_id, current_user.id)
+            if not is_owner:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the project owner can delete this project"
+                )
+
+        # Delete in order: team_projects, project_collaborators, relationships, entities, project
+        await database.execute(
+            "DELETE FROM team_projects WHERE project_id = $1",
+            project_id,
+        )
+        await database.execute(
+            "DELETE FROM project_collaborators WHERE project_id = $1",
+            project_id,
+        )
         await database.execute(
             "DELETE FROM relationships WHERE project_id = $1",
             project_id,
@@ -255,6 +423,8 @@ async def delete_project(
             "DELETE FROM projects WHERE id = $1",
             project_id,
         )
+
+        logger.info(f"Deleted project {project_id} by user {current_user.id if current_user else 'anonymous'}")
 
         return {"status": "deleted", "project_id": str(project_id)}
     except HTTPException:
@@ -270,7 +440,23 @@ async def get_project_stats_endpoint(
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Get project statistics from PostgreSQL. Requires authentication in production."""
+    """
+    Get project statistics from PostgreSQL.
+
+    Access control:
+    - Same as get_project (owner, collaborator, team member, or public)
+
+    Requires authentication in production.
+    """
+    # Verify access if auth is configured
+    if current_user is not None:
+        has_access = await check_project_access(database, project_id, current_user.id)
+        if not has_access:
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have permission to access this project"
+            )
+
     return await _get_project_stats(database, str(project_id))
 
 

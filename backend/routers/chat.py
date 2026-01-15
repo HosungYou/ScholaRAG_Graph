@@ -5,9 +5,16 @@ Handles multi-agent chat interactions with graph-grounded responses.
 
 Security:
 - All endpoints require authentication in production (configurable via REQUIRE_AUTH)
+- Conversation ownership is tracked via user_id field
+- Users can only access their own conversations or conversations in projects they have access to
+
+Storage:
+- Primary: PostgreSQL database (conversations + messages tables)
+- Fallback: In-memory storage when DB unavailable (development mode)
 """
 
 import os
+import json
 import logging
 from typing import List, Optional
 from uuid import UUID, uuid4
@@ -19,12 +26,306 @@ from agents.orchestrator import AgentOrchestrator
 from llm.claude_provider import ClaudeProvider
 from auth.dependencies import require_auth_if_configured
 from auth.models import User
+from database import db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# ============================================================================
+# Database Operations with In-Memory Fallback
+# ============================================================================
+
+# In-memory storage (fallback when DB unavailable)
+_conversations_db: dict = {}
+_use_memory_fallback: bool = False
+
+
+async def _check_db_available() -> bool:
+    """Check if database is connected and available."""
+    global _use_memory_fallback
+    try:
+        if db.is_connected and await db.health_check():
+            _use_memory_fallback = False
+            return True
+    except Exception as e:
+        logger.warning(f"Database check failed: {e}")
+
+    if not _use_memory_fallback:
+        logger.warning("Database unavailable - using in-memory storage (data will be lost on restart)")
+        _use_memory_fallback = True
+    return False
+
+
+async def _db_create_conversation(
+    conversation_id: str,
+    project_id: str,
+    user_id: Optional[str]
+) -> None:
+    """Create a new conversation in the database."""
+    if not await _check_db_available():
+        # Fallback to in-memory
+        _conversations_db[conversation_id] = {
+            "conversation_id": conversation_id,
+            "project_id": project_id,
+            "user_id": user_id,
+            "messages": [],
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+        }
+        return
+
+    try:
+        await db.execute(
+            """
+            INSERT INTO conversations (id, project_id, user_id, created_at, updated_at)
+            VALUES ($1, $2::uuid, $3::uuid, NOW(), NOW())
+            ON CONFLICT (id) DO NOTHING
+            """,
+            conversation_id,
+            project_id,
+            user_id,
+        )
+    except Exception as e:
+        logger.error(f"Failed to create conversation in DB: {e}")
+        # Fallback to in-memory
+        _conversations_db[conversation_id] = {
+            "conversation_id": conversation_id,
+            "project_id": project_id,
+            "user_id": user_id,
+            "messages": [],
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+        }
+
+
+async def _db_add_messages(
+    conversation_id: str,
+    user_message: "ChatMessage",
+    assistant_message: "ChatMessage"
+) -> None:
+    """Add user and assistant messages to a conversation."""
+    if not await _check_db_available():
+        # Fallback to in-memory
+        if conversation_id in _conversations_db:
+            _conversations_db[conversation_id]["messages"].extend([
+                user_message.model_dump(), assistant_message.model_dump()
+            ])
+            _conversations_db[conversation_id]["updated_at"] = datetime.now()
+        return
+
+    try:
+        # Insert user message
+        await db.execute(
+            """
+            INSERT INTO messages (
+                id, conversation_id, role, content, citations,
+                highlighted_nodes, highlighted_edges, suggested_follow_ups, created_at
+            )
+            VALUES (
+                gen_random_uuid(), $1, $2, $3, $4::jsonb,
+                $5::jsonb, $6::jsonb, $7::jsonb, $8
+            )
+            """,
+            conversation_id,
+            user_message.role,
+            user_message.content,
+            json.dumps(user_message.citations or []),
+            json.dumps(user_message.highlighted_nodes or []),
+            json.dumps(user_message.highlighted_edges or []),
+            json.dumps(user_message.suggested_follow_ups or []),
+            user_message.timestamp,
+        )
+
+        # Insert assistant message
+        await db.execute(
+            """
+            INSERT INTO messages (
+                id, conversation_id, role, content, citations,
+                highlighted_nodes, highlighted_edges, suggested_follow_ups, created_at
+            )
+            VALUES (
+                gen_random_uuid(), $1, $2, $3, $4::jsonb,
+                $5::jsonb, $6::jsonb, $7::jsonb, $8
+            )
+            """,
+            conversation_id,
+            assistant_message.role,
+            assistant_message.content,
+            json.dumps(assistant_message.citations or []),
+            json.dumps(assistant_message.highlighted_nodes or []),
+            json.dumps(assistant_message.highlighted_edges or []),
+            json.dumps(assistant_message.suggested_follow_ups or []),
+            assistant_message.timestamp,
+        )
+
+        # Update conversation timestamp
+        await db.execute(
+            "UPDATE conversations SET updated_at = NOW() WHERE id = $1",
+            conversation_id,
+        )
+    except Exception as e:
+        logger.error(f"Failed to add messages to DB: {e}")
+        # Fallback to in-memory
+        if conversation_id not in _conversations_db:
+            _conversations_db[conversation_id] = {
+                "conversation_id": conversation_id,
+                "project_id": "unknown",
+                "user_id": None,
+                "messages": [],
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+            }
+        _conversations_db[conversation_id]["messages"].extend([
+            user_message.model_dump(), assistant_message.model_dump()
+        ])
+        _conversations_db[conversation_id]["updated_at"] = datetime.now()
+
+
+async def _db_get_conversation(conversation_id: str) -> Optional[dict]:
+    """Get a conversation with all its messages."""
+    if not await _check_db_available():
+        return _conversations_db.get(conversation_id)
+
+    try:
+        # Get conversation metadata
+        conv_row = await db.fetchrow(
+            """
+            SELECT id, project_id, user_id, created_at, updated_at
+            FROM conversations
+            WHERE id = $1
+            """,
+            conversation_id,
+        )
+
+        if not conv_row:
+            # Check in-memory fallback (for conversations created before DB was available)
+            return _conversations_db.get(conversation_id)
+
+        # Get messages
+        messages = await db.fetch(
+            """
+            SELECT role, content, citations, highlighted_nodes,
+                   highlighted_edges, suggested_follow_ups, created_at as timestamp
+            FROM messages
+            WHERE conversation_id = $1
+            ORDER BY created_at ASC
+            """,
+            conversation_id,
+        )
+
+        return {
+            "conversation_id": conv_row["id"],
+            "project_id": str(conv_row["project_id"]) if conv_row["project_id"] else None,
+            "user_id": str(conv_row["user_id"]) if conv_row["user_id"] else None,
+            "messages": [
+                {
+                    "role": m["role"],
+                    "content": m["content"],
+                    "timestamp": m["timestamp"],
+                    "citations": m["citations"] or [],
+                    "highlighted_nodes": m["highlighted_nodes"] or [],
+                    "highlighted_edges": m["highlighted_edges"] or [],
+                    "suggested_follow_ups": m["suggested_follow_ups"] or [],
+                }
+                for m in messages
+            ],
+            "created_at": conv_row["created_at"],
+            "updated_at": conv_row["updated_at"],
+        }
+    except Exception as e:
+        logger.error(f"Failed to get conversation from DB: {e}")
+        return _conversations_db.get(conversation_id)
+
+
+async def _db_get_conversations_by_project(project_id: str) -> List[dict]:
+    """Get all conversations for a project."""
+    if not await _check_db_available():
+        return [
+            conv for conv in _conversations_db.values()
+            if conv["project_id"] == project_id
+        ]
+
+    try:
+        conv_rows = await db.fetch(
+            """
+            SELECT id FROM conversations
+            WHERE project_id = $1::uuid
+            ORDER BY updated_at DESC
+            """,
+            project_id,
+        )
+
+        result = []
+        for row in conv_rows:
+            conv = await _db_get_conversation(row["id"])
+            if conv:
+                result.append(conv)
+
+        # Also include any in-memory conversations for this project
+        for conv in _conversations_db.values():
+            if conv["project_id"] == project_id:
+                # Check if already in result (by conversation_id)
+                if not any(c["conversation_id"] == conv["conversation_id"] for c in result):
+                    result.append(conv)
+
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get conversations from DB: {e}")
+        return [
+            conv for conv in _conversations_db.values()
+            if conv["project_id"] == project_id
+        ]
+
+
+async def _db_delete_conversation(conversation_id: str) -> bool:
+    """Delete a conversation and all its messages."""
+    if not await _check_db_available():
+        if conversation_id in _conversations_db:
+            del _conversations_db[conversation_id]
+            return True
+        return False
+
+    try:
+        # Delete from database (cascade will delete messages)
+        result = await db.execute(
+            "DELETE FROM conversations WHERE id = $1",
+            conversation_id,
+        )
+
+        # Also remove from in-memory if present
+        if conversation_id in _conversations_db:
+            del _conversations_db[conversation_id]
+
+        return "DELETE 1" in result
+    except Exception as e:
+        logger.error(f"Failed to delete conversation from DB: {e}")
+        # Try in-memory fallback
+        if conversation_id in _conversations_db:
+            del _conversations_db[conversation_id]
+            return True
+        return False
+
+
+async def _db_check_conversation_ownership(
+    conversation_id: str,
+    user_id: Optional[str]
+) -> bool:
+    """Check if a user owns a conversation."""
+    if user_id is None:
+        return True
+
+    conv = await _db_get_conversation(conversation_id)
+    if not conv:
+        return False
+
+    return conv.get("user_id") == user_id
+
+
+# ============================================================================
 # Pydantic Models
+# ============================================================================
+
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -78,10 +379,10 @@ class ConversationHistory(BaseModel):
     updated_at: datetime
 
 
-# In-memory storage
-_conversations_db: dict = {}
+# ============================================================================
+# Global Orchestrator
+# ============================================================================
 
-# Global orchestrator instance (lazy loaded)
 _orchestrator: Optional[AgentOrchestrator] = None
 
 
@@ -102,6 +403,10 @@ def get_orchestrator() -> AgentOrchestrator:
     return _orchestrator
 
 
+# ============================================================================
+# API Endpoints
+# ============================================================================
+
 @router.post("/query", response_model=ChatResponse)
 async def chat_query(
     request: ChatRequest,
@@ -119,6 +424,7 @@ async def chat_query(
     6. Response Agent - Generate user-friendly response
     """
     conversation_id = request.conversation_id or str(uuid4())
+    user_id = current_user.id if current_user else None
 
     # Get orchestrator and process query
     orchestrator = get_orchestrator()
@@ -173,7 +479,7 @@ async def chat_query(
         answer = "I encountered an error processing your request. Please try again."
         agent_trace = {"error": "Processing error occurred"} if request.include_trace else None
 
-    # Store conversation in memory
+    # Store conversation in database (with fallback to memory)
     assistant_message = ChatMessage(
         role="assistant",
         content=answer,
@@ -185,19 +491,17 @@ async def chat_query(
     )
     user_message = ChatMessage(role="user", content=request.message, timestamp=datetime.now())
 
-    if conversation_id not in _conversations_db:
-        _conversations_db[conversation_id] = {
-            "conversation_id": conversation_id,
-            "project_id": str(request.project_id),
-            "messages": [],
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
-        }
+    # Check if this is a new conversation
+    existing_conv = await _db_get_conversation(conversation_id)
+    if not existing_conv:
+        await _db_create_conversation(
+            conversation_id=conversation_id,
+            project_id=str(request.project_id),
+            user_id=user_id,
+        )
 
-    _conversations_db[conversation_id]["messages"].extend([
-        user_message.model_dump(), assistant_message.model_dump()
-    ])
-    _conversations_db[conversation_id]["updated_at"] = datetime.now()
+    # Add messages to conversation
+    await _db_add_messages(conversation_id, user_message, assistant_message)
 
     return ChatResponse(
         conversation_id=conversation_id,
@@ -218,29 +522,119 @@ async def get_chat_history(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get all conversations for a project. Requires auth in production."""
-    conversations = [
-        ConversationHistory(**conv)
-        for conv in _conversations_db.values()
-        if conv["project_id"] == str(project_id)
-    ]
+    conversations_data = await _db_get_conversations_by_project(str(project_id))
+
+    conversations = []
+    for conv in conversations_data:
+        try:
+            # Convert messages to ChatMessage objects
+            messages = [
+                ChatMessage(
+                    role=m.get("role", "user"),
+                    content=m.get("content", ""),
+                    timestamp=m.get("timestamp", datetime.now()) if isinstance(m.get("timestamp"), datetime) else datetime.fromisoformat(str(m.get("timestamp", datetime.now().isoformat()))),
+                    citations=m.get("citations"),
+                    highlighted_nodes=m.get("highlighted_nodes"),
+                    highlighted_edges=m.get("highlighted_edges"),
+                    suggested_follow_ups=m.get("suggested_follow_ups"),
+                )
+                for m in conv.get("messages", [])
+            ]
+
+            conversations.append(ConversationHistory(
+                conversation_id=conv["conversation_id"],
+                project_id=UUID(conv["project_id"]) if conv.get("project_id") else project_id,
+                messages=messages,
+                created_at=conv.get("created_at", datetime.now()),
+                updated_at=conv.get("updated_at", datetime.now()),
+            ))
+        except Exception as e:
+            logger.warning(f"Skipping invalid conversation {conv.get('conversation_id')}: {e}")
+            continue
+
     return conversations
 
 
 @router.get("/conversation/{conversation_id}", response_model=ConversationHistory)
-async def get_conversation(conversation_id: str):
-    """Get a specific conversation."""
-    conv = _conversations_db.get(conversation_id)
+async def get_conversation(
+    conversation_id: str,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Get a specific conversation.
+
+    Access control:
+    - User must be the owner of the conversation
+    - Or auth is not configured (development mode)
+
+    Requires authentication in production.
+    """
+    conv = await _db_get_conversation(conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return ConversationHistory(**conv)
+
+    # Verify ownership if auth is configured
+    if current_user is not None:
+        if not await _db_check_conversation_ownership(conversation_id, current_user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have permission to access this conversation"
+            )
+
+    # Convert messages to ChatMessage objects
+    messages = [
+        ChatMessage(
+            role=m.get("role", "user"),
+            content=m.get("content", ""),
+            timestamp=m.get("timestamp", datetime.now()) if isinstance(m.get("timestamp"), datetime) else datetime.fromisoformat(str(m.get("timestamp", datetime.now().isoformat()))),
+            citations=m.get("citations"),
+            highlighted_nodes=m.get("highlighted_nodes"),
+            highlighted_edges=m.get("highlighted_edges"),
+            suggested_follow_ups=m.get("suggested_follow_ups"),
+        )
+        for m in conv.get("messages", [])
+    ]
+
+    return ConversationHistory(
+        conversation_id=conv["conversation_id"],
+        project_id=UUID(conv["project_id"]) if conv.get("project_id") else UUID("00000000-0000-0000-0000-000000000000"),
+        messages=messages,
+        created_at=conv.get("created_at", datetime.now()),
+        updated_at=conv.get("updated_at", datetime.now()),
+    )
 
 
 @router.delete("/conversation/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    """Delete a conversation."""
-    if conversation_id not in _conversations_db:
+async def delete_conversation(
+    conversation_id: str,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Delete a conversation.
+
+    Access control:
+    - Only the owner of the conversation can delete it
+    - Or auth is not configured (development mode)
+
+    Requires authentication in production.
+    """
+    conv = await _db_get_conversation(conversation_id)
+    if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    del _conversations_db[conversation_id]
+
+    # Verify ownership if auth is configured
+    if current_user is not None:
+        if not await _db_check_conversation_ownership(conversation_id, current_user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the owner of the conversation can delete it"
+            )
+
+    success = await _db_delete_conversation(conversation_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete conversation")
+
+    logger.info(f"Deleted conversation {conversation_id} by user {current_user.id if current_user else 'anonymous'}")
     return {"status": "deleted", "conversation_id": conversation_id}
 
 
@@ -251,10 +645,17 @@ class ExplainRequest(BaseModel):
 
 
 @router.post("/explain/{node_id}")
-async def explain_node(node_id: str, project_id: UUID, request: Optional[ExplainRequest] = None):
+async def explain_node(
+    node_id: str,
+    project_id: UUID,
+    request: Optional[ExplainRequest] = None,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
     """
     Generate AI explanation for a node when clicked in Exploration Mode.
     Uses the orchestrator's LLM provider for generation.
+
+    Requires authentication in production.
     """
     orchestrator = get_orchestrator()
 
@@ -297,12 +698,20 @@ async def explain_node(node_id: str, project_id: UUID, request: Optional[Explain
 
 
 @router.post("/ask-about/{node_id}")
-async def ask_about_node(node_id: str, project_id: UUID, question: str):
+async def ask_about_node(
+    node_id: str,
+    project_id: UUID,
+    question: str,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
     """
     Ask a specific question about a node.
     Called from NodeDetails "Ask AI" button.
+
+    Requires authentication in production.
     """
     conversation_id = str(uuid4())
+    user_id = current_user.id if current_user else None
     orchestrator = get_orchestrator()
 
     try:
@@ -311,6 +720,29 @@ async def ask_about_node(node_id: str, project_id: UUID, question: str):
             project_id=str(project_id),
             conversation_id=conversation_id,
         )
+
+        # Create conversation and store messages in database
+        await _db_create_conversation(
+            conversation_id=conversation_id,
+            project_id=str(project_id),
+            user_id=user_id,
+        )
+
+        user_message = ChatMessage(
+            role="user",
+            content=question,
+            timestamp=datetime.now(),
+        )
+        assistant_message = ChatMessage(
+            role="assistant",
+            content=result.content,
+            timestamp=datetime.now(),
+            citations=result.citations,
+            highlighted_nodes=result.highlighted_nodes,
+            suggested_follow_ups=result.suggested_follow_ups,
+        )
+
+        await _db_add_messages(conversation_id, user_message, assistant_message)
 
         return {
             "conversation_id": conversation_id,
@@ -327,7 +759,7 @@ async def ask_about_node(node_id: str, project_id: UUID, question: str):
             "conversation_id": conversation_id,
             "node_id": node_id,
             "question": question,
-            "answer": f"I couldn't process your question. Error: {str(e)}",
+            "answer": "I couldn't process your question. Please try again or rephrase your query.",
             "citations": [],
             "highlighted_nodes": [],
             "suggested_follow_ups": [],

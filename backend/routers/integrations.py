@@ -13,6 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from config import get_settings, Settings
+from auth.dependencies import require_auth_if_configured
+from auth.models import User
 from integrations.semantic_scholar import SemanticScholarClient, SemanticScholarPaper
 from integrations.openalex import OpenAlexClient, OpenAlexWork
 from integrations.zotero import ZoteroClient, ZoteroItem, ZoteroCollection
@@ -144,6 +146,7 @@ class OpenAlexWorkResponse(BaseModel):
 async def search_semantic_scholar(
     request: PaperSearchRequest,
     settings: Settings = Depends(get_settings),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Search papers using Semantic Scholar API.
@@ -173,6 +176,7 @@ async def search_semantic_scholar(
 async def get_semantic_scholar_paper(
     paper_id: str,
     include_embedding: bool = Query(False),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Get detailed information about a paper.
@@ -195,6 +199,7 @@ async def get_semantic_scholar_paper(
 @router.post("/semantic-scholar/enrich", response_model=Optional[SemanticScholarPaperResponse])
 async def enrich_paper_metadata(
     request: PaperEnrichRequest,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Enrich paper metadata using DOI or title search.
@@ -223,6 +228,7 @@ async def enrich_paper_metadata(
 @router.post("/semantic-scholar/citation-graph")
 async def get_citation_graph(
     request: CitationGraphRequest,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Build a citation graph around a paper.
@@ -243,6 +249,7 @@ async def get_citation_graph(
 async def get_paper_references(
     paper_id: str,
     limit: int = Query(100, ge=1, le=500),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get papers that this paper references."""
     async with SemanticScholarClient() as client:
@@ -254,6 +261,7 @@ async def get_paper_references(
 async def get_paper_citations(
     paper_id: str,
     limit: int = Query(100, ge=1, le=500),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get papers that cite this paper."""
     async with SemanticScholarClient() as client:
@@ -265,6 +273,7 @@ async def get_paper_citations(
 async def get_recommendations(
     paper_ids: List[str],
     limit: int = Query(100, ge=1, le=500),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get paper recommendations based on a list of papers."""
     async with SemanticScholarClient() as client:
@@ -278,6 +287,7 @@ async def get_recommendations(
 async def search_openalex(
     request: PaperSearchRequest,
     settings: Settings = Depends(get_settings),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Search works using OpenAlex API.
@@ -309,6 +319,7 @@ async def search_openalex(
 @router.get("/openalex/work/{work_id}", response_model=OpenAlexWorkResponse)
 async def get_openalex_work(
     work_id: str,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Get detailed information about a work.
@@ -327,6 +338,7 @@ async def get_openalex_work(
 @router.post("/openalex/enrich", response_model=Optional[OpenAlexWorkResponse])
 async def enrich_openalex_metadata(
     request: PaperEnrichRequest,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Enrich paper metadata using OpenAlex."""
     if not request.doi and not request.title:
@@ -351,6 +363,7 @@ async def enrich_openalex_metadata(
 async def get_openalex_citations(
     work_id: str,
     limit: int = Query(100, ge=1, le=200),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get works that cite this work."""
     async with OpenAlexClient() as client:
@@ -362,6 +375,7 @@ async def get_openalex_citations(
 async def search_openalex_concepts(
     query: str,
     limit: int = Query(25, ge=1, le=100),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Search for concepts in OpenAlex taxonomy."""
     async with OpenAlexClient() as client:
@@ -383,6 +397,7 @@ async def get_oa_statistics(
     query: Optional[str] = None,
     year: Optional[str] = None,
     concept_id: Optional[str] = None,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get open access statistics for works matching filters."""
     async with OpenAlexClient() as client:
@@ -413,6 +428,7 @@ async def get_zotero_collections(
     api_key: str,
     user_id: Optional[str] = None,
     group_id: Optional[str] = None,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get all collections in a Zotero library."""
     async with ZoteroClient(api_key, user_id, group_id) as client:
@@ -434,6 +450,7 @@ async def get_zotero_collection_items(
     api_key: str,
     user_id: Optional[str] = None,
     group_id: Optional[str] = None,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get all items in a Zotero collection."""
     async with ZoteroClient(api_key, user_id, group_id) as client:
@@ -462,6 +479,7 @@ async def import_zotero_collection(
     collection_key: str,
     user_id: Optional[str] = None,
     group_id: Optional[str] = None,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Import a Zotero collection as ScholaRAG paper data.
@@ -480,6 +498,7 @@ async def import_zotero_collection(
 @router.post("/zotero/export")
 async def export_to_zotero(
     request: ZoteroExportRequest,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Export ScholaRAG papers to a new Zotero collection.
@@ -509,6 +528,7 @@ async def export_to_zotero(
 @router.post("/zotero/sync")
 async def sync_zotero_collection(
     request: ZoteroSyncRequest,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
     Sync a Zotero collection with ScholaRAG.

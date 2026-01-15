@@ -6,6 +6,7 @@ knowledge graphs built from ScholaRAG literature review data.
 """
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,9 +15,27 @@ from config import settings
 from database import db, init_db, close_db
 from routers import auth, chat, graph, import_, integrations, prisma, projects, teams
 from auth.supabase_client import supabase_client
+from middleware.rate_limiter import RateLimiterMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_database_url(url: str) -> str:
+    """
+    Sanitize database URL for logging by removing credentials.
+
+    Transforms: postgresql://user:password@host:port/dbname
+    Into:       postgresql://***:***@host:port/dbname
+    """
+    if not url:
+        return "<not configured>"
+
+    # Pattern to match credentials in database URL
+    # Handles: protocol://user:password@host or protocol://user@host
+    pattern = r"(://)[^:@]+(?::[^@]+)?(@)"
+    sanitized = re.sub(pattern, r"\1***:***\2", url)
+    return sanitized
 
 
 @asynccontextmanager
@@ -24,7 +43,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     logger.info("ScholaRAG_Graph Backend starting...")
-    logger.info(f"   Database: {settings.database_url[:50]}...")
+    logger.info(f"   Database: {_sanitize_database_url(settings.database_url)}")
     logger.info(f"   Default LLM: {settings.default_llm_provider}/{settings.default_llm_model}")
     
     # Initialize Supabase
@@ -70,6 +89,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting middleware
+# Limits: /api/auth/* - 10/min, /api/chat/* - 30/min, /api/import/* - 5/min
+app.add_middleware(RateLimiterMiddleware, enabled=True)
 
 # Include routers
 app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
