@@ -316,19 +316,20 @@ class JobStore:
         """Delete jobs older than specified days."""
         if self.db:
             try:
+                # Use parameterized interval by calculating the cutoff timestamp
                 result = await self.db.execute(
                     """
                     DELETE FROM jobs
-                    WHERE created_at < NOW() - INTERVAL '%s days'
+                    WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
                     AND status IN ('completed', 'failed', 'cancelled')
                     """,
-                    days,
+                    str(days),
                 )
                 # Parse "DELETE N" to get count
                 count = int(result.split()[-1]) if result else 0
                 logger.info(f"Cleaned up {count} old jobs")
                 return count
             except Exception as e:
-                logger.warning(f"Failed to cleanup jobs: {type(e).__name__}")
+                logger.warning(f"Failed to cleanup jobs: {type(e).__name__}: {e}")
                 return 0
         return 0

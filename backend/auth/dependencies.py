@@ -107,3 +107,48 @@ def require_verified_email(user: User = Depends(get_current_user)) -> User:
             detail="Email verification required"
         )
     return user
+
+
+# =============================================================================
+# Configurable Auth Dependencies (based on settings.require_auth)
+# =============================================================================
+
+async def get_current_user_if_required(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[User]:
+    """
+    Get current user if authentication is required by settings.
+
+    In development mode with require_auth=False, returns None.
+    In production mode, enforces authentication.
+    """
+    from config import settings
+
+    if not settings.require_auth:
+        # Development mode: auth optional
+        if credentials:
+            return await get_optional_user(credentials)
+        return None
+
+    # Production mode: auth required
+    return await get_current_user(credentials)
+
+
+def require_auth_if_configured(
+    user: Optional[User] = Depends(get_current_user_if_required)
+) -> Optional[User]:
+    """
+    Dependency that requires auth based on configuration.
+
+    Use this for endpoints that should be protected in production
+    but accessible without auth in development.
+    """
+    from config import settings
+
+    if settings.require_auth and user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user

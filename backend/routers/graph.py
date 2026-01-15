@@ -2,6 +2,9 @@
 Graph API Router
 
 Handles knowledge graph queries and visualization data with PostgreSQL persistence.
+
+Security:
+- All endpoints require authentication in production (configurable via REQUIRE_AUTH)
 """
 
 import json
@@ -14,6 +17,8 @@ from enum import Enum
 
 from database import db
 from graph.graph_store import GraphStore
+from auth.dependencies import require_auth_if_configured
+from auth.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +106,9 @@ async def get_nodes(
     limit: int = Query(100, le=1000),
     offset: int = 0,
     database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Get all nodes for a project from PostgreSQL."""
+    """Get all nodes for a project from PostgreSQL. Requires auth in production."""
     try:
         if entity_type:
             rows = await database.fetch(
@@ -153,8 +159,9 @@ async def get_edges(
     limit: int = Query(500, le=5000),
     offset: int = 0,
     database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Get all edges for a project from PostgreSQL."""
+    """Get all edges for a project from PostgreSQL. Requires auth in production."""
     try:
         if relationship_type:
             rows = await database.fetch(
@@ -206,8 +213,9 @@ async def get_visualization_data(
     entity_types: Optional[List[str]] = Query(None),
     max_nodes: int = Query(200, le=500),
     database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Get graph data optimized for visualization (React Flow format)."""
+    """Get graph data optimized for visualization. Requires auth in production."""
     try:
         # Build entity type filter
         type_filter = ""
@@ -396,8 +404,9 @@ async def get_subgraph(
 async def search_nodes(
     request: SearchRequest,
     database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Search nodes by query string using trigram similarity."""
+    """Search nodes by query string. Requires auth in production."""
     try:
         query_lower = request.query.lower()
         params = [f"%{query_lower}%", request.limit]

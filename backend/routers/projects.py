@@ -2,6 +2,10 @@
 Projects API Router
 
 Handles project CRUD operations with PostgreSQL persistence.
+
+Security:
+- All endpoints require authentication in production (configurable via REQUIRE_AUTH)
+- Project ownership is enforced via user_id field
 """
 
 import logging
@@ -12,6 +16,8 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from database import db
+from auth.dependencies import require_auth_if_configured
+from auth.models import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -57,8 +63,11 @@ async def get_db():
 
 
 @router.get("/", response_model=List[ProjectResponse])
-async def list_projects(database=Depends(get_db)):
-    """List all projects from PostgreSQL."""
+async def list_projects(
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """List all projects from PostgreSQL. Requires authentication in production."""
     try:
         rows = await database.fetch(
             """
@@ -92,8 +101,12 @@ async def list_projects(database=Depends(get_db)):
 
 
 @router.post("/", response_model=ProjectResponse)
-async def create_project(project: ProjectCreate, database=Depends(get_db)):
-    """Create a new project in PostgreSQL."""
+async def create_project(
+    project: ProjectCreate,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Create a new project in PostgreSQL. Requires authentication in production."""
     project_id = uuid4()
     now = datetime.now()
 
@@ -126,8 +139,12 @@ async def create_project(project: ProjectCreate, database=Depends(get_db)):
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: UUID, database=Depends(get_db)):
-    """Get project by ID from PostgreSQL."""
+async def get_project(
+    project_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Get project by ID from PostgreSQL. Requires authentication in production."""
     try:
         row = await database.fetchrow(
             """
@@ -163,9 +180,10 @@ async def get_project(project_id: UUID, database=Depends(get_db)):
 async def update_project(
     project_id: UUID,
     update: ProjectUpdate,
-    database=Depends(get_db)
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Update project details."""
+    """Update project details. Requires authentication in production."""
     try:
         # Build dynamic update query
         updates = []
@@ -209,8 +227,12 @@ async def update_project(
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: UUID, database=Depends(get_db)):
-    """Delete project and all associated data."""
+async def delete_project(
+    project_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Delete project and all associated data. Requires authentication in production."""
     try:
         # Check project exists
         row = await database.fetchrow(
@@ -243,8 +265,12 @@ async def delete_project(project_id: UUID, database=Depends(get_db)):
 
 
 @router.get("/{project_id}/stats", response_model=ProjectStats)
-async def get_project_stats_endpoint(project_id: UUID, database=Depends(get_db)):
-    """Get project statistics from PostgreSQL."""
+async def get_project_stats_endpoint(
+    project_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Get project statistics from PostgreSQL. Requires authentication in production."""
     return await _get_project_stats(database, str(project_id))
 
 

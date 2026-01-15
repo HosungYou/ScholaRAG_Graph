@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     scholarag_import_root: str = ""  # Primary allowed import directory
     scholarag_import_root_2: str = ""  # Secondary allowed import directory
 
+    # Security: Authentication & Authorization
+    require_auth: bool = True  # Set to False only for local development
+    environment: Literal["development", "staging", "production"] = "development"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

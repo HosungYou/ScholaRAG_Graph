@@ -7,6 +7,8 @@ Security:
 - Path validation restricts access to allowed directories only
 - Symbolic link resolution prevents path traversal attacks
 - Input sanitization for all user-provided paths
+- All endpoints require authentication in production (configurable via REQUIRE_AUTH)
+- ALLOWED_IMPORT_ROOTS must be configured in production environments
 """
 
 import logging
@@ -14,7 +16,7 @@ import os
 from pathlib import Path
 from typing import Optional, List
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Depends, status
 from pydantic import BaseModel, field_validator
 from datetime import datetime
 from enum import Enum
@@ -24,6 +26,8 @@ from graph.graph_store import GraphStore
 from importers.scholarag_importer import ScholarAGImporter
 from jobs import JobStore, JobStatus
 from config import settings
+from auth.dependencies import require_auth_if_configured
+from auth.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -75,14 +79,25 @@ def validate_safe_path(folder_path: str) -> Path:
         # Resolve symbolic links and normalize path
         resolved_path = path.resolve()
 
-        # If no allowed roots configured, allow any path (development mode)
-        # In production, ALWAYS set ALLOWED_IMPORT_ROOTS
+        # SECURITY: Enforce allowed roots in production
         if not ALLOWED_IMPORT_ROOTS:
-            logger.warning(
-                "SECURITY WARNING: No ALLOWED_IMPORT_ROOTS configured. "
-                "Set SCHOLARAG_IMPORT_ROOT environment variable in production."
-            )
-            return resolved_path
+            if settings.environment in ("staging", "production"):
+                # In production/staging, fail hard if no roots configured
+                logger.error(
+                    "SECURITY ERROR: ALLOWED_IMPORT_ROOTS not configured in production. "
+                    "Set SCHOLARAG_IMPORT_ROOT environment variable."
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Import service not configured. Contact administrator."
+                )
+            else:
+                # Development mode only: warn but allow
+                logger.warning(
+                    "SECURITY WARNING: No ALLOWED_IMPORT_ROOTS configured. "
+                    "This is only allowed in development mode."
+                )
+                return resolved_path
 
         # Check if resolved path is within allowed roots
         is_allowed = False
@@ -203,9 +218,12 @@ _import_jobs: dict = {}
 
 
 @router.post("/scholarag/validate", response_model=ImportValidationResponse)
-async def validate_scholarag_folder(request: ScholaRAGImportRequest):
+async def validate_scholarag_folder(
+    request: ScholaRAGImportRequest,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
     """
-    Validate a ScholaRAG project folder before import.
+    Validate a ScholaRAG project folder before import. Requires auth in production.
 
     Checks:
     - Path is within allowed directories (security)
@@ -289,13 +307,15 @@ async def validate_scholarag_folder(request: ScholaRAGImportRequest):
 async def import_scholarag_folder(
     request: ScholaRAGImportRequest,
     background_tasks: BackgroundTasks,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
-    Start importing a ScholaRAG project folder.
+    Start importing a ScholaRAG project folder. Requires auth in production.
 
     Security:
     - Path must be within allowed import directories
     - Project name is sanitized
+    - Authentication required in production
 
     Process:
     1. Validate folder structure
@@ -558,9 +578,10 @@ async def import_pdf(
     project_name: Optional[str] = None,
     research_question: Optional[str] = None,
     extract_concepts: bool = True,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """
-    Import a single PDF file and create a Knowledge Graph.
+    Import a single PDF file and create a Knowledge Graph. Requires auth in production.
 
     This endpoint allows direct PDF upload without needing a ScholaRAG project structure.
     It will:

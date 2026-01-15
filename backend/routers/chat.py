@@ -2,18 +2,23 @@
 Chat API Router
 
 Handles multi-agent chat interactions with graph-grounded responses.
+
+Security:
+- All endpoints require authentication in production (configurable via REQUIRE_AUTH)
 """
 
 import os
 import logging
 from typing import List, Optional
 from uuid import UUID, uuid4
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from datetime import datetime
 
 from agents.orchestrator import AgentOrchestrator
 from llm.claude_provider import ClaudeProvider
+from auth.dependencies import require_auth_if_configured
+from auth.models import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -98,9 +103,12 @@ def get_orchestrator() -> AgentOrchestrator:
 
 
 @router.post("/query", response_model=ChatResponse)
-async def chat_query(request: ChatRequest):
+async def chat_query(
+    request: ChatRequest,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
     """
-    Send a query to the multi-agent system.
+    Send a query to the multi-agent system. Requires auth in production.
 
     Pipeline:
     1. Intent Agent - Classify user intent
@@ -205,8 +213,11 @@ async def chat_query(request: ChatRequest):
 
 
 @router.get("/history/{project_id}", response_model=List[ConversationHistory])
-async def get_chat_history(project_id: UUID):
-    """Get all conversations for a project."""
+async def get_chat_history(
+    project_id: UUID,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Get all conversations for a project. Requires auth in production."""
     conversations = [
         ConversationHistory(**conv)
         for conv in _conversations_db.values()
