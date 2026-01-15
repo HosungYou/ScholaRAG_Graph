@@ -231,6 +231,87 @@ class ApiClient {
     return response.json();
   }
 
+  // Zotero Import
+  /**
+   * Validate Zotero export files before import.
+   * Expects RDF file + optional PDF files.
+   */
+  async validateZotero(files: File[]): Promise<{
+    valid: boolean;
+    folder_path: string;
+    rdf_file: string | null;
+    items_count: number;
+    pdfs_available: number;
+    has_files_dir: boolean;
+    errors: string[];
+    warnings: string[];
+  }> {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+
+    const url = `${this.baseUrl}/api/import/zotero/validate`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `API Error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Import Zotero RDF export with PDFs.
+   * Upload files exported from Zotero with "Export Files" option.
+   */
+  async importZotero(
+    files: File[],
+    options?: {
+      projectName?: string;
+      researchQuestion?: string;
+      extractConcepts?: boolean;
+    }
+  ): Promise<{
+    job_id: string;
+    status: string;
+    message: string;
+    items_count: number;
+    project_id?: string;
+  }> {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+
+    // Build URL with query parameters
+    const params = new URLSearchParams();
+    if (options?.projectName) params.set('project_name', options.projectName);
+    if (options?.researchQuestion) params.set('research_question', options.researchQuestion);
+    if (options?.extractConcepts !== undefined) {
+      params.set('extract_concepts', String(options.extractConcepts));
+    }
+
+    const url = `${this.baseUrl}/api/import/zotero${params.toString() ? '?' + params.toString() : ''}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `API Error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   // Gap Detection
   async getGapAnalysis(projectId: string): Promise<GapAnalysisResult> {
     return this.request<GapAnalysisResult>(`/api/graph/gaps/${projectId}/analysis`);

@@ -1010,3 +1010,354 @@ async def import_csv(
         "filename": file.filename,
         "message": "CSV import not yet implemented",
     }
+
+
+# =============================================================================
+# Zotero RDF Export Import
+# =============================================================================
+
+class ZoteroImportRequest(BaseModel):
+    """Request model for Zotero import."""
+    project_name: Optional[str] = None
+    research_question: Optional[str] = None
+    extract_concepts: bool = True
+
+
+class ZoteroValidationResponse(BaseModel):
+    """Response model for Zotero folder validation."""
+    valid: bool
+    folder_path: str
+    rdf_file: Optional[str] = None
+    items_count: int = 0
+    pdfs_available: int = 0
+    has_files_dir: bool = False
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class ZoteroImportResponse(BaseModel):
+    """Response model for Zotero import."""
+    job_id: str
+    status: ImportStatus
+    message: str
+    items_count: int = 0
+    project_id: Optional[str] = None
+
+
+@router.post("/zotero/validate", response_model=ZoteroValidationResponse)
+async def validate_zotero_folder(
+    files: List[UploadFile] = File(...),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Validate uploaded Zotero export files before import.
+
+    Expects:
+    - One .rdf file (Zotero metadata export)
+    - Multiple .pdf files (optional, from "Export Files" option)
+
+    Returns validation results including item count and PDF availability.
+    """
+    import tempfile
+    import shutil
+    from importers.zotero_rdf_importer import ZoteroRDFImporter
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    # Create temp directory for validation
+    temp_dir = tempfile.mkdtemp(prefix="zotero_validate_")
+
+    try:
+        files_subdir = Path(temp_dir) / "files"
+        files_subdir.mkdir()
+
+        rdf_file = None
+        pdf_count = 0
+
+        # Save uploaded files to temp directory
+        for file in files:
+            content = await file.read()
+
+            if file.filename.endswith('.rdf'):
+                rdf_path = Path(temp_dir) / file.filename
+                with open(rdf_path, 'wb') as f:
+                    f.write(content)
+                rdf_file = file.filename
+            elif file.filename.endswith('.pdf'):
+                # Create subdirectory for each PDF
+                pdf_subdir = files_subdir / Path(file.filename).stem
+                pdf_subdir.mkdir(exist_ok=True)
+                with open(pdf_subdir / file.filename, 'wb') as f:
+                    f.write(content)
+                pdf_count += 1
+
+        if not rdf_file:
+            return ZoteroValidationResponse(
+                valid=False,
+                folder_path=temp_dir,
+                errors=["RDF 파일이 업로드되지 않았습니다. Zotero에서 RDF 형식으로 내보내기 해주세요."],
+            )
+
+        # Run validation
+        importer = ZoteroRDFImporter()
+        result = await importer.validate_folder(temp_dir)
+
+        return ZoteroValidationResponse(
+            valid=result.get("valid", False),
+            folder_path=temp_dir,
+            rdf_file=result.get("rdf_file"),
+            items_count=result.get("items_count", 0),
+            pdfs_available=result.get("pdfs_available", 0),
+            has_files_dir=result.get("has_files_dir", False),
+            errors=result.get("errors", []),
+            warnings=result.get("warnings", []),
+        )
+
+    finally:
+        # Cleanup temp directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@router.post("/zotero", response_model=ZoteroImportResponse)
+async def import_zotero_folder(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    project_name: Optional[str] = None,
+    research_question: Optional[str] = None,
+    extract_concepts: bool = True,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Import a Zotero RDF export with PDFs. Requires auth in production.
+
+    Upload a Zotero export (RDF file + PDFs from "Export Files" option).
+    This endpoint will:
+    1. Parse RDF/XML for bibliographic metadata
+    2. Extract text from uploaded PDFs
+    3. Create a new project automatically
+    4. Use LLM to extract concepts, methods, and findings
+    5. Build a concept-centric knowledge graph
+
+    Args:
+        files: Uploaded files (one .rdf + multiple .pdf files)
+        project_name: Optional project name (defaults to "Zotero Import YYYY-MM-DD")
+        research_question: Optional research question for context
+        extract_concepts: Whether to use LLM for concept extraction (default: True)
+
+    Returns:
+        Import job information including job_id for status tracking
+    """
+    import tempfile
+    from uuid import uuid4
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    # Validate that we have an RDF file
+    rdf_files = [f for f in files if f.filename.endswith('.rdf')]
+    if not rdf_files:
+        raise HTTPException(
+            status_code=400,
+            detail="RDF 파일이 필요합니다. Zotero에서 RDF 형식으로 내보내기 해주세요."
+        )
+
+    # Read all file contents
+    MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total
+    uploaded_files = []
+    total_size = 0
+
+    for file in files:
+        content = await file.read()
+        total_size += len(content)
+        if total_size > MAX_TOTAL_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"전체 파일 크기가 {MAX_TOTAL_SIZE // (1024*1024)}MB를 초과합니다."
+            )
+        uploaded_files.append((file.filename, content))
+
+    # Count items (basic RDF parsing to get count)
+    rdf_content = next((c for f, c in uploaded_files if f.endswith('.rdf')), None)
+    items_count = 0
+    if rdf_content:
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(rdf_content)
+            # Count bibliographic items
+            for item_type in ['Article', 'Book', 'BookSection', 'ConferencePaper',
+                             'JournalArticle', 'Report', 'Thesis', 'Document']:
+                items_count += len(root.findall(f'.//{{{NAMESPACES_FOR_COUNT["bib"]}}}{item_type}', NAMESPACES_FOR_COUNT))
+        except:
+            pass
+
+    # Create job
+    job_store = await get_job_store()
+    job = await job_store.create_job(
+        job_type="zotero_import",
+        metadata={
+            "file_count": len(uploaded_files),
+            "total_size": total_size,
+            "items_count": items_count,
+            "project_name": project_name,
+            "research_question": research_question,
+            "extract_concepts": extract_concepts,
+        },
+    )
+
+    now = datetime.now()
+    _import_jobs[job.id] = {
+        "job_id": job.id,
+        "status": ImportStatus.PENDING,
+        "progress": 0.0,
+        "message": f"Zotero import 시작: {items_count}개 항목",
+        "project_id": None,
+        "stats": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    # Start background import task
+    background_tasks.add_task(
+        _run_zotero_import,
+        job_id=job.id,
+        uploaded_files=uploaded_files,
+        project_name=project_name,
+        research_question=research_question,
+        extract_concepts=extract_concepts,
+    )
+
+    return ZoteroImportResponse(
+        job_id=job.id,
+        status=ImportStatus.PENDING,
+        message=f"Zotero import 시작: {items_count}개 항목, {len([f for f, _ in uploaded_files if f.endswith('.pdf')])}개 PDF",
+        items_count=items_count,
+    )
+
+
+# Namespace constants for RDF parsing in endpoint
+NAMESPACES_FOR_COUNT = {
+    'rdf': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+    'bib': 'http://purl.org/net/biblio#',
+}
+
+
+async def _run_zotero_import(
+    job_id: str,
+    uploaded_files: List[tuple],
+    project_name: Optional[str],
+    research_question: Optional[str],
+    extract_concepts: bool,
+):
+    """Background task to run Zotero import."""
+    from importers.zotero_rdf_importer import ZoteroRDFImporter
+
+    logger.info(f"[Zotero Import {job_id}] Starting import: {len(uploaded_files)} files")
+
+    # Get job store for persistent updates
+    job_store = await get_job_store()
+
+    def progress_callback(progress):
+        """Update job status from importer progress."""
+        status_map = {
+            "validating": ImportStatus.VALIDATING,
+            "parsing": ImportStatus.EXTRACTING,
+            "scanning": ImportStatus.EXTRACTING,
+            "creating_project": ImportStatus.PROCESSING,
+            "importing": ImportStatus.PROCESSING,
+            "building_relationships": ImportStatus.BUILDING_GRAPH,
+            "embeddings": ImportStatus.BUILDING_GRAPH,
+            "complete": ImportStatus.COMPLETED,
+        }
+        _import_jobs[job_id]["status"] = status_map.get(progress.status, ImportStatus.PROCESSING)
+        _import_jobs[job_id]["progress"] = progress.progress
+        _import_jobs[job_id]["message"] = progress.message
+        _import_jobs[job_id]["updated_at"] = datetime.now()
+        logger.info(f"[Zotero Import {job_id}] {progress.status}: {progress.progress:.0%} - {progress.message}")
+
+    try:
+        # Mark job as running in JobStore
+        await job_store.update_job(
+            job_id=job_id,
+            status=JobStatus.RUNNING,
+            progress=0.0,
+            message="Starting Zotero import...",
+        )
+
+        # Create importer with database connection and GraphStore
+        graph_store = GraphStore(db=db)
+        importer = ZoteroRDFImporter(
+            llm_provider=settings.default_llm_provider if extract_concepts else None,
+            llm_model=settings.default_llm_model,
+            db_connection=db,
+            graph_store=graph_store,
+            progress_callback=progress_callback,
+        )
+
+        # Run the import
+        result = await importer.import_from_upload(
+            files=uploaded_files,
+            project_name=project_name,
+            research_question=research_question,
+        )
+
+        if result.get("success"):
+            _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
+            _import_jobs[job_id]["progress"] = 1.0
+            _import_jobs[job_id]["message"] = f"Zotero import 완료: {result.get('papers_imported', 0)}개 논문"
+            _import_jobs[job_id]["project_id"] = result.get("project_id")
+            _import_jobs[job_id]["stats"] = {
+                "papers_imported": result.get("papers_imported", 0),
+                "pdfs_processed": result.get("pdfs_processed", 0),
+                "concepts_extracted": result.get("concepts_extracted", 0),
+                "relationships_created": result.get("relationships_created", 0),
+            }
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+
+            # Update JobStore with completion status and result
+            await job_store.update_job(
+                job_id=job_id,
+                status=JobStatus.COMPLETED,
+                progress=1.0,
+                message=f"Zotero import 완료: {result.get('papers_imported', 0)}개 논문",
+                result={
+                    "project_id": str(result.get("project_id")) if result.get("project_id") else None,
+                    "stats": _import_jobs[job_id]["stats"],
+                },
+            )
+
+            logger.info(f"[Zotero Import {job_id}] Completed: {_import_jobs[job_id]['stats']}")
+        else:
+            errors = result.get("errors", ["Unknown error"])
+            error_msg = "; ".join(errors[:3])  # Limit error message length
+            sanitized_error = _sanitize_error_message(error_msg)
+
+            _import_jobs[job_id]["status"] = ImportStatus.FAILED
+            _import_jobs[job_id]["message"] = f"Import 실패: {sanitized_error}"
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+
+            # Update JobStore with failure
+            await job_store.update_job(
+                job_id=job_id,
+                status=JobStatus.FAILED,
+                message=f"Import 실패: {sanitized_error}",
+                error=sanitized_error,
+            )
+
+            logger.error(f"[Zotero Import {job_id}] Failed: {sanitized_error}")
+
+    except Exception as e:
+        logger.exception(f"[Zotero Import {job_id}] Exception during import")
+        sanitized_error = _sanitize_error_message(str(e))
+
+        _import_jobs[job_id]["status"] = ImportStatus.FAILED
+        _import_jobs[job_id]["message"] = f"Import 실패: {sanitized_error}"
+        _import_jobs[job_id]["updated_at"] = datetime.now()
+
+        # Update JobStore with exception
+        await job_store.update_job(
+            job_id=job_id,
+            status=JobStatus.FAILED,
+            message=f"Import 실패: {sanitized_error}",
+            error=sanitized_error,
+        )

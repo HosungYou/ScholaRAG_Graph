@@ -20,6 +20,7 @@ import {
   File,
   X,
   Plus,
+  Library,
 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -28,7 +29,7 @@ import { ThemeToggle, ErrorBoundary, ErrorDisplay } from '@/components/ui';
 import { ImportProgress } from '@/components/import/ImportProgress';
 import type { ImportValidationResult } from '@/types';
 
-type ImportMethod = 'pdf' | 'scholarag';
+type ImportMethod = 'pdf' | 'scholarag' | 'zotero';
 
 /**
  * Normalize ScholaRAG project folder path.
@@ -87,6 +88,17 @@ export default function ImportPage() {
   const [researchQuestion, setResearchQuestion] = useState('');
   const [extractConcepts, setExtractConcepts] = useState(true);
 
+  // Zotero import state
+  const [zoteroFiles, setZoteroFiles] = useState<File[]>([]);
+  const [zoteroValidation, setZoteroValidation] = useState<{
+    valid: boolean;
+    items_count: number;
+    pdfs_available: number;
+    errors: string[];
+    warnings: string[];
+  } | null>(null);
+  const zoteroFileInputRef = useRef<HTMLInputElement>(null);
+
   const handlePathChange = useCallback((newPath: string) => {
     const { path, wasNormalized, originalPath } = normalizeScholarAGPath(newPath);
     setFolderPath(path);
@@ -129,6 +141,24 @@ export default function ImportPage() {
     onSuccess: (data) => setImportJobId(data.job_id),
   });
 
+  // Zotero mutations
+  const validateZoteroMutation = useMutation({
+    mutationFn: (files: File[]) => api.validateZotero(files),
+    onSuccess: (data) => setZoteroValidation(data),
+  });
+
+  const importZoteroMutation = useMutation({
+    mutationFn: async () => {
+      if (zoteroFiles.length === 0) throw new Error('No files selected');
+      return api.importZotero(zoteroFiles, {
+        projectName: projectName || undefined,
+        researchQuestion: researchQuestion || undefined,
+        extractConcepts,
+      });
+    },
+    onSuccess: (data) => setImportJobId(data.job_id),
+  });
+
   const handleValidate = () => {
     if (!folderPath.trim()) return;
     setValidation(null);
@@ -143,6 +173,42 @@ export default function ImportPage() {
   const handleUploadPDF = () => {
     if (selectedFiles.length === 0) return;
     uploadPDFMutation.mutate();
+  };
+
+  // Zotero handlers
+  const handleZoteroFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter(
+      (file) =>
+        file.name.toLowerCase().endsWith('.rdf') ||
+        file.name.toLowerCase().endsWith('.pdf')
+    );
+    if (files.length > 0) {
+      setZoteroFiles((prev) => [...prev, ...files]);
+      setZoteroValidation(null);
+    }
+    if (zoteroFileInputRef.current) {
+      zoteroFileInputRef.current.value = '';
+    }
+  };
+
+  const handleZoteroValidate = () => {
+    if (zoteroFiles.length === 0) return;
+    const rdfFiles = zoteroFiles.filter((f) => f.name.toLowerCase().endsWith('.rdf'));
+    if (rdfFiles.length === 0) {
+      alert('RDF 파일이 필요합니다. Zotero에서 RDF 형식으로 내보내기 해주세요.');
+      return;
+    }
+    validateZoteroMutation.mutate(zoteroFiles);
+  };
+
+  const handleImportZotero = () => {
+    if (zoteroFiles.length === 0 || !zoteroValidation?.valid) return;
+    importZoteroMutation.mutate();
+  };
+
+  const removeZoteroFile = (index: number) => {
+    setZoteroFiles((prev) => prev.filter((_, i) => i !== index));
+    setZoteroValidation(null);
   };
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -168,6 +234,19 @@ export default function ImportPage() {
         setSelectedFiles((prev) => [...prev, ...files]);
       } else {
         alert('PDF 파일만 업로드할 수 있습니다.');
+      }
+    } else if (importMethod === 'zotero') {
+      // Handle Zotero RDF + PDF files
+      const files = Array.from(e.dataTransfer.files).filter(
+        (file) =>
+          file.name.toLowerCase().endsWith('.rdf') ||
+          file.name.toLowerCase().endsWith('.pdf')
+      );
+      if (files.length > 0) {
+        setZoteroFiles((prev) => [...prev, ...files]);
+        setZoteroValidation(null);
+      } else {
+        alert('RDF 또는 PDF 파일만 업로드할 수 있습니다.');
       }
     } else {
       // Handle folder path (existing behavior)
@@ -281,6 +360,17 @@ export default function ImportPage() {
                 <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">
                   추천
                 </span>
+              </button>
+              <button
+                onClick={() => setImportMethod('zotero')}
+                className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-colors ${
+                  importMethod === 'zotero'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <Library className="w-4 h-4" />
+                Zotero
               </button>
               <button
                 onClick={() => setImportMethod('scholarag')}
@@ -483,6 +573,293 @@ export default function ImportPage() {
                     <>
                       <Upload className="w-5 h-5" />
                       Upload & Build Knowledge Graph
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+
+            {/* Zotero Import Section */}
+            {importMethod === 'zotero' && (
+              <>
+                {/* Info Banner */}
+                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="text-blue-700 dark:text-blue-300 font-medium mb-1">
+                        Zotero에서 내보내기 방법
+                      </p>
+                      <ol className="text-blue-600 dark:text-blue-400 space-y-1 list-decimal list-inside">
+                        <li>Zotero에서 컬렉션 또는 항목 선택</li>
+                        <li>파일 → 내보내기... (또는 우클릭 → 내보내기)</li>
+                        <li>형식: <strong>Zotero RDF</strong> 선택</li>
+                        <li><strong>&quot;파일 내보내기&quot;</strong> 체크박스 활성화</li>
+                        <li>저장 후 생성된 .rdf 파일과 PDFs를 업로드</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Drag & Drop Zone for Zotero files */}
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => zoteroFileInputRef.current?.click()}
+                  className={`
+                    border-2 border-dashed rounded-xl p-6 sm:p-8 mb-6 text-center transition-all cursor-pointer
+                    ${isDragOver
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    }
+                  `}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Zotero 파일 업로드"
+                >
+                  <input
+                    ref={zoteroFileInputRef}
+                    type="file"
+                    accept=".rdf,.pdf,application/pdf"
+                    multiple
+                    onChange={handleZoteroFileSelect}
+                    className="hidden"
+                  />
+                  <Library
+                    className={`w-10 sm:w-12 h-10 sm:h-12 mx-auto mb-3 sm:mb-4 ${
+                      isDragOver ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'
+                    }`}
+                  />
+                  <p className={`text-base sm:text-lg font-medium ${
+                    isDragOver ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                  }`}>
+                    Zotero 내보내기 파일을 드래그하거나 클릭하여 업로드
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-2">
+                    .rdf 파일 (필수) + .pdf 파일들 (선택)
+                  </p>
+                </div>
+
+                {/* Selected Files List */}
+                {zoteroFiles.length > 0 && (
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        선택된 파일 ({zoteroFiles.length})
+                      </p>
+                      <button
+                        onClick={() => {
+                          setZoteroFiles([]);
+                          setZoteroValidation(null);
+                        }}
+                        className="text-xs text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400"
+                      >
+                        모두 제거
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {zoteroFiles.map((file, index) => (
+                        <div
+                          key={index}
+                          className={`flex items-center gap-3 p-3 rounded-lg border ${
+                            file.name.endsWith('.rdf')
+                              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+                              : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'
+                          }`}
+                        >
+                          {file.name.endsWith('.rdf') ? (
+                            <Database className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                          ) : (
+                            <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                              {file.name}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {formatFileSize(file.size)}
+                              {file.name.endsWith('.rdf') && ' - 메타데이터'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => removeZoteroFile(index)}
+                            className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    {!zoteroFiles.some((f) => f.name.endsWith('.rdf')) && (
+                      <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                        ⚠️ RDF 파일이 필요합니다
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Validate Button */}
+                <button
+                  onClick={handleZoteroValidate}
+                  disabled={
+                    zoteroFiles.length === 0 ||
+                    !zoteroFiles.some((f) => f.name.endsWith('.rdf')) ||
+                    validateZoteroMutation.isPending
+                  }
+                  className="w-full mb-4 px-4 py-3 bg-gray-800 dark:bg-gray-600 text-white rounded-lg hover:bg-gray-700 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                >
+                  {validateZoteroMutation.isPending ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      검증 중...
+                    </span>
+                  ) : (
+                    '파일 검증'
+                  )}
+                </button>
+
+                {/* Validation Error */}
+                {validateZoteroMutation.isError && (
+                  <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <p className="text-red-700 dark:text-red-300 text-sm">
+                      검증 실패: {(validateZoteroMutation.error as Error).message}
+                    </p>
+                  </div>
+                )}
+
+                {/* Validation Results */}
+                {zoteroValidation && (
+                  <div
+                    className={`rounded-lg p-4 mb-6 ${
+                      zoteroValidation.valid
+                        ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                        : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      {zoteroValidation.valid ? (
+                        <>
+                          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                          <span className="font-medium text-green-700 dark:text-green-300">
+                            검증 성공
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                          <span className="font-medium text-red-700 dark:text-red-300">
+                            검증 실패
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="p-3 bg-white dark:bg-gray-800 rounded-lg">
+                        <p className="text-gray-500 dark:text-gray-400 text-xs">논문 항목</p>
+                        <p className="text-xl font-semibold text-gray-900 dark:text-white">
+                          {zoteroValidation.items_count}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-white dark:bg-gray-800 rounded-lg">
+                        <p className="text-gray-500 dark:text-gray-400 text-xs">PDF 파일</p>
+                        <p className="text-xl font-semibold text-gray-900 dark:text-white">
+                          {zoteroValidation.pdfs_available}
+                        </p>
+                      </div>
+                    </div>
+
+                    {zoteroValidation.errors.length > 0 && (
+                      <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                        <p className="font-medium text-red-700 dark:text-red-300 mb-1 text-sm">오류:</p>
+                        <ul className="list-disc list-inside text-red-600 dark:text-red-400 text-xs sm:text-sm">
+                          {zoteroValidation.errors.map((err, i) => (
+                            <li key={i}>{err}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {zoteroValidation.warnings.length > 0 && (
+                      <div className="mt-4 p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded">
+                        <p className="font-medium text-yellow-700 dark:text-yellow-300 mb-1 text-sm">경고:</p>
+                        <ul className="list-disc list-inside text-yellow-600 dark:text-yellow-400 text-xs sm:text-sm">
+                          {zoteroValidation.warnings.map((warn, i) => (
+                            <li key={i}>{warn}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Project Options */}
+                <div className="mb-6 space-y-4">
+                  <div>
+                    <label
+                      htmlFor="zoteroProjectName"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                    >
+                      프로젝트 이름 (선택)
+                    </label>
+                    <input
+                      type="text"
+                      id="zoteroProjectName"
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value)}
+                      placeholder="Zotero Import YYYY-MM-DD"
+                      className="w-full px-4 py-3 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="zoteroResearchQuestion"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                    >
+                      연구 질문 (선택)
+                    </label>
+                    <input
+                      type="text"
+                      id="zoteroResearchQuestion"
+                      value={researchQuestion}
+                      onChange={(e) => setResearchQuestion(e.target.value)}
+                      placeholder="이 논문들로 무엇을 연구하고 싶나요?"
+                      className="w-full px-4 py-3 border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+                    />
+                  </div>
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="zoteroExtractConcepts"
+                      checked={extractConcepts}
+                      onChange={(e) => setExtractConcepts(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                    />
+                    <label
+                      htmlFor="zoteroExtractConcepts"
+                      className="ml-2 text-sm text-gray-700 dark:text-gray-300"
+                    >
+                      AI로 개념/방법론/결과 자동 추출 (권장)
+                    </label>
+                  </div>
+                </div>
+
+                {/* Import Button */}
+                <button
+                  onClick={handleImportZotero}
+                  disabled={!zoteroValidation?.valid || importZoteroMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium text-base sm:text-lg shadow-lg shadow-blue-500/25 touch-target"
+                >
+                  {importZoteroMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5" />
+                      Import & Build Knowledge Graph
                     </>
                   )}
                 </button>
