@@ -37,6 +37,21 @@ class Settings(BaseSettings):
 
     # Debug
     debug: bool = False
+    
+    # Supabase Auth
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""  # For admin operations
+
+    # External API Integrations
+    semantic_scholar_api_key: str = ""  # Optional: for higher rate limits
+    openalex_email: str = ""  # For polite pool access (higher rate limits)
+    zotero_api_key: str = ""  # User's Zotero API key (can also be provided per-request)
+    zotero_user_id: str = ""  # User's Zotero user ID
+
+    # Import Security Configuration
+    scholarag_import_root: str = ""  # Primary allowed import directory
+    scholarag_import_root_2: str = ""  # Secondary allowed import directory
 
     class Config:
         env_file = ".env"

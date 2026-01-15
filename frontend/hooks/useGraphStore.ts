@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { api } from '@/lib/api';
-import type { GraphData, GraphEntity, EntityType } from '@/types';
+import type {
+  GraphData,
+  GraphEntity,
+  EntityType,
+  StructuralGap,
+  ConceptCluster,
+  CentralityMetrics,
+  GapAnalysisResult,
+} from '@/types';
 
 interface FilterState {
   entityTypes: EntityType[];
@@ -18,6 +26,13 @@ interface GraphStore {
   error: string | null;
   filters: FilterState;
 
+  // Gap Detection State
+  gaps: StructuralGap[];
+  clusters: ConceptCluster[];
+  centralityMetrics: CentralityMetrics[];
+  isGapLoading: boolean;
+  selectedGap: StructuralGap | null;
+
   // Actions
   fetchGraphData: (projectId: string) => Promise<void>;
   setSelectedNode: (node: GraphEntity | null) => void;
@@ -28,10 +43,15 @@ interface GraphStore {
   setFilters: (filters: Partial<FilterState>) => void;
   resetFilters: () => void;
   getFilteredData: () => GraphData | null;
+
+  // Gap Detection Actions
+  fetchGapAnalysis: (projectId: string) => Promise<void>;
+  setSelectedGap: (gap: StructuralGap | null) => void;
+  highlightGapConcepts: (gap: StructuralGap) => void;
 }
 
 const defaultFilters: FilterState = {
-  entityTypes: ['Paper', 'Author', 'Concept', 'Method', 'Finding'],
+  entityTypes: ['Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation'] as EntityType[],
   yearRange: null,
   searchQuery: '',
 };
@@ -45,6 +65,13 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   isLoading: false,
   error: null,
   filters: { ...defaultFilters },
+
+  // Gap Detection State
+  gaps: [],
+  clusters: [],
+  centralityMetrics: [],
+  isGapLoading: false,
+  selectedGap: null,
 
   // Actions
   fetchGraphData: async (projectId: string) => {
@@ -154,5 +181,39 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     );
 
     return { nodes: filteredNodes, edges: filteredEdges };
+  },
+
+  // Gap Detection Actions
+  fetchGapAnalysis: async (projectId: string) => {
+    set({ isGapLoading: true });
+    try {
+      const analysis = await api.getGapAnalysis(projectId);
+      set({
+        gaps: analysis.gaps,
+        clusters: analysis.clusters,
+        centralityMetrics: analysis.centrality_metrics,
+        isGapLoading: false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch gap analysis:', error);
+      set({ isGapLoading: false });
+    }
+  },
+
+  setSelectedGap: (gap) => {
+    set({ selectedGap: gap });
+  },
+
+  highlightGapConcepts: (gap) => {
+    // Highlight all concepts in the gap
+    const allConceptIds = [
+      ...gap.cluster_a_concepts,
+      ...gap.cluster_b_concepts,
+      ...gap.bridge_candidates,
+    ];
+    set({
+      highlightedNodes: allConceptIds,
+      selectedGap: gap,
+    });
   },
 }));

@@ -37,10 +37,32 @@ class ChatRequest(BaseModel):
     include_trace: bool = False
 
 
+class SimpleCitation(BaseModel):
+    """Citation reference for chat responses."""
+    id: str
+    label: str
+    entity_type: Optional[str] = None
+
+
+class ResearchGapSummary(BaseModel):
+    """Summary of a research gap for chat responses."""
+    description: str
+    questions: List[str] = []
+    bridge_concepts: List[str] = []
+
+
 class ChatResponse(BaseModel):
+    """Flat response structure aligned with frontend expectations."""
     conversation_id: str
-    message: ChatMessage
+    answer: str
+    citations: List[SimpleCitation] = []
+    highlighted_nodes: List[str] = []
+    highlighted_edges: List[str] = []
+    suggested_follow_ups: List[str] = []
     agent_trace: Optional[dict] = None
+    # New: Gap-based suggestions
+    research_gaps: List[ResearchGapSummary] = []
+    hidden_connections: List[str] = []
 
 
 class ConversationHistory(BaseModel):
@@ -93,6 +115,15 @@ async def chat_query(request: ChatRequest):
     # Get orchestrator and process query
     orchestrator = get_orchestrator()
 
+    answer = ""
+    citations: List[SimpleCitation] = []
+    highlighted_nodes: List[str] = []
+    highlighted_edges: List[str] = []
+    suggested_follow_ups: List[str] = []
+    research_gaps: List[ResearchGapSummary] = []
+    hidden_connections: List[str] = []
+    agent_trace = None
+
     try:
         result = await orchestrator.process_query(
             query=request.message,
@@ -101,17 +132,27 @@ async def chat_query(request: ChatRequest):
             include_processing_steps=request.include_trace,
         )
 
-        assistant_message = ChatMessage(
-            role="assistant",
-            content=result.content,
-            timestamp=datetime.now(),
-            citations=result.citations,
-            highlighted_nodes=result.highlighted_nodes,
-            highlighted_edges=result.highlighted_edges,
-            suggested_follow_ups=result.suggested_follow_ups,
-        )
+        answer = result.content
+        # Convert string citations to SimpleCitation objects
+        citations = [
+            SimpleCitation(id=str(i), label=cite, entity_type="Concept")  # Concept-centric
+            for i, cite in enumerate(result.citations or [])
+        ]
+        highlighted_nodes = result.highlighted_nodes or []
+        highlighted_edges = result.highlighted_edges or []
+        suggested_follow_ups = result.suggested_follow_ups or []
 
-        agent_trace = None
+        # Convert research gaps to response format
+        research_gaps = [
+            ResearchGapSummary(
+                description=gap.description,
+                questions=gap.questions,
+                bridge_concepts=gap.bridge_concepts,
+            )
+            for gap in (result.research_gaps or [])
+        ]
+        hidden_connections = result.hidden_connections or []
+
         if request.include_trace:
             agent_trace = {
                 "intent": result.intent,
@@ -121,14 +162,19 @@ async def chat_query(request: ChatRequest):
 
     except Exception as e:
         logger.error(f"Chat query failed: {e}")
-        assistant_message = ChatMessage(
-            role="assistant",
-            content=f"I encountered an error processing your request. Please try again.\n\nError: {str(e)}",
-            timestamp=datetime.now(),
-        )
-        agent_trace = {"error": str(e)} if request.include_trace else None
+        answer = "I encountered an error processing your request. Please try again."
+        agent_trace = {"error": "Processing error occurred"} if request.include_trace else None
 
-    # Store conversation
+    # Store conversation in memory
+    assistant_message = ChatMessage(
+        role="assistant",
+        content=answer,
+        timestamp=datetime.now(),
+        citations=[c.label for c in citations],
+        highlighted_nodes=highlighted_nodes,
+        highlighted_edges=highlighted_edges,
+        suggested_follow_ups=suggested_follow_ups,
+    )
     user_message = ChatMessage(role="user", content=request.message, timestamp=datetime.now())
 
     if conversation_id not in _conversations_db:
@@ -147,8 +193,14 @@ async def chat_query(request: ChatRequest):
 
     return ChatResponse(
         conversation_id=conversation_id,
-        message=assistant_message,
+        answer=answer,
+        citations=citations,
+        highlighted_nodes=highlighted_nodes,
+        highlighted_edges=highlighted_edges,
+        suggested_follow_ups=suggested_follow_ups,
         agent_trace=agent_trace,
+        research_gaps=research_gaps,
+        hidden_connections=hidden_connections,
     )
 
 

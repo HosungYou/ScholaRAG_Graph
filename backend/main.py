@@ -12,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import db, init_db, close_db
-from routers import chat, graph, import_, projects
+from routers import auth, chat, graph, import_, integrations, prisma, projects, teams
+from auth.supabase_client import supabase_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,6 +26,13 @@ async def lifespan(app: FastAPI):
     logger.info("ScholaRAG_Graph Backend starting...")
     logger.info(f"   Database: {settings.database_url[:50]}...")
     logger.info(f"   Default LLM: {settings.default_llm_provider}/{settings.default_llm_model}")
+    
+    # Initialize Supabase
+    if settings.supabase_url and settings.supabase_anon_key:
+        supabase_client.initialize(settings.supabase_url, settings.supabase_anon_key)
+        logger.info("   Supabase Auth: configured")
+    else:
+        logger.warning("   Supabase Auth: NOT configured (running without auth)")
 
     # Initialize database connection
     try:
@@ -68,6 +76,10 @@ app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
 app.include_router(graph.router, prefix="/api/graph", tags=["Graph"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(import_.router, prefix="/api/import", tags=["Import"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(teams.router, prefix="/api/teams", tags=["Teams"])
+app.include_router(prisma.router, prefix="/api/prisma", tags=["PRISMA"])
+app.include_router(integrations.router, tags=["Integrations"])
 
 
 @app.get("/")

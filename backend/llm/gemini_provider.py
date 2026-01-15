@@ -87,7 +87,8 @@ class GeminiProvider(BaseLLMProvider):
             return response.text
 
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            error_type = type(e).__name__
+            logger.error(f"Gemini API error ({error_type}): {self._sanitize_error(str(e))}")
             raise
 
     async def generate_stream(
@@ -124,5 +125,13 @@ class GeminiProvider(BaseLLMProvider):
                     yield chunk.text
 
         except Exception as e:
-            logger.error(f"Gemini streaming error: {e}")
+            error_type = type(e).__name__
+            logger.error(f"Gemini streaming error ({error_type}): {self._sanitize_error(str(e))}")
             raise
+
+    @staticmethod
+    def _sanitize_error(error: str) -> str:
+        """Remove sensitive info from error messages."""
+        import re
+        sanitized = re.sub(r"(AIza|api[_-]?key)[a-zA-Z0-9\-_]{10,}", "[redacted]", error, flags=re.IGNORECASE)
+        return sanitized[:200] if len(sanitized) > 200 else sanitized

@@ -5,7 +5,7 @@
 // Entity Types
 export type EntityType = 'Paper' | 'Author' | 'Concept' | 'Method' | 'Finding';
 
-// Relationship Types
+// Relationship Types (Updated for Concept-Centric Design)
 export type RelationshipType =
   | 'AUTHORED_BY'
   | 'CITES'
@@ -13,7 +13,12 @@ export type RelationshipType =
   | 'USES_METHOD'
   | 'SUPPORTS'
   | 'CONTRADICTS'
-  | 'RELATED_TO';
+  | 'RELATED_TO'
+  | 'CO_OCCURS_WITH'
+  | 'PREREQUISITE_OF'
+  | 'BRIDGES_GAP'
+  | 'APPLIES_TO'
+  | 'ADDRESSES';
 
 // Property types
 export interface PaperProperties {
@@ -123,19 +128,24 @@ export interface ChatMessage {
 
 export interface Citation {
   id: string;
-  paper_id: string;
-  title: string;
+  label: string;
+  entity_type?: string;
+  // Extended fields (optional, for rich display)
+  paper_id?: string;
+  title?: string;
   authors?: string[];
   year?: number;
   relevance_score?: number;
 }
 
 export interface ChatResponse {
+  conversation_id: string;
   answer: string;
   citations: Citation[];
   highlighted_nodes: string[];
   highlighted_edges: string[];
-  conversation_id: string;
+  suggested_follow_ups?: string[];
+  agent_trace?: Record<string, unknown>;
 }
 
 // Import
@@ -182,4 +192,72 @@ export interface CustomNodeData {
   entityType: EntityType;
   properties?: Record<string, unknown>;
   isHighlighted?: boolean;
+}
+
+// Gap Detection Types (InfraNodus-style)
+export interface ConceptCluster {
+  cluster_id: number;
+  concepts: string[];
+  concept_names: string[];
+  centroid?: number[];
+  size: number;
+  density: number;
+  label?: string;
+}
+
+export interface StructuralGap {
+  id: string;
+  cluster_a_id: number;
+  cluster_b_id: number;
+  cluster_a_concepts: string[];
+  cluster_b_concepts: string[];
+  cluster_a_names: string[];
+  cluster_b_names: string[];
+  gap_strength: number;
+  bridge_candidates: string[];
+  research_questions: string[];
+  created_at?: string;
+}
+
+export interface CentralityMetrics {
+  concept_id: string;
+  concept_name: string;
+  degree_centrality: number;
+  betweenness_centrality: number;
+  pagerank: number;
+  cluster_id?: number;
+}
+
+export interface GapAnalysisResult {
+  clusters: ConceptCluster[];
+  gaps: StructuralGap[];
+  centrality_metrics: CentralityMetrics[];
+  total_concepts: number;
+  total_relationships: number;
+}
+
+// Extended Entity Type for Concept-Centric Design
+export type ConceptCentricEntityType =
+  | 'Concept'
+  | 'Method'
+  | 'Finding'
+  | 'Problem'
+  | 'Dataset'
+  | 'Metric'
+  | 'Innovation'
+  | 'Limitation';
+
+// Concept-Centric Node Properties
+export interface ConceptCentricProperties {
+  definition?: string;
+  domain?: string;
+  source_paper_ids?: string[];
+  centrality_degree?: number;
+  centrality_betweenness?: number;
+  centrality_pagerank?: number;
+  cluster_id?: number;
+  is_gap_bridge?: boolean;
+  paper_count?: number;
+  confidence?: number;
+  [key: string]: unknown;
 }

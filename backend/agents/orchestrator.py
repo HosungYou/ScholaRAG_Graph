@@ -38,6 +38,14 @@ class ConversationContext:
 
 
 @dataclass
+class ResearchGapSummary:
+    """Summary of a research gap suggestion."""
+    description: str
+    questions: list[str] = field(default_factory=list)
+    bridge_concepts: list[str] = field(default_factory=list)
+
+
+@dataclass
 class OrchestratorResult:
     """Complete result from the orchestration pipeline."""
     content: str
@@ -48,6 +56,9 @@ class OrchestratorResult:
     intent: Optional[str] = None
     confidence: float = 0.0
     processing_steps: list[Dict[str, Any]] = field(default_factory=list)
+    # New: Gap-based suggestions
+    research_gaps: list[ResearchGapSummary] = field(default_factory=list)
+    hidden_connections: list[str] = field(default_factory=list)
 
 
 class AgentOrchestrator:
@@ -76,7 +87,7 @@ class AgentOrchestrator:
         self.concept_agent = ConceptExtractionAgent(llm_provider, graph_store)
         self.planning_agent = TaskPlanningAgent(llm_provider)
         self.execution_agent = QueryExecutionAgent(db_connection, vector_store, graph_store)
-        self.reasoning_agent = ReasoningAgent(llm_provider)
+        self.reasoning_agent = ReasoningAgent(llm_provider, db_connection)  # Pass db for gap analysis
         self.response_agent = ResponseAgent(llm_provider)
 
         # Conversation contexts
@@ -162,16 +173,22 @@ class AgentOrchestrator:
                 }
             })
 
-            # Step 5: Reasoning
-            logger.info(f"[5/6] Applying reasoning...")
+            # Step 5: Reasoning (with gap analysis)
+            logger.info(f"[5/6] Applying reasoning with gap analysis...")
             reasoning_result = await self.reasoning_agent.reason(
-                query, intent_result.intent, execution_result
+                query,
+                intent_result.intent,
+                execution_result,
+                project_id=project_id,  # Pass project_id for gap analysis
+                include_gaps=True,
             )
             processing_steps.append({
                 "step": "reasoning",
                 "result": {
                     "num_steps": len(reasoning_result.steps),
                     "confidence": reasoning_result.confidence,
+                    "research_gaps": len(reasoning_result.research_gaps),
+                    "hidden_connections": len(reasoning_result.hidden_connections),
                 }
             })
 
@@ -205,6 +222,16 @@ class AgentOrchestrator:
                 context.highlighted_edges = response_result.highlighted_edges
                 context.last_updated = datetime.now()
 
+            # Convert research gaps to summaries
+            research_gap_summaries = [
+                ResearchGapSummary(
+                    description=gap.gap_description,
+                    questions=gap.suggested_questions,
+                    bridge_concepts=gap.bridge_concepts,
+                )
+                for gap in reasoning_result.research_gaps
+            ]
+
             return OrchestratorResult(
                 content=response_result.answer,
                 citations=[c.label for c in response_result.citations],
@@ -214,6 +241,8 @@ class AgentOrchestrator:
                 intent=intent_result.intent.value,
                 confidence=reasoning_result.confidence,
                 processing_steps=processing_steps if include_processing_steps else [],
+                research_gaps=research_gap_summaries,
+                hidden_connections=reasoning_result.hidden_connections,
             )
 
         except Exception as e:
@@ -314,23 +343,29 @@ class AgentOrchestrator:
             return "Graph context unavailable."
 
     def _build_system_prompt(self, graph_context: str) -> str:
-        """Build system prompt for LLM."""
-        return f"""You are a research assistant analyzing a knowledge graph of academic papers.
-Your role is to help researchers explore connections between papers, concepts, methods, and findings.
+        """Build system prompt for LLM - concept-centric design."""
+        return f"""You are a research assistant analyzing a concept-centric knowledge graph.
+This is NOT a paper-centric graph. Instead:
+- Concepts, Methods, Findings, Problems, Datasets, Metrics, Innovations, and Limitations are PRIMARY nodes
+- Papers and Authors are METADATA attached to concepts (not visible as separate nodes)
+- The focus is on understanding the research landscape through concept relationships
 
 {graph_context}
 
 Guidelines:
-1. Provide accurate, evidence-based responses
-2. Cite specific papers or concepts when relevant
-3. Highlight connections and relationships
-4. Suggest related areas to explore
-5. Be concise but comprehensive
+1. Focus on concepts and their relationships, not individual papers
+2. Identify patterns and themes across the literature
+3. Highlight research gaps - areas where concept clusters have weak connections
+4. Suggest bridge concepts that could connect different research areas
+5. Generate actionable research questions based on detected gaps
 
 When analyzing the graph:
-- Papers are connected to Authors, Concepts, Methods, and Findings
-- Relationships include: AUTHORED_BY, CITES, DISCUSSES_CONCEPT, USES_METHOD, HAS_FINDING
-- Help users discover research gaps and trends"""
+- Concepts connect via: RELATED_TO, CO_OCCURS_WITH, PREREQUISITE_OF
+- Methods connect to concepts via: APPLIES_TO
+- Findings connect to concepts via: SUPPORTS, CONTRADICTS
+- BRIDGES_GAP indicates AI-suggested connections across research gaps
+
+Your goal is to help researchers discover hidden connections and unexplored research opportunities."""
 
     def clear_context(self, conversation_id: str) -> bool:
         """Clear conversation context."""

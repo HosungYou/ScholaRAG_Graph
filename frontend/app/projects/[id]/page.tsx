@@ -194,8 +194,9 @@ export default function ProjectDetailPage() {
 
   // Handle citation click
   const handleCitationClick = (citation: Citation) => {
-    setHighlightedNodes([citation.paper_id]);
-    const entity = graphData?.nodes.find((n) => n.id === citation.paper_id);
+    const nodeId = citation.paper_id || citation.id;
+    setHighlightedNodes([nodeId]);
+    const entity = graphData?.nodes.find((n) => n.id === nodeId);
     if (entity) {
       setSelectedNode(entity);
     }

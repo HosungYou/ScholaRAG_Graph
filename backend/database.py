@@ -35,6 +35,11 @@ class Database:
         self._pool: Optional[asyncpg.Pool] = None
 
     @property
+    def is_connected(self) -> bool:
+        """Check if database is connected."""
+        return self._pool is not None
+
+    @property
     def pool(self) -> asyncpg.Pool:
         """Get the connection pool, raise if not connected."""
         if self._pool is None:
@@ -68,8 +73,9 @@ class Database:
             )
             logger.info(f"Database connected (pool: {min_size}-{max_size})")
         except Exception as e:
-            logger.error(f"Failed to connect to database: {e}")
-            raise
+            # Don't log DSN or connection details in error
+            logger.error("Failed to connect to database (check DATABASE_URL configuration)")
+            raise RuntimeError("Database connection failed") from e
 
     async def disconnect(self) -> None:
         """Close connection pool."""
@@ -134,8 +140,8 @@ class Database:
         try:
             result = await self.fetchval("SELECT 1")
             return result == 1
-        except Exception as e:
-            logger.error(f"Database health check failed: {e}")
+        except Exception:
+            logger.error("Database health check failed")
             return False
 
     async def check_pgvector(self) -> bool:
@@ -145,8 +151,8 @@ class Database:
                 "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')"
             )
             return result
-        except Exception as e:
-            logger.error(f"pgvector check failed: {e}")
+        except Exception:
+            logger.error("pgvector extension check failed")
             return False
 
 

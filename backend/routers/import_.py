@@ -2,23 +2,119 @@
 Import API Router
 
 Handles data import from ScholaRAG folders, PDFs, and CSVs.
+
+Security:
+- Path validation restricts access to allowed directories only
+- Symbolic link resolution prevents path traversal attacks
+- Input sanitization for all user-provided paths
 """
 
 import logging
-from typing import Optional
+import os
+from pathlib import Path
+from typing import Optional, List
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Depends
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from enum import Enum
 
 from database import db
 from graph.graph_store import GraphStore
 from importers.scholarag_importer import ScholarAGImporter
+from jobs import JobStore, JobStatus
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# Security Configuration
+# IMPORTANT: Set these via environment variables in production
+# Uses settings from config.py which loads from .env file
+def get_allowed_import_roots() -> List[str]:
+    """Get allowed import roots from settings."""
+    roots = [
+        settings.scholarag_import_root,
+        settings.scholarag_import_root_2,
+    ]
+    return [r for r in roots if r]
+
+# Initialize at module level for backwards compatibility
+ALLOWED_IMPORT_ROOTS: List[str] = get_allowed_import_roots()
+
+# Maximum path depth to prevent deep traversal
+MAX_PATH_DEPTH = 10
+
+
+def validate_safe_path(folder_path: str) -> Path:
+    """
+    Validate that the provided path is safe to access.
+
+    Security checks:
+    1. Path must be absolute
+    2. Path must resolve within allowed root directories
+    3. No symbolic link escapes
+    4. Path depth limit
+
+    Raises:
+        HTTPException: If path validation fails
+    """
+    try:
+        # Convert to Path object
+        path = Path(folder_path)
+
+        # Check for path depth
+        if len(path.parts) > MAX_PATH_DEPTH:
+            raise HTTPException(
+                status_code=400,
+                detail="Path depth exceeds maximum allowed"
+            )
+
+        # Resolve symbolic links and normalize path
+        resolved_path = path.resolve()
+
+        # If no allowed roots configured, allow any path (development mode)
+        # In production, ALWAYS set ALLOWED_IMPORT_ROOTS
+        if not ALLOWED_IMPORT_ROOTS:
+            logger.warning(
+                "SECURITY WARNING: No ALLOWED_IMPORT_ROOTS configured. "
+                "Set SCHOLARAG_IMPORT_ROOT environment variable in production."
+            )
+            return resolved_path
+
+        # Check if resolved path is within allowed roots
+        is_allowed = False
+        for allowed_root in ALLOWED_IMPORT_ROOTS:
+            allowed_path = Path(allowed_root).resolve()
+            try:
+                resolved_path.relative_to(allowed_path)
+                is_allowed = True
+                break
+            except ValueError:
+                continue
+
+        if not is_allowed:
+            logger.warning(
+                f"Path access denied: {folder_path} (resolved: {resolved_path}) "
+                f"not within allowed roots"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Path is not within allowed import directories"
+            )
+
+        return resolved_path
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid path format"
+        )
 
 
 # Enums
@@ -37,6 +133,31 @@ class ScholaRAGImportRequest(BaseModel):
     folder_path: str
     project_name: Optional[str] = None
     extract_entities: bool = True  # Use LLM to extract Concept, Method, Finding
+
+    @field_validator("folder_path")
+    @classmethod
+    def sanitize_path(cls, v: str) -> str:
+        """Sanitize folder path input."""
+        # Remove null bytes and control characters
+        sanitized = "".join(c for c in v if c.isprintable() and c != "\x00")
+        # Normalize path separators
+        sanitized = sanitized.replace("\\", "/")
+        # Remove consecutive dots that could indicate traversal
+        while ".." in sanitized:
+            sanitized = sanitized.replace("..", ".")
+        return sanitized.strip()
+
+    @field_validator("project_name")
+    @classmethod
+    def sanitize_project_name(cls, v: Optional[str]) -> Optional[str]:
+        """Sanitize project name."""
+        if v is None:
+            return v
+        # Remove special characters, keep alphanumeric, spaces, hyphens, underscores
+        sanitized = "".join(
+            c for c in v if c.isalnum() or c in " -_"
+        )
+        return sanitized[:100].strip() or None
 
 
 class ImportJobResponse(BaseModel):
@@ -63,7 +184,21 @@ class ImportValidationResponse(BaseModel):
     warnings: list = []
 
 
-# In-memory storage
+# Job store for persistent tracking
+# Falls back to in-memory if DB unavailable
+_job_store: Optional[JobStore] = None
+
+
+async def get_job_store() -> JobStore:
+    """Get or create job store instance."""
+    global _job_store
+    if _job_store is None:
+        _job_store = JobStore(db_connection=db if db.is_connected else None)
+        await _job_store.init_table()
+    return _job_store
+
+
+# Legacy in-memory storage (deprecated, use JobStore)
 _import_jobs: dict = {}
 
 
@@ -73,15 +208,15 @@ async def validate_scholarag_folder(request: ScholaRAGImportRequest):
     Validate a ScholaRAG project folder before import.
 
     Checks:
+    - Path is within allowed directories (security)
     - config.yaml exists
     - .scholarag metadata exists
     - data/02_screening/relevant_papers.csv exists
     - data/03_pdfs/ contains PDFs
     - data/04_rag/chroma_db/ exists (optional)
     """
-    from pathlib import Path
-
-    folder = Path(request.folder_path)
+    # Security: Validate path is within allowed directories
+    folder = validate_safe_path(request.folder_path)
 
     validation = ImportValidationResponse(
         valid=True,
@@ -158,6 +293,10 @@ async def import_scholarag_folder(
     """
     Start importing a ScholaRAG project folder.
 
+    Security:
+    - Path must be within allowed import directories
+    - Project name is sanitized
+
     Process:
     1. Validate folder structure
     2. Parse config.yaml → Create Project
@@ -167,14 +306,23 @@ async def import_scholarag_folder(
     6. Build relationships (AUTHORED_BY, DISCUSSES_CONCEPT, etc.)
     7. Store in PostgreSQL + pgvector
     """
-    from uuid import uuid4
+    # Security: Validate path is within allowed directories
+    validated_path = validate_safe_path(request.folder_path)
 
-    # Create import job
-    job_id = str(uuid4())
+    # Create job in persistent store
+    job_store = await get_job_store()
+    job = await job_store.create_job(
+        job_type="import",
+        metadata={
+            "folder_path": str(validated_path),
+            "project_name": request.project_name,
+            "extract_entities": request.extract_entities,
+        },
+    )
+
     now = datetime.now()
-
-    job = ImportJobResponse(
-        job_id=job_id,
+    response = ImportJobResponse(
+        job_id=job.id,
         status=ImportStatus.PENDING,
         progress=0.0,
         message="Import job created",
@@ -184,18 +332,28 @@ async def import_scholarag_folder(
         updated_at=now,
     )
 
-    _import_jobs[job_id] = job.model_dump()
+    # Legacy: also store in memory for backwards compatibility
+    _import_jobs[job.id] = response.model_dump()
 
-    # Start background import task
+    # Start background import task with validated path
     background_tasks.add_task(
         _run_scholarag_import,
-        job_id=job_id,
-        folder_path=request.folder_path,
+        job_id=job.id,
+        folder_path=str(validated_path),
         project_name=request.project_name,
         extract_entities=request.extract_entities,
     )
 
-    return job
+    return response
+
+
+def _mask_path_for_logging(path: str) -> str:
+    """Mask sensitive parts of path for logging."""
+    # Only show the last 2 path components
+    parts = Path(path).parts
+    if len(parts) <= 2:
+        return path
+    return f".../{'/'.join(parts[-2:])}"
 
 
 async def _run_scholarag_import(
@@ -205,7 +363,9 @@ async def _run_scholarag_import(
     extract_entities: bool,
 ):
     """Background task to run ScholaRAG import."""
-    logger.info(f"[Import {job_id}] Starting import from: {folder_path}")
+    # Mask path in logs to avoid exposing full directory structure
+    masked_path = _mask_path_for_logging(folder_path)
+    logger.info(f"[Import {job_id}] Starting import from: {masked_path}")
 
     def progress_callback(progress):
         """Update job status from importer progress."""
@@ -236,7 +396,7 @@ async def _run_scholarag_import(
         result = await importer.import_folder(
             folder_path=folder_path,
             project_name=project_name,
-            extract_entities=extract_entities,
+            extract_concepts=extract_entities,  # Maps extract_entities to extract_concepts
         )
 
         if result["success"]:
@@ -250,9 +410,13 @@ async def _run_scholarag_import(
 
             logger.info(f"[Import {job_id}] Completed successfully: {result.get('stats', {})}")
         else:
-            # Import failed
+            # Import failed - sanitize error message
+            error_msg = result.get("error", "Unknown error")
+            # Don't expose internal paths in error messages
+            sanitized_error = _sanitize_error_message(error_msg)
+
             _import_jobs[job_id]["status"] = ImportStatus.FAILED
-            _import_jobs[job_id]["message"] = f"Import failed: {result.get('error', 'Unknown error')}"
+            _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
             _import_jobs[job_id]["updated_at"] = datetime.now()
             _import_jobs[job_id]["stats"] = {
                 "papers_imported": 0,
@@ -261,12 +425,15 @@ async def _run_scholarag_import(
                 "relationships_created": 0,
             }
 
-            logger.error(f"[Import {job_id}] Failed: {result.get('error')}")
+            logger.error(f"[Import {job_id}] Failed: {sanitized_error}")
 
     except Exception as e:
-        logger.exception(f"[Import {job_id}] Exception during import: {e}")
+        # Log full exception internally but sanitize for user response
+        logger.exception(f"[Import {job_id}] Exception during import")
+        sanitized_error = _sanitize_error_message(str(e))
+
         _import_jobs[job_id]["status"] = ImportStatus.FAILED
-        _import_jobs[job_id]["message"] = f"Import failed: {str(e)}"
+        _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
         _import_jobs[job_id]["updated_at"] = datetime.now()
         _import_jobs[job_id]["stats"] = {
             "papers_imported": 0,
@@ -276,36 +443,530 @@ async def _run_scholarag_import(
         }
 
 
+def _sanitize_error_message(error: str) -> str:
+    """Remove sensitive information from error messages."""
+    import re
+
+    # Remove full file paths
+    sanitized = re.sub(r"(/[a-zA-Z0-9_\-./]+)+", "[path]", error)
+
+    # Remove potential API keys or tokens
+    sanitized = re.sub(r"(sk-|api[_-]?key|token)[a-zA-Z0-9\-_]{10,}", "[redacted]", sanitized, flags=re.IGNORECASE)
+
+    # Remove email addresses
+    sanitized = re.sub(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[email]", sanitized)
+
+    # Limit message length
+    return sanitized[:500] if len(sanitized) > 500 else sanitized
+
+
 @router.get("/status/{job_id}", response_model=ImportJobResponse)
 async def get_import_status(job_id: str):
-    """Get the status of an import job."""
-    job = _import_jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Import job not found")
-    return ImportJobResponse(**job)
+    """Get the status of an import job from persistent store."""
+    # Try JobStore first
+    job_store = await get_job_store()
+    job = await job_store.get_job(job_id)
+
+    if job:
+        # Convert JobStore job to ImportJobResponse
+        status_map = {
+            JobStatus.PENDING: ImportStatus.PENDING,
+            JobStatus.RUNNING: ImportStatus.PROCESSING,
+            JobStatus.COMPLETED: ImportStatus.COMPLETED,
+            JobStatus.FAILED: ImportStatus.FAILED,
+            JobStatus.CANCELLED: ImportStatus.FAILED,
+        }
+        return ImportJobResponse(
+            job_id=job.id,
+            status=status_map.get(job.status, ImportStatus.PENDING),
+            progress=job.progress,
+            message=job.message,
+            project_id=job.result.get("project_id") if job.result else None,
+            stats=job.result.get("stats") if job.result else None,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+        )
+
+    # Fallback to legacy in-memory storage
+    legacy_job = _import_jobs.get(job_id)
+    if legacy_job:
+        return ImportJobResponse(**legacy_job)
+
+    raise HTTPException(status_code=404, detail="Import job not found")
 
 
-@router.post("/pdf")
-async def import_pdf(
-    project_id: UUID,
-    file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None,
+@router.get("/jobs", response_model=list[ImportJobResponse])
+async def list_import_jobs(
+    status: Optional[str] = None,
+    limit: int = 50,
 ):
-    """Import a single PDF file."""
+    """List all import jobs with optional status filter."""
+    job_store = await get_job_store()
+
+    status_filter = None
+    if status:
+        try:
+            status_filter = JobStatus(status)
+        except ValueError:
+            pass
+
+    jobs = await job_store.list_jobs(job_type="import", status=status_filter, limit=limit)
+
+    status_map = {
+        JobStatus.PENDING: ImportStatus.PENDING,
+        JobStatus.RUNNING: ImportStatus.PROCESSING,
+        JobStatus.COMPLETED: ImportStatus.COMPLETED,
+        JobStatus.FAILED: ImportStatus.FAILED,
+        JobStatus.CANCELLED: ImportStatus.FAILED,
+    }
+
+    return [
+        ImportJobResponse(
+            job_id=job.id,
+            status=status_map.get(job.status, ImportStatus.PENDING),
+            progress=job.progress,
+            message=job.message,
+            project_id=job.result.get("project_id") if job.result else None,
+            stats=job.result.get("stats") if job.result else None,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+        )
+        for job in jobs
+    ]
+
+
+class PDFImportRequest(BaseModel):
+    """Request model for PDF import."""
+    project_name: Optional[str] = None
+    research_question: Optional[str] = None
+    extract_concepts: bool = True
+
+
+class PDFImportResponse(BaseModel):
+    """Response model for PDF import."""
+    job_id: str
+    status: ImportStatus
+    message: str
+    filename: str
+    project_id: Optional[str] = None
+
+
+@router.post("/pdf", response_model=PDFImportResponse)
+async def import_pdf(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    project_name: Optional[str] = None,
+    research_question: Optional[str] = None,
+    extract_concepts: bool = True,
+):
+    """
+    Import a single PDF file and create a Knowledge Graph.
+
+    This endpoint allows direct PDF upload without needing a ScholaRAG project structure.
+    It will:
+    1. Extract text from the PDF using PyMuPDF
+    2. Extract metadata (title, authors, year, abstract)
+    3. Create a new project automatically
+    4. Use LLM to extract concepts, methods, and findings
+    5. Build a knowledge graph
+
+    Args:
+        file: PDF file to upload
+        project_name: Optional project name (defaults to PDF title)
+        research_question: Optional research question
+        extract_concepts: Whether to use LLM for concept extraction (default: True)
+
+    Returns:
+        Import job information including job_id for status tracking
+    """
     from uuid import uuid4
 
-    if not file.filename.lower().endswith(".pdf"):
+    # Validate file type
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
 
-    job_id = str(uuid4())
+    # Validate file size (max 50MB)
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
+        )
 
-    # TODO: Implement PDF import
-    return {
-        "job_id": job_id,
-        "status": "pending",
-        "filename": file.filename,
-        "message": "PDF import not yet implemented",
+    # Create job
+    job_store = await get_job_store()
+    job = await job_store.create_job(
+        job_type="pdf_import",
+        metadata={
+            "filename": file.filename,
+            "file_size": len(content),
+            "project_name": project_name,
+            "research_question": research_question,
+            "extract_concepts": extract_concepts,
+        },
+    )
+
+    now = datetime.now()
+    _import_jobs[job.id] = {
+        "job_id": job.id,
+        "status": ImportStatus.PENDING,
+        "progress": 0.0,
+        "message": "PDF import job created",
+        "project_id": None,
+        "stats": None,
+        "created_at": now,
+        "updated_at": now,
     }
+
+    # Start background import task
+    background_tasks.add_task(
+        _run_pdf_import,
+        job_id=job.id,
+        pdf_content=content,
+        filename=file.filename,
+        project_name=project_name,
+        research_question=research_question,
+        extract_concepts=extract_concepts,
+    )
+
+    return PDFImportResponse(
+        job_id=job.id,
+        status=ImportStatus.PENDING,
+        message="PDF import started",
+        filename=file.filename,
+    )
+
+
+async def _run_pdf_import(
+    job_id: str,
+    pdf_content: bytes,
+    filename: str,
+    project_name: Optional[str],
+    research_question: Optional[str],
+    extract_concepts: bool,
+):
+    """Background task to run PDF import."""
+    from importers.pdf_importer import PDFImporter
+
+    logger.info(f"[PDF Import {job_id}] Starting import: {filename}")
+
+    # Get job store for persistent updates
+    job_store = await get_job_store()
+
+    # Map import stages to JobStore status
+    stage_to_job_status = {
+        "starting": JobStatus.RUNNING,
+        "extracting": JobStatus.RUNNING,
+        "creating": JobStatus.RUNNING,
+        "storing": JobStatus.RUNNING,
+        "analyzing": JobStatus.RUNNING,
+        "building": JobStatus.RUNNING,
+        "complete": JobStatus.COMPLETED,
+    }
+
+    def progress_callback(stage: str, progress: float, message: str):
+        """Update job status from importer progress."""
+        status_map = {
+            "starting": ImportStatus.PENDING,
+            "extracting": ImportStatus.EXTRACTING,
+            "creating": ImportStatus.PROCESSING,
+            "storing": ImportStatus.PROCESSING,
+            "analyzing": ImportStatus.PROCESSING,
+            "building": ImportStatus.BUILDING_GRAPH,
+            "complete": ImportStatus.COMPLETED,
+        }
+        _import_jobs[job_id]["status"] = status_map.get(stage, ImportStatus.PROCESSING)
+        _import_jobs[job_id]["progress"] = progress
+        _import_jobs[job_id]["message"] = message
+        _import_jobs[job_id]["updated_at"] = datetime.now()
+        logger.info(f"[PDF Import {job_id}] {stage}: {progress:.0%} - {message}")
+
+    try:
+        # Mark job as running in JobStore
+        await job_store.update_job(
+            job_id=job_id,
+            status=JobStatus.RUNNING,
+            progress=0.0,
+            message="Starting PDF import...",
+        )
+
+        # Create importer with database connection and GraphStore
+        graph_store = GraphStore(db=db)
+        importer = PDFImporter(
+            llm_provider=settings.default_llm_provider,
+            llm_model=settings.default_llm_model,
+            db_connection=db,
+            graph_store=graph_store,
+            progress_callback=progress_callback,
+        )
+
+        # Run the import
+        result = await importer.import_single_pdf(
+            pdf_content=pdf_content,
+            filename=filename,
+            project_name=project_name,
+            research_question=research_question,
+            extract_concepts=extract_concepts,
+        )
+
+        if result["success"]:
+            _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
+            _import_jobs[job_id]["progress"] = 1.0
+            _import_jobs[job_id]["message"] = "PDF import completed successfully!"
+            _import_jobs[job_id]["project_id"] = result.get("project_id")
+            _import_jobs[job_id]["stats"] = result.get("stats", {})
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+
+            # Update JobStore with completion status and result
+            await job_store.update_job(
+                job_id=job_id,
+                status=JobStatus.COMPLETED,
+                progress=1.0,
+                message="PDF import completed successfully!",
+                result={
+                    "project_id": str(result.get("project_id")) if result.get("project_id") else None,
+                    "stats": result.get("stats", {}),
+                },
+            )
+
+            logger.info(f"[PDF Import {job_id}] Completed: {result.get('stats', {})}")
+        else:
+            error_msg = result.get("error", "Unknown error")
+            sanitized_error = _sanitize_error_message(error_msg)
+
+            _import_jobs[job_id]["status"] = ImportStatus.FAILED
+            _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+
+            # Update JobStore with failure
+            await job_store.update_job(
+                job_id=job_id,
+                status=JobStatus.FAILED,
+                message=f"Import failed: {sanitized_error}",
+                error=sanitized_error,
+            )
+
+            logger.error(f"[PDF Import {job_id}] Failed: {sanitized_error}")
+
+    except Exception as e:
+        logger.exception(f"[PDF Import {job_id}] Exception during import")
+        sanitized_error = _sanitize_error_message(str(e))
+
+        _import_jobs[job_id]["status"] = ImportStatus.FAILED
+        _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+        _import_jobs[job_id]["updated_at"] = datetime.now()
+
+        # Update JobStore with exception
+        await job_store.update_job(
+            job_id=job_id,
+            status=JobStatus.FAILED,
+            message=f"Import failed: {sanitized_error}",
+            error=sanitized_error,
+        )
+
+
+@router.post("/pdf/multiple", response_model=PDFImportResponse)
+async def import_multiple_pdfs(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    project_name: str = "Uploaded PDFs",
+    research_question: Optional[str] = None,
+    extract_concepts: bool = True,
+):
+    """
+    Import multiple PDF files into a single project.
+
+    This endpoint allows batch PDF upload to create a Knowledge Graph from multiple papers.
+
+    Args:
+        files: List of PDF files to upload
+        project_name: Name for the project (required for multiple files)
+        research_question: Optional research question
+        extract_concepts: Whether to use LLM for concept extraction
+
+    Returns:
+        Import job information including job_id for status tracking
+    """
+    from uuid import uuid4
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    # Validate all files are PDFs
+    for file in files:
+        if not file.filename or not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"All files must be PDFs. Invalid file: {file.filename}"
+            )
+
+    # Read all file contents
+    MAX_TOTAL_SIZE = 200 * 1024 * 1024  # 200MB total
+    pdf_files = []
+    total_size = 0
+
+    for file in files:
+        content = await file.read()
+        total_size += len(content)
+        if total_size > MAX_TOTAL_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Total file size exceeds maximum of {MAX_TOTAL_SIZE // (1024*1024)}MB"
+            )
+        pdf_files.append((file.filename, content))
+
+    # Create job
+    job_store = await get_job_store()
+    job = await job_store.create_job(
+        job_type="pdf_import_multiple",
+        metadata={
+            "file_count": len(pdf_files),
+            "total_size": total_size,
+            "project_name": project_name,
+            "research_question": research_question,
+            "extract_concepts": extract_concepts,
+        },
+    )
+
+    now = datetime.now()
+    _import_jobs[job.id] = {
+        "job_id": job.id,
+        "status": ImportStatus.PENDING,
+        "progress": 0.0,
+        "message": f"Starting import of {len(pdf_files)} PDFs",
+        "project_id": None,
+        "stats": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    # Start background import task
+    background_tasks.add_task(
+        _run_multiple_pdf_import,
+        job_id=job.id,
+        pdf_files=pdf_files,
+        project_name=project_name,
+        research_question=research_question,
+        extract_concepts=extract_concepts,
+    )
+
+    return PDFImportResponse(
+        job_id=job.id,
+        status=ImportStatus.PENDING,
+        message=f"Started importing {len(pdf_files)} PDFs",
+        filename=f"{len(pdf_files)} files",
+    )
+
+
+async def _run_multiple_pdf_import(
+    job_id: str,
+    pdf_files: List[tuple],
+    project_name: str,
+    research_question: Optional[str],
+    extract_concepts: bool,
+):
+    """Background task to run multiple PDF import."""
+    from importers.pdf_importer import PDFImporter
+
+    logger.info(f"[Multi-PDF Import {job_id}] Starting import: {len(pdf_files)} files")
+
+    # Get job store for persistent updates
+    job_store = await get_job_store()
+
+    def progress_callback(stage: str, progress: float, message: str):
+        """Update job status from importer progress."""
+        status_map = {
+            "starting": ImportStatus.PENDING,
+            "importing": ImportStatus.PROCESSING,
+            "building": ImportStatus.BUILDING_GRAPH,
+            "complete": ImportStatus.COMPLETED,
+        }
+        _import_jobs[job_id]["status"] = status_map.get(stage, ImportStatus.PROCESSING)
+        _import_jobs[job_id]["progress"] = progress
+        _import_jobs[job_id]["message"] = message
+        _import_jobs[job_id]["updated_at"] = datetime.now()
+        logger.info(f"[Multi-PDF Import {job_id}] {stage}: {progress:.0%} - {message}")
+
+    try:
+        # Mark job as running in JobStore
+        await job_store.update_job(
+            job_id=job_id,
+            status=JobStatus.RUNNING,
+            progress=0.0,
+            message=f"Starting import of {len(pdf_files)} PDFs...",
+        )
+
+        graph_store = GraphStore(db=db)
+        importer = PDFImporter(
+            llm_provider=settings.default_llm_provider,
+            llm_model=settings.default_llm_model,
+            db_connection=db,
+            graph_store=graph_store,
+            progress_callback=progress_callback,
+        )
+
+        result = await importer.import_multiple_pdfs(
+            pdf_files=pdf_files,
+            project_name=project_name,
+            research_question=research_question,
+            extract_concepts=extract_concepts,
+        )
+
+        if result["success"]:
+            _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
+            _import_jobs[job_id]["progress"] = 1.0
+            _import_jobs[job_id]["message"] = f"Imported {result['stats']['papers_imported']} PDFs successfully!"
+            _import_jobs[job_id]["project_id"] = result.get("project_id")
+            _import_jobs[job_id]["stats"] = result.get("stats", {})
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+
+            # Update JobStore with completion status and result
+            await job_store.update_job(
+                job_id=job_id,
+                status=JobStatus.COMPLETED,
+                progress=1.0,
+                message=f"Imported {result['stats']['papers_imported']} PDFs successfully!",
+                result={
+                    "project_id": str(result.get("project_id")) if result.get("project_id") else None,
+                    "stats": result.get("stats", {}),
+                },
+            )
+
+            logger.info(f"[Multi-PDF Import {job_id}] Completed: {result.get('stats', {})}")
+        else:
+            error_msg = result.get("error", "Unknown error")
+            sanitized_error = _sanitize_error_message(error_msg)
+
+            _import_jobs[job_id]["status"] = ImportStatus.FAILED
+            _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+            _import_jobs[job_id]["updated_at"] = datetime.now()
+
+            # Update JobStore with failure
+            await job_store.update_job(
+                job_id=job_id,
+                status=JobStatus.FAILED,
+                message=f"Import failed: {sanitized_error}",
+                error=sanitized_error,
+            )
+
+            logger.error(f"[Multi-PDF Import {job_id}] Failed: {sanitized_error}")
+
+    except Exception as e:
+        logger.exception(f"[Multi-PDF Import {job_id}] Exception during import")
+        sanitized_error = _sanitize_error_message(str(e))
+
+        _import_jobs[job_id]["status"] = ImportStatus.FAILED
+        _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+        _import_jobs[job_id]["updated_at"] = datetime.now()
+
+        # Update JobStore with exception
+        await job_store.update_job(
+            job_id=job_id,
+            status=JobStatus.FAILED,
+            message=f"Import failed: {sanitized_error}",
+            error=sanitized_error,
+        )
 
 
 @router.post("/csv")

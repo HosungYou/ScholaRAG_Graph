@@ -16,12 +16,19 @@ interface FilterPanelProps {
   nodeCountsByType?: Record<EntityType, number>;
 }
 
-const entityTypeColors: Record<EntityType, { bg: string; text: string; border: string }> = {
-  Paper: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' },
-  Author: { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300' },
-  Concept: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300' },
-  Method: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300' },
-  Finding: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300' },
+// Concept-centric entity type colors
+const entityTypeColors: Record<string, { bg: string; text: string; border: string; color: string }> = {
+  Concept: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300', color: '#8B5CF6' },
+  Method: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300', color: '#F59E0B' },
+  Finding: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300', color: '#10B981' },
+  Problem: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300', color: '#EF4444' },
+  Dataset: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300', color: '#3B82F6' },
+  Metric: { bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-300', color: '#EC4899' },
+  Innovation: { bg: 'bg-teal-100', text: 'text-teal-700', border: 'border-teal-300', color: '#14B8A6' },
+  Limitation: { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300', color: '#F97316' },
+  // Legacy types (hidden in UI but kept for compatibility)
+  Paper: { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', color: '#64748B' },
+  Author: { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', color: '#22C55E' },
 };
 
 export function FilterPanel({
@@ -123,20 +130,10 @@ export function FilterPanel({
                     <div className="flex items-center gap-2">
                       <div
                         className={`w-2 h-2 rounded-full ${
-                          isSelected ? colors.bg.replace('100', '500') : 'bg-gray-300'
+                          isSelected ? '' : 'bg-gray-300'
                         }`}
                         style={{
-                          backgroundColor: isSelected
-                            ? type === 'Paper'
-                              ? '#3B82F6'
-                              : type === 'Author'
-                              ? '#10B981'
-                              : type === 'Concept'
-                              ? '#8B5CF6'
-                              : type === 'Method'
-                              ? '#F59E0B'
-                              : '#EF4444'
-                            : undefined,
+                          backgroundColor: isSelected ? colors.color : undefined,
                         }}
                       />
                       <span>{type}</span>

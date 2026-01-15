@@ -11,6 +11,8 @@ import type {
   ImportJob,
   SearchResult,
   EntityType,
+  GapAnalysisResult,
+  StructuralGap,
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -149,6 +151,112 @@ class ApiClient {
 
   async getImportStatus(jobId: string): Promise<ImportJob> {
     return this.request<ImportJob>(`/api/import/status/${jobId}`);
+  }
+
+  /**
+   * Upload a single PDF file to create a Knowledge Graph.
+   * Does not require a ScholaRAG project structure.
+   */
+  async uploadPDF(
+    file: File,
+    options?: {
+      projectName?: string;
+      researchQuestion?: string;
+      extractConcepts?: boolean;
+    }
+  ): Promise<{ job_id: string; status: string; message: string; filename: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Build URL with query parameters
+    const params = new URLSearchParams();
+    if (options?.projectName) params.set('project_name', options.projectName);
+    if (options?.researchQuestion) params.set('research_question', options.researchQuestion);
+    if (options?.extractConcepts !== undefined) {
+      params.set('extract_concepts', String(options.extractConcepts));
+    }
+
+    const url = `${this.baseUrl}/api/import/pdf${params.toString() ? '?' + params.toString() : ''}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      // Don't set Content-Type header - browser will set it with boundary for multipart
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `API Error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Upload multiple PDF files to create a single Knowledge Graph project.
+   */
+  async uploadMultiplePDFs(
+    files: File[],
+    options?: {
+      projectName?: string;
+      researchQuestion?: string;
+      extractConcepts?: boolean;
+    }
+  ): Promise<{ job_id: string; status: string; message: string; filename: string }> {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+
+    // Build URL with query parameters
+    const params = new URLSearchParams();
+    if (options?.projectName) params.set('project_name', options.projectName);
+    if (options?.researchQuestion) params.set('research_question', options.researchQuestion);
+    if (options?.extractConcepts !== undefined) {
+      params.set('extract_concepts', String(options.extractConcepts));
+    }
+
+    const url = `${this.baseUrl}/api/import/pdf/multiple${params.toString() ? '?' + params.toString() : ''}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `API Error: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  // Gap Detection
+  async getGapAnalysis(projectId: string): Promise<GapAnalysisResult> {
+    return this.request<GapAnalysisResult>(`/api/graph/gaps/${projectId}/analysis`);
+  }
+
+  async refreshGapAnalysis(projectId: string): Promise<GapAnalysisResult> {
+    return this.request<GapAnalysisResult>(`/api/graph/gaps/${projectId}/refresh`, {
+      method: 'POST',
+    });
+  }
+
+  async getGapDetails(gapId: string): Promise<StructuralGap> {
+    return this.request<StructuralGap>(`/api/graph/gaps/detail/${gapId}`);
+  }
+
+  async generateResearchQuestions(
+    gapId: string,
+    regenerate: boolean = false
+  ): Promise<{ questions: string[] }> {
+    return this.request<{ questions: string[] }>(
+      `/api/graph/gaps/${gapId}/questions`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ regenerate }),
+      }
+    );
   }
 }
 
