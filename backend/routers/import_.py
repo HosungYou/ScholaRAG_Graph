@@ -69,6 +69,14 @@ def validate_safe_path(folder_path: str) -> Path:
         # Convert to Path object
         path = Path(folder_path)
 
+        # SECURITY: Enforce absolute paths only
+        if not path.is_absolute():
+            logger.warning(f"Relative path rejected: {folder_path}")
+            raise HTTPException(
+                status_code=400,
+                detail="Only absolute paths are allowed for import operations"
+            )
+
         # Check for path depth
         if len(path.parts) > MAX_PATH_DEPTH:
             raise HTTPException(

@@ -4,14 +4,30 @@ PRISMA 2020 Flow Diagram Generator for ScholaRAG_Graph.
 Generates PRISMA 2020 compliant flow diagrams for systematic literature reviews.
 Based on: Page MJ, et al. BMJ 2021;372:n71
 http://www.prisma-statement.org/
+
+Security Note:
+All user-provided strings are sanitized using html.escape() before
+embedding in SVG/HTML output to prevent XSS attacks.
 """
 
+import html
 import logging
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize(value: str) -> str:
+    """
+    Sanitize user input for safe embedding in SVG/HTML.
+
+    Escapes HTML special characters to prevent XSS attacks.
+    """
+    if not isinstance(value, str):
+        return str(value)
+    return html.escape(value, quote=True)
 
 
 class OutputFormat(str, Enum):
@@ -171,7 +187,7 @@ class PRISMAGenerator:
   </defs>
   
   <!-- Title -->
-  <text x="{width//2}" y="30" text-anchor="middle" class="title">{self.title}</text>
+  <text x="{width//2}" y="30" text-anchor="middle" class="title">{_sanitize(self.title)}</text>
   
   <!-- IDENTIFICATION Section -->
   <text x="30" y="70" class="section">Identification</text>
@@ -267,36 +283,40 @@ class PRISMAGenerator:
         return svg
     
     def _format_sources(self) -> str:
-        """Format database sources for display."""
+        """Format database sources for display (sanitized for SVG)."""
         if not self.stats.database_sources:
             return ""
-        
-        sources = [f"{name}: {count}" for name, count in self.stats.database_sources.items()]
+
+        # Sanitize source names to prevent XSS
+        sources = [f"{_sanitize(name)}: {count}" for name, count in self.stats.database_sources.items()]
         return ", ".join(sources[:3])  # Limit to 3 sources
     
     def _format_exclusion_reasons(self, x: int, start_y: int) -> str:
-        """Format exclusion reasons as SVG text elements."""
+        """Format exclusion reasons as SVG text elements (sanitized)."""
         if not self.stats.exclusion_reasons:
             return ""
-        
+
         lines = []
         y = start_y
         for reason, count in list(self.stats.exclusion_reasons.items())[:5]:
-            lines.append(f'<text x="{x}" y="{y}" class="label">• {reason} (n={count})</text>')
+            # Sanitize reason text to prevent XSS
+            safe_reason = _sanitize(reason)
+            lines.append(f'<text x="{x}" y="{y}" class="label">* {safe_reason} (n={count})</text>')
             y += 15
-        
+
         return "\n  ".join(lines)
     
     def _generate_html(self) -> str:
-        """Generate HTML format with embedded SVG."""
+        """Generate HTML format with embedded SVG (sanitized)."""
         svg = self._generate_svg()
-        
+        safe_title = _sanitize(self.title)
+
         return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{self.title}</title>
+    <title>{safe_title}</title>
     <style>
         body {{
             font-family: Arial, sans-serif;

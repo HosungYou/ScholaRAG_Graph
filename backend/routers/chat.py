@@ -5,6 +5,7 @@ Handles multi-agent chat interactions with graph-grounded responses.
 
 Security:
 - All endpoints require authentication in production (configurable via REQUIRE_AUTH)
+- Project-level access control is enforced for all operations
 - Conversation ownership is tracked via user_id field
 - Users can only access their own conversations or conversations in projects they have access to
 
@@ -30,6 +31,7 @@ from auth.dependencies import require_auth_if_configured
 from auth.models import User
 from database import db
 from config import settings
+from routers.projects import check_project_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -58,6 +60,44 @@ async def _check_db_available() -> bool:
         logger.warning("Database unavailable - using in-memory storage (data will be lost on restart)")
         _use_memory_fallback = True
     return False
+
+
+async def verify_project_access(
+    project_id: UUID,
+    current_user: Optional[User],
+    action: str = "access"
+) -> None:
+    """
+    Verify that the current user has access to the project.
+
+    Args:
+        project_id: UUID of the project
+        current_user: Current authenticated user (None if auth not configured)
+        action: Description of the action for error messages
+
+    Raises:
+        HTTPException: 403 if access denied, 404 if project not found
+    """
+    if not await _check_db_available():
+        # In memory-only mode, skip project check (development mode)
+        return
+
+    # Check project exists
+    exists = await db.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)",
+        project_id,
+    )
+    if not exists:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # If auth is configured, verify access
+    if current_user is not None:
+        has_access = await check_project_access(db, project_id, current_user.id)
+        if not has_access:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have permission to {action} this project"
+            )
 
 
 async def _db_create_conversation(
@@ -352,6 +392,40 @@ async def _db_check_conversation_ownership(
     return conv.get("user_id") == user_id
 
 
+async def _db_check_conversation_project_access(
+    conversation_id: str,
+    current_user: Optional[User]
+) -> bool:
+    """
+    Check if a user has access to the project that a conversation belongs to.
+
+    Returns True if:
+    - Auth is not configured (development mode)
+    - User owns the conversation
+    - User has access to the conversation's project
+    """
+    if current_user is None:
+        return True
+
+    conv = await _db_get_conversation(conversation_id)
+    if not conv:
+        return False
+
+    # Check if user owns the conversation
+    if conv.get("user_id") == current_user.id:
+        return True
+
+    # Check if user has access to the project
+    project_id = conv.get("project_id")
+    if project_id and await _check_db_available():
+        try:
+            return await check_project_access(db, UUID(project_id), current_user.id)
+        except Exception:
+            pass
+
+    return False
+
+
 # ============================================================================
 # Pydantic Models
 # ============================================================================
@@ -469,6 +543,9 @@ async def chat_query(
     """
     Send a query to the multi-agent system. Requires auth in production.
 
+    Access control:
+    - User must have access to the project (owner, collaborator, team member, or public)
+
     Pipeline:
     1. Intent Agent - Classify user intent
     2. Concept Extraction Agent - Extract entities from query
@@ -477,6 +554,9 @@ async def chat_query(
     5. Reasoning Agent - Synthesize results
     6. Response Agent - Generate user-friendly response
     """
+    # Verify project access
+    await verify_project_access(request.project_id, current_user, "query")
+
     conversation_id = request.conversation_id or str(uuid4())
     user_id = current_user.id if current_user else None
 
@@ -575,7 +655,15 @@ async def get_chat_history(
     project_id: UUID,
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
-    """Get all conversations for a project. Requires auth in production."""
+    """
+    Get all conversations for a project. Requires auth in production.
+
+    Access control:
+    - User must have access to the project (owner, collaborator, team member, or public)
+    """
+    # Verify project access
+    await verify_project_access(project_id, current_user, "view history of")
+
     conversations_data = await _db_get_conversations_by_project(str(project_id))
 
     conversations = []
@@ -618,7 +706,7 @@ async def get_conversation(
     Get a specific conversation.
 
     Access control:
-    - User must be the owner of the conversation
+    - User must own the conversation or have access to the project
     - Or auth is not configured (development mode)
 
     Requires authentication in production.
@@ -627,9 +715,10 @@ async def get_conversation(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Verify ownership if auth is configured
+    # Verify access if auth is configured
     if current_user is not None:
-        if not await _db_check_conversation_ownership(conversation_id, current_user.id):
+        has_access = await _db_check_conversation_project_access(conversation_id, current_user)
+        if not has_access:
             raise HTTPException(
                 status_code=403,
                 detail="You don't have permission to access this conversation"
@@ -709,8 +798,14 @@ async def explain_node(
     Generate AI explanation for a node when clicked in Exploration Mode.
     Uses the orchestrator's LLM provider for generation.
 
+    Access control:
+    - User must have access to the project (owner, collaborator, team member, or public)
+
     Requires authentication in production.
     """
+    # Verify project access
+    await verify_project_access(project_id, current_user, "access")
+
     orchestrator = get_orchestrator()
 
     # Build context for explanation
@@ -762,8 +857,14 @@ async def ask_about_node(
     Ask a specific question about a node.
     Called from NodeDetails "Ask AI" button.
 
+    Access control:
+    - User must have access to the project (owner, collaborator, team member, or public)
+
     Requires authentication in production.
     """
+    # Verify project access
+    await verify_project_access(project_id, current_user, "query")
+
     conversation_id = str(uuid4())
     user_id = current_user.id if current_user else None
     orchestrator = get_orchestrator()

@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     redis_url: str = ""  # Redis connection URL (e.g., redis://localhost:6379)
     redis_rate_limit_enabled: bool = False  # Use Redis for rate limiting
 
+    # Security: Rate Limiting
+    # Enabled by default in production, disabled in development
+    # Can be overridden with RATE_LIMIT_ENABLED environment variable
+    rate_limit_enabled: bool = True  # Enable API rate limiting
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

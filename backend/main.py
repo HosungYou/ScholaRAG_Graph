@@ -109,8 +109,11 @@ app.add_middleware(
 
 # Rate limiting middleware
 # Limits: /api/auth/* - 10/min, /api/chat/* - 30/min, /api/import/* - 5/min
-# Disabled during development for easier testing
-app.add_middleware(RateLimiterMiddleware, enabled=False)
+# Controlled via RATE_LIMIT_ENABLED env var (default: True in production)
+# Set RATE_LIMIT_ENABLED=false for local development
+_rate_limit_enabled = settings.rate_limit_enabled and settings.environment != "development"
+app.add_middleware(RateLimiterMiddleware, enabled=_rate_limit_enabled)
+logger.info(f"Rate Limiting: {'enabled' if _rate_limit_enabled else 'disabled (development mode)'}")
 
 # Authentication middleware (enforces centralized auth policies)
 # See auth/policies.py for route-level policy configuration
