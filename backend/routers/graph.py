@@ -5,6 +5,8 @@ Handles knowledge graph queries and visualization data with PostgreSQL persisten
 
 Security:
 - All endpoints require authentication in production (configurable via REQUIRE_AUTH)
+- Project-level access control is enforced for all operations
+- Users can only access projects they own, collaborate on, or that are public
 """
 
 import json
@@ -19,6 +21,7 @@ from database import db
 from graph.graph_store import GraphStore
 from auth.dependencies import require_auth_if_configured
 from auth.models import User
+from routers.projects import check_project_access
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +102,78 @@ async def get_graph_store(database=Depends(get_db)) -> GraphStore:
     return GraphStore(db_connection=database)
 
 
+async def verify_project_access(
+    database,
+    project_id: UUID,
+    current_user: Optional[User],
+    action: str = "access"
+) -> None:
+    """
+    Verify that the current user has access to the project.
+
+    Args:
+        database: Database connection
+        project_id: UUID of the project
+        current_user: Current authenticated user (None if auth not configured)
+        action: Description of the action for error messages
+
+    Raises:
+        HTTPException: 403 if access denied, 404 if project not found
+    """
+    # Check project exists
+    exists = await database.fetchval(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)",
+        project_id,
+    )
+    if not exists:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # If auth is configured, verify access
+    if current_user is not None:
+        has_access = await check_project_access(database, project_id, current_user.id)
+        if not has_access:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have permission to {action} this project"
+            )
+
+
+async def get_project_id_from_node(database, node_id: str) -> Optional[UUID]:
+    """
+    Get the project_id for a node.
+
+    Args:
+        database: Database connection
+        node_id: UUID of the node
+
+    Returns:
+        Project UUID or None if node not found
+    """
+    row = await database.fetchrow(
+        "SELECT project_id FROM entities WHERE id = $1",
+        node_id,
+    )
+    return UUID(str(row["project_id"])) if row else None
+
+
+async def get_project_id_from_gap(database, gap_id: str) -> Optional[UUID]:
+    """
+    Get the project_id for a structural gap.
+
+    Args:
+        database: Database connection
+        gap_id: UUID of the gap
+
+    Returns:
+        Project UUID or None if gap not found
+    """
+    row = await database.fetchrow(
+        "SELECT project_id FROM structural_gaps WHERE id = $1",
+        str(gap_id),
+    )
+    return UUID(str(row["project_id"])) if row else None
+
+
 @router.get("/nodes", response_model=List[NodeResponse])
 async def get_nodes(
     project_id: UUID,
@@ -109,6 +184,9 @@ async def get_nodes(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get all nodes for a project from PostgreSQL. Requires auth in production."""
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
     try:
         if entity_type:
             rows = await database.fetch(
@@ -147,6 +225,8 @@ async def get_nodes(
             )
             for row in rows
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get nodes: {e}")
         raise HTTPException(
@@ -165,6 +245,9 @@ async def get_edges(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get all edges for a project from PostgreSQL. Requires auth in production."""
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
     try:
         if relationship_type:
             rows = await database.fetch(
@@ -205,6 +288,8 @@ async def get_edges(
             )
             for row in rows
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get edges: {e}")
         raise HTTPException(
@@ -222,6 +307,9 @@ async def get_visualization_data(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get graph data optimized for visualization. Requires auth in production."""
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
     try:
         # Build entity type filter
         type_filter = ""
@@ -291,6 +379,8 @@ async def get_visualization_data(
             edges = []
 
         return GraphDataResponse(nodes=nodes, edges=edges)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get visualization data: {e}")
         raise HTTPException(
@@ -322,7 +412,10 @@ async def get_subgraph(
         if not center_node:
             raise HTTPException(status_code=404, detail="Node not found")
 
-        project_id = str(center_node["project_id"])
+        project_id = UUID(str(center_node["project_id"]))
+
+        # Verify project access
+        await verify_project_access(database, project_id, current_user, "access")
 
         # BFS to find connected nodes
         visited_ids = {node_id}
@@ -343,7 +436,7 @@ async def get_subgraph(
             neighbor_rows = await database.fetch(
                 neighbors_query,
                 current_level,
-                project_id,
+                str(project_id),
             )
 
             next_level = []
@@ -386,7 +479,7 @@ async def get_subgraph(
             AND source_id = ANY($2::uuid[])
             AND target_id = ANY($2::uuid[])
             """,
-            project_id,
+            str(project_id),
             list(visited_ids),
         )
 
@@ -417,6 +510,12 @@ async def search_nodes(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Search nodes by query string. Requires auth in production."""
+    # If project_id is provided, verify access
+    if request.project_id:
+        await verify_project_access(
+            database, UUID(request.project_id), current_user, "search"
+        )
+
     try:
         query_lower = request.query.lower()
         params = [f"%{query_lower}%", request.limit]
@@ -425,7 +524,23 @@ async def search_nodes(
             project_filter = "AND project_id = $3"
             params.append(request.project_id)
         else:
-            project_filter = ""
+            # If no project_id, only search in accessible projects
+            if current_user is not None:
+                project_filter = """
+                AND project_id IN (
+                    SELECT p.id FROM projects p
+                    LEFT JOIN project_collaborators pc ON p.id = pc.project_id
+                    LEFT JOIN team_projects tp ON p.id = tp.project_id
+                    LEFT JOIN team_members tm ON tp.team_id = tm.team_id
+                    WHERE p.owner_id = $3
+                       OR pc.user_id = $3
+                       OR tm.user_id = $3
+                       OR p.visibility = 'public'
+                )
+                """
+                params.append(current_user.id)
+            else:
+                project_filter = ""
 
         if request.entity_types:
             type_offset = len(params) + 1
@@ -457,6 +572,8 @@ async def search_nodes(
             )
             for row in rows
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to search nodes: {e}")
         raise HTTPException(
@@ -486,6 +603,11 @@ async def get_similar_nodes(
 
         if not source_node:
             raise HTTPException(status_code=404, detail="Node not found")
+
+        project_id = UUID(str(source_node["project_id"]))
+
+        # Verify project access
+        await verify_project_access(database, project_id, current_user, "access")
 
         if source_node["embedding"] is None:
             # Fallback: return nodes of same type
@@ -549,6 +671,9 @@ async def get_research_gaps(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Identify research gaps - concepts with few connected papers. Requires auth in production."""
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
     try:
         # Find concepts with few paper connections
         rows = await database.fetch(
@@ -588,6 +713,8 @@ async def get_research_gaps(
             )
             for row in rows
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get research gaps: {e}")
         raise HTTPException(
@@ -606,7 +733,7 @@ async def get_entity(
     try:
         row = await database.fetchrow(
             """
-            SELECT id, entity_type::text, name, properties
+            SELECT id, entity_type::text, name, properties, project_id
             FROM entities
             WHERE id = $1
             """,
@@ -615,6 +742,11 @@ async def get_entity(
 
         if not row:
             raise HTTPException(status_code=404, detail="Entity not found")
+
+        project_id = UUID(str(row["project_id"]))
+
+        # Verify project access
+        await verify_project_access(database, project_id, current_user, "access")
 
         return NodeResponse(
             id=str(row["id"]),
@@ -679,6 +811,9 @@ async def get_gap_analysis(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Get full gap analysis including clusters, gaps, and centrality metrics. Requires auth in production."""
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
     try:
         # Get clusters
         cluster_rows = await database.fetch(
@@ -785,6 +920,8 @@ async def get_gap_analysis(
             total_relationships=relationship_count or 0,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get gap analysis: {e}")
         raise HTTPException(
@@ -800,6 +937,9 @@ async def refresh_gap_analysis(
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
     """Re-run gap detection on the project's concept graph. Requires auth in production."""
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "modify")
+
     try:
         from graph.gap_detector import GapDetector
 
@@ -927,8 +1067,10 @@ async def refresh_gap_analysis(
             )
 
         # Return updated analysis
-        return await get_gap_analysis(project_id, database)
+        return await get_gap_analysis(project_id, database, current_user)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to refresh gap analysis: {e}")
         raise HTTPException(status_code=500, detail="Failed to refresh gap analysis. Please try again later.")
@@ -947,7 +1089,8 @@ async def get_gap_detail(
             SELECT id, cluster_a_id, cluster_b_id,
                    cluster_a_concepts, cluster_b_concepts,
                    cluster_a_names, cluster_b_names,
-                   gap_strength, bridge_candidates, research_questions
+                   gap_strength, bridge_candidates, research_questions,
+                   project_id
             FROM structural_gaps
             WHERE id = $1
             """,
@@ -956,6 +1099,11 @@ async def get_gap_detail(
 
         if not row:
             raise HTTPException(status_code=404, detail="Gap not found")
+
+        project_id = UUID(str(row["project_id"]))
+
+        # Verify project access
+        await verify_project_access(database, project_id, current_user, "access")
 
         return StructuralGapResponse(
             id=str(row["id"]),
@@ -998,6 +1146,11 @@ async def generate_gap_questions(
 
         if not row:
             raise HTTPException(status_code=404, detail="Gap not found")
+
+        project_id = UUID(str(row["project_id"]))
+
+        # Verify project access
+        await verify_project_access(database, project_id, current_user, "modify")
 
         # Return existing if not regenerating
         if not regenerate and row["research_questions"]:

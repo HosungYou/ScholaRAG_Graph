@@ -58,6 +58,8 @@ class TestGraphAPI:
     async def test_get_nodes(self, async_client, mock_db):
         """Test getting nodes for a project."""
         with patch("routers.graph.db", mock_db):
+            # Mock project existence check (verify_project_access)
+            mock_db.fetchval.return_value = True
             mock_db.fetch.return_value = [
                 {
                     "id": "node-1",
@@ -79,6 +81,8 @@ class TestGraphAPI:
     async def test_get_edges(self, async_client, mock_db):
         """Test getting edges for a project."""
         with patch("routers.graph.db", mock_db):
+            # Mock project existence check (verify_project_access)
+            mock_db.fetchval.return_value = True
             mock_db.fetch.return_value = []
 
             response = await async_client.get(
