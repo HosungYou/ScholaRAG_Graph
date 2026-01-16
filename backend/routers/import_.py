@@ -1069,33 +1069,34 @@ async def validate_zotero_folder(
     temp_dir = tempfile.mkdtemp(prefix="zotero_validate_")
 
     try:
-        files_subdir = Path(temp_dir) / "files"
-        files_subdir.mkdir()
-
         rdf_file = None
         pdf_count = 0
 
-        # Save uploaded files to temp directory
+        # Save uploaded files to temp directory, preserving relative paths
         logger.info(f"Received {len(files)} files for Zotero validation")
         for file in files:
             logger.info(f"  - filename: '{file.filename}', content_type: {file.content_type}")
             content = await file.read()
 
-            if file.filename.lower().endswith('.rdf'):
-                rdf_path = Path(temp_dir) / file.filename
-                # Create parent directories if path includes subdirectories
-                rdf_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(rdf_path, 'wb') as f:
-                    f.write(content)
-                rdf_file = file.filename
-            elif file.filename.lower().endswith('.pdf'):
-                # Create subdirectory for each PDF
-                pdf_name = Path(file.filename).name  # Get just the filename, not path
-                pdf_subdir = files_subdir / Path(pdf_name).stem
-                pdf_subdir.mkdir(parents=True, exist_ok=True)
-                with open(pdf_subdir / pdf_name, 'wb') as f:
-                    f.write(content)
+            # Security: Validate path (no absolute paths or path traversal)
+            filename = file.filename or ""
+            if filename.startswith("/") or ".." in filename:
+                logger.warning(f"Rejected unsafe path: {filename}")
+                continue
+
+            # Preserve full relative path for ALL files (RDF and PDF)
+            # This maintains Zotero's folder structure: files/<item_key>/paper.pdf
+            target_path = Path(temp_dir) / filename
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(target_path, 'wb') as f:
+                f.write(content)
+
+            if filename.lower().endswith('.rdf'):
+                rdf_file = filename
+            elif filename.lower().endswith('.pdf'):
                 pdf_count += 1
+                logger.info(f"    → Saved PDF to: {target_path}")
 
         if not rdf_file:
             return ZoteroValidationResponse(
@@ -1159,8 +1160,8 @@ async def import_zotero_folder(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
-    # Validate that we have an RDF file
-    rdf_files = [f for f in files if f.filename.endswith('.rdf')]
+    # Validate that we have an RDF file (case-insensitive)
+    rdf_files = [f for f in files if f.filename and f.filename.lower().endswith('.rdf')]
     if not rdf_files:
         raise HTTPException(
             status_code=400,
@@ -1183,7 +1184,7 @@ async def import_zotero_folder(
         uploaded_files.append((file.filename, content))
 
     # Count items (basic RDF parsing to get count)
-    rdf_content = next((c for f, c in uploaded_files if f.endswith('.rdf')), None)
+    rdf_content = next((c for f, c in uploaded_files if f and f.lower().endswith('.rdf')), None)
     items_count = 0
     if rdf_content:
         try:

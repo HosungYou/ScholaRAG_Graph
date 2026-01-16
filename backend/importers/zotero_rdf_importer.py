@@ -397,13 +397,14 @@ class ZoteroRDFImporter:
             validation["errors"].append(f"폴더가 존재하지 않습니다: {folder}")
             return validation
 
-        # Find RDF file
-        rdf_files = list(folder.glob("*.rdf"))
+        # Find RDF file (search recursively in case of nested folder structure)
+        rdf_files = list(folder.glob("**/*.rdf"))
         if not rdf_files:
             validation["errors"].append("RDF 파일을 찾을 수 없습니다. Zotero에서 RDF 형식으로 내보내기 해주세요.")
             return validation
 
         validation["rdf_file"] = str(rdf_files[0])
+        rdf_parent = rdf_files[0].parent  # Get the folder containing the RDF file
 
         # Parse RDF to count items
         items = self._parse_rdf_file(rdf_files[0])
@@ -413,8 +414,8 @@ class ZoteroRDFImporter:
             validation["errors"].append("RDF 파일에서 항목을 찾을 수 없습니다.")
             return validation
 
-        # Check for files directory
-        files_dir = folder / "files"
+        # Check for files directory (relative to RDF file location)
+        files_dir = rdf_parent / "files"
         validation["has_files_dir"] = files_dir.exists()
 
         if not files_dir.exists():
@@ -422,8 +423,8 @@ class ZoteroRDFImporter:
                 "'files' 폴더가 없습니다. Zotero 내보내기 시 'Export Files' 옵션을 체크해주세요."
             )
         else:
-            # Count available PDFs
-            pdf_map = self._find_pdf_files(folder, items)
+            # Count available PDFs - use rdf_parent (not folder) since files/ is relative to RDF
+            pdf_map = self._find_pdf_files(rdf_parent, items)
             validation["pdfs_available"] = len(pdf_map)
 
             if len(pdf_map) < len(items):
@@ -469,12 +470,13 @@ class ZoteroRDFImporter:
 
         # Parse RDF
         rdf_path = Path(validation["rdf_file"])
+        rdf_parent = rdf_path.parent  # Folder containing the RDF file
         items = self._parse_rdf_file(rdf_path)
         self.progress.papers_total = len(items)
 
-        # Find PDFs
+        # Find PDFs - use rdf_parent since files/ is relative to RDF location
         self._update_progress("scanning", 0.15, "PDF 파일 스캔 중...")
-        pdf_map = self._find_pdf_files(folder, items)
+        pdf_map = self._find_pdf_files(rdf_parent, items)
 
         # Create project
         self._update_progress("creating_project", 0.2, "프로젝트 생성 중...")
@@ -648,24 +650,27 @@ class ZoteroRDFImporter:
         temp_dir = tempfile.mkdtemp(prefix="zotero_import_")
 
         try:
-            # Save uploaded files
-            files_subdir = Path(temp_dir) / "files"
-            files_subdir.mkdir()
-
             rdf_file = None
 
+            # Save uploaded files, preserving full relative paths
+            # This maintains Zotero's folder structure: files/<item_key>/paper.pdf
             for filename, content in files:
-                if filename.endswith('.rdf'):
-                    rdf_path = Path(temp_dir) / filename
-                    with open(rdf_path, 'wb') as f:
-                        f.write(content)
-                    rdf_file = rdf_path
-                elif filename.endswith('.pdf'):
-                    # Put PDFs in a subdirectory
-                    pdf_subdir = files_subdir / Path(filename).stem
-                    pdf_subdir.mkdir(exist_ok=True)
-                    with open(pdf_subdir / filename, 'wb') as f:
-                        f.write(content)
+                # Security: Validate path (no absolute paths or path traversal)
+                if not filename or filename.startswith("/") or ".." in filename:
+                    logger.warning(f"Rejected unsafe path: {filename}")
+                    continue
+
+                # Preserve full relative path for ALL files (RDF and PDF)
+                target_path = Path(temp_dir) / filename
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(target_path, 'wb') as f:
+                    f.write(content)
+
+                if filename.lower().endswith('.rdf'):
+                    rdf_file = target_path
+                elif filename.lower().endswith('.pdf'):
+                    logger.info(f"Saved PDF with preserved path: {target_path}")
 
             if not rdf_file:
                 return {

@@ -48,6 +48,15 @@ const COLORS = {
 
 const NODE_TYPES: Node['type'][] = ['hexagon', 'diamond', 'pentagon', 'square'];
 
+// Animation settings - make it more dynamic
+const ANIMATION_CONFIG = {
+  nodeSpeed: 0.8,        // Increased from 0.3
+  particleSpeed: 0.008,  // Increased from 0.003
+  connectionDistance: 350, // Increased from 300
+  mouseRepelStrength: 0.05, // Increased from 0.02
+  edgeOpacity: 0.25,     // Increased from 0.15
+};
+
 export function HeroBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>();
@@ -110,34 +119,34 @@ export function HeroBackground() {
 
   // Initialize nodes
   const initNodes = useCallback((width: number, height: number) => {
-    const nodeCount = Math.floor((width * height) / 40000); // Density based on canvas size
+    const nodeCount = Math.floor((width * height) / 25000); // More nodes (was 40000)
     const colorKeys = Object.keys(COLORS) as (keyof typeof COLORS)[];
 
-    nodesRef.current = Array.from({ length: Math.max(15, Math.min(30, nodeCount)) }, (_, i) => ({
+    nodesRef.current = Array.from({ length: Math.max(25, Math.min(50, nodeCount)) }, (_, i) => ({
       id: i,
       x: Math.random() * width,
       y: Math.random() * height,
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
+      vx: (Math.random() - 0.5) * ANIMATION_CONFIG.nodeSpeed,
+      vy: (Math.random() - 0.5) * ANIMATION_CONFIG.nodeSpeed,
       type: NODE_TYPES[Math.floor(Math.random() * NODE_TYPES.length)],
-      size: 8 + Math.random() * 12,
+      size: 10 + Math.random() * 18, // Larger nodes (was 8-20)
       color: COLORS[colorKeys[Math.floor(Math.random() * colorKeys.length)]],
-      opacity: 0.3 + Math.random() * 0.4,
+      opacity: 0.4 + Math.random() * 0.4, // More visible (was 0.3-0.7)
     }));
 
-    // Initialize edges
+    // Initialize edges - more connections
     edgesRef.current = [];
     nodesRef.current.forEach((node, i) => {
-      // Connect to 1-2 nearby nodes
-      const connections = 1 + Math.floor(Math.random() * 2);
+      // Connect to 2-4 nearby nodes (was 1-2)
+      const connections = 2 + Math.floor(Math.random() * 3);
       for (let c = 0; c < connections; c++) {
-        const targetIndex = (i + 1 + Math.floor(Math.random() * 3)) % nodesRef.current.length;
+        const targetIndex = (i + 1 + Math.floor(Math.random() * 5)) % nodesRef.current.length;
         if (targetIndex !== i) {
           edgesRef.current.push({
             from: i,
             to: targetIndex,
             progress: Math.random(),
-            active: Math.random() > 0.5,
+            active: Math.random() > 0.3, // More active edges (was 0.5)
           });
         }
       }
@@ -168,15 +177,20 @@ export function HeroBackground() {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       // Only draw edges within reasonable distance
-      if (dist < 300) {
-        const opacity = Math.max(0, 0.15 * (1 - dist / 300));
+      if (dist < ANIMATION_CONFIG.connectionDistance) {
+        const opacity = Math.max(0, ANIMATION_CONFIG.edgeOpacity * (1 - dist / ANIMATION_CONFIG.connectionDistance));
 
-        // Draw edge line
+        // Draw edge line with gradient effect
         ctx.save();
         ctx.globalAlpha = opacity;
-        ctx.strokeStyle = fromNode.color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
+
+        // Create gradient for edge
+        const gradient = ctx.createLinearGradient(fromNode.x, fromNode.y, toNode.x, toNode.y);
+        gradient.addColorStop(0, fromNode.color);
+        gradient.addColorStop(1, toNode.color);
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
 
         ctx.beginPath();
         ctx.moveTo(fromNode.x, fromNode.y);
@@ -186,17 +200,20 @@ export function HeroBackground() {
 
         // Draw flowing particle on active edges
         if (edge.active) {
-          edge.progress += 0.003;
+          edge.progress += ANIMATION_CONFIG.particleSpeed;
           if (edge.progress > 1) edge.progress = 0;
 
           const px = fromNode.x + dx * edge.progress;
           const py = fromNode.y + dy * edge.progress;
 
+          // Draw glowing particle
           ctx.save();
-          ctx.globalAlpha = opacity * 2;
+          ctx.globalAlpha = opacity * 3;
           ctx.fillStyle = fromNode.color;
+          ctx.shadowColor = fromNode.color;
+          ctx.shadowBlur = 8;
           ctx.beginPath();
-          ctx.arc(px, py, 2, 0, Math.PI * 2);
+          ctx.arc(px, py, 3, 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
         }
@@ -205,17 +222,21 @@ export function HeroBackground() {
 
     // Update and draw nodes
     nodesRef.current.forEach((node) => {
-      // Mouse interaction - gentle repulsion
+      // Mouse interaction - stronger repulsion
       if (mouseRef.current.active) {
         const dx = node.x - mouseRef.current.x;
         const dy = node.y - mouseRef.current.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 150 && dist > 0) {
-          const force = (150 - dist) / 150 * 0.02;
+        if (dist < 200 && dist > 0) {
+          const force = (200 - dist) / 200 * ANIMATION_CONFIG.mouseRepelStrength;
           node.vx += (dx / dist) * force;
           node.vy += (dy / dist) * force;
         }
       }
+
+      // Add subtle oscillation for constant movement
+      node.vx += (Math.random() - 0.5) * 0.02;
+      node.vy += (Math.random() - 0.5) * 0.02;
 
       // Apply velocity
       node.x += node.vx;
@@ -235,8 +256,12 @@ export function HeroBackground() {
         node.y = Math.max(node.size, Math.min(height - node.size, node.y));
       }
 
-      // Draw node
+      // Draw node with glow effect
+      ctx.save();
+      ctx.shadowColor = node.color;
+      ctx.shadowBlur = 12;
       drawPolygon(ctx, node.x, node.y, node.size, node.type, node.color, node.opacity);
+      ctx.restore();
     });
 
     animationRef.current = requestAnimationFrame(animate);

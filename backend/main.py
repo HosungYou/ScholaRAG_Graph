@@ -109,7 +109,8 @@ app.add_middleware(
 
 # Rate limiting middleware
 # Limits: /api/auth/* - 10/min, /api/chat/* - 30/min, /api/import/* - 5/min
-app.add_middleware(RateLimiterMiddleware, enabled=True)
+# Disabled during development for easier testing
+app.add_middleware(RateLimiterMiddleware, enabled=False)
 
 # Authentication middleware (enforces centralized auth policies)
 # See auth/policies.py for route-level policy configuration
