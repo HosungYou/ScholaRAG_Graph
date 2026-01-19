@@ -198,14 +198,16 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, [nodes, edges, clusterColorMap, centralityMap, highlightedNodeSet, highlightedEdgeSet]);
 
   // Custom node rendering with glow effect
-  const nodeThreeObject = useCallback((node: ForceGraphNode) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nodeThreeObject = useCallback((nodeData: any) => {
+    const node = nodeData as ForceGraphNode;
     const group = new THREE.Group();
 
     // Main sphere
-    const geometry = new THREE.SphereGeometry(node.val, 16, 16);
+    const geometry = new THREE.SphereGeometry(node.val || 5, 16, 16);
     const material = new THREE.MeshPhongMaterial({
-      color: node.color,
-      emissive: node.color,
+      color: node.color || '#888888',
+      emissive: node.color || '#888888',
       emissiveIntensity: node.isHighlighted ? 0.6 : 0.2,
       transparent: true,
       opacity: node.isHighlighted || hoveredNode === node.id ? 1 : 0.85,
@@ -215,7 +217,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
 
     // Outer glow for bridge nodes
     if (node.isBridge) {
-      const glowGeometry = new THREE.SphereGeometry(node.val * 1.4, 16, 16);
+      const glowGeometry = new THREE.SphereGeometry((node.val || 5) * 1.4, 16, 16);
       const glowMaterial = new THREE.MeshBasicMaterial({
         color: '#FFD700',
         transparent: true,
@@ -227,7 +229,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
 
     // Highlight ring for selected nodes
     if (node.isHighlighted) {
-      const ringGeometry = new THREE.RingGeometry(node.val * 1.3, node.val * 1.5, 32);
+      const ringGeometry = new THREE.RingGeometry((node.val || 5) * 1.3, (node.val || 5) * 1.5, 32);
       const ringMaterial = new THREE.MeshBasicMaterial({
         color: '#FFD700',
         transparent: true,
@@ -243,13 +245,17 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, [hoveredNode]);
 
   // Link width based on weight
-  const linkWidth = useCallback((link: ForceGraphLink) => {
-    const baseWidth = Math.max(0.3, link.weight * 0.5);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const linkWidth = useCallback((linkData: any) => {
+    const link = linkData as ForceGraphLink;
+    const baseWidth = Math.max(0.3, (link.weight || 1) * 0.5);
     return link.isHighlighted ? baseWidth * 2 : baseWidth;
   }, []);
 
   // Link color
-  const linkColor = useCallback((link: ForceGraphLink) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const linkColor = useCallback((linkData: any) => {
+    const link = linkData as ForceGraphLink;
     if (link.isHighlighted) {
       return 'rgba(255, 215, 0, 0.8)'; // Gold
     }
@@ -257,7 +263,9 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, []);
 
   // Node click handler
-  const handleNodeClick = useCallback((node: ForceGraphNode) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleNodeClick = useCallback((nodeData: any) => {
+    const node = nodeData as ForceGraphNode;
     if (onNodeClick) {
       const originalNode = nodes.find(n => n.id === node.id);
       if (originalNode) {
@@ -277,7 +285,9 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, [nodes, onNodeClick]);
 
   // Node hover handler
-  const handleNodeHover = useCallback((node: ForceGraphNode | null) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleNodeHover = useCallback((nodeData: any) => {
+    const node = nodeData as ForceGraphNode | null;
     setHoveredNode(node?.id || null);
     if (onNodeHover) {
       if (node) {
@@ -423,14 +433,17 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         ref={fgRef}
         graphData={graphData}
         nodeThreeObject={nodeThreeObject}
-        nodeLabel={(node: ForceGraphNode) => `
-          <div style="background: rgba(0,0,0,0.8); padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 12px;">
-            <div style="font-weight: bold; color: ${node.color};">${node.name}</div>
-            <div style="color: #888; margin-top: 4px;">${node.entityType}</div>
-            ${node.centrality ? `<div style="color: #4ECDC4; margin-top: 2px;">Centrality: ${(node.centrality * 100).toFixed(1)}%</div>` : ''}
-            ${node.isBridge ? '<div style="color: #FFD700; margin-top: 2px;">Bridge Node</div>' : ''}
-          </div>
-        `}
+        nodeLabel={(nodeData: unknown) => {
+          const node = nodeData as ForceGraphNode;
+          return `
+            <div style="background: rgba(0,0,0,0.8); padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+              <div style="font-weight: bold; color: ${node.color || '#888'};">${node.name || 'Unknown'}</div>
+              <div style="color: #888; margin-top: 4px;">${node.entityType || 'Entity'}</div>
+              ${node.centrality ? `<div style="color: #4ECDC4; margin-top: 2px;">Centrality: ${(node.centrality * 100).toFixed(1)}%</div>` : ''}
+              ${node.isBridge ? '<div style="color: #FFD700; margin-top: 2px;">Bridge Node</div>' : ''}
+            </div>
+          `;
+        }}
         linkWidth={linkWidth}
         linkColor={linkColor}
         linkOpacity={0.6}
