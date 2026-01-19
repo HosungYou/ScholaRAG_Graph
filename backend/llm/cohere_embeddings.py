@@ -23,7 +23,7 @@ class CohereEmbeddingProvider:
 
     # Cohere embed-v4.0 supports: 256, 512, 1024, 1536
     DEFAULT_DIMENSION = 1536
-    DEFAULT_MODEL = "embed-english-v3.0"  # Use v3 for stability
+    DEFAULT_MODEL = "embed-v4.0"  # Use v4 for 1536 dimension support
 
     def __init__(self, api_key: str, dimension: int = DEFAULT_DIMENSION):
         self.api_key = api_key
@@ -75,12 +75,19 @@ class CohereEmbeddingProvider:
                 # Clean texts (Cohere doesn't like empty strings)
                 cleaned_batch = [t.strip() if t.strip() else "empty" for t in batch]
 
-                response = await self.client.embed(
-                    texts=cleaned_batch,
-                    model=model_to_use,
-                    input_type=input_type,
-                    truncate="END",  # Truncate long texts from end
-                )
+                # Build embed kwargs - embed-v4.0 supports output_dimensions
+                embed_kwargs = {
+                    "texts": cleaned_batch,
+                    "model": model_to_use,
+                    "input_type": input_type,
+                    "truncate": "END",  # Truncate long texts from end
+                }
+
+                # Only add output_dimensions for v4 models that support it
+                if "v4" in model_to_use:
+                    embed_kwargs["output_dimensions"] = self.dimension
+
+                response = await self.client.embed(**embed_kwargs)
 
                 all_embeddings.extend(response.embeddings)
 
