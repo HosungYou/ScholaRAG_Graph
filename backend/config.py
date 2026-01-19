@@ -43,7 +43,9 @@ class Settings(BaseSettings):
     # Supabase Auth
     supabase_url: str = ""
     supabase_anon_key: str = ""
-    supabase_service_role_key: str = ""  # For admin operations
+    supabase_service_key: str = ""  # Service role key for admin operations
+    supabase_service_role_key: str = ""  # Alias for service_key (deprecated)
+    supabase_project_id: str = ""  # Supabase project ID
 
     # External API Integrations
     semantic_scholar_api_key: str = ""  # Optional: for higher rate limits
