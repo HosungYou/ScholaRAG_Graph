@@ -83,9 +83,10 @@ class CohereEmbeddingProvider:
                     "truncate": "END",  # Truncate long texts from end
                 }
 
-                # Only add output_dimensions for v4 models that support it
+                # Only add output_dimension for v4 models that support it
+                # Note: parameter is singular "output_dimension", not plural
                 if "v4" in model_to_use:
-                    embed_kwargs["output_dimensions"] = self.dimension
+                    embed_kwargs["output_dimension"] = self.dimension
 
                 response = await self.client.embed(**embed_kwargs)
 
