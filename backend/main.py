@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database import db, init_db, close_db
 from cache import init_llm_cache, get_llm_cache
-from routers import auth, chat, graph, import_, integrations, prisma, projects, teams
+from routers import auth, chat, graph, import_, integrations, prisma, projects, teams, system
 from auth.supabase_client import supabase_client
 from auth.middleware import AuthMiddleware
 from middleware.rate_limiter import RateLimiterMiddleware, init_rate_limit_store
@@ -128,6 +128,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(teams.router, prefix="/api/teams", tags=["Teams"])
 app.include_router(prisma.router, prefix="/api/prisma", tags=["PRISMA"])
 app.include_router(integrations.router, tags=["Integrations"])
+app.include_router(system.router, tags=["System"])
 
 
 @app.get("/")

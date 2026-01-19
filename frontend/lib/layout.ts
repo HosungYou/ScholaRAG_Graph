@@ -4,7 +4,7 @@
  */
 
 import type { GraphEntity, GraphEdge, EntityType } from '@/types';
-import { Node, Edge } from 'reactflow';
+import { Node, Edge, MarkerType } from 'reactflow';
 
 interface LayoutNode {
   id: string;
@@ -51,9 +51,13 @@ const clusterColors = [
   '#82E0AA', // Light Green
 ];
 
-// Entity type colors (fallback when no cluster)
+// Entity type colors (Hybrid Mode - matches FilterPanel/PolygonNode)
 const entityTypeColors: Record<string, string> = {
-  Concept: '#8B5CF6',    // Purple
+  // Hybrid Mode entities
+  Paper: '#6366F1',      // Indigo
+  Author: '#A855F7',     // Purple
+  // Concept-centric entities
+  Concept: '#8B5CF6',    // Violet
   Method: '#F59E0B',     // Amber
   Finding: '#10B981',    // Emerald
   Problem: '#EF4444',    // Red
@@ -62,6 +66,27 @@ const entityTypeColors: Record<string, string> = {
   Innovation: '#14B8A6', // Teal
   Limitation: '#F97316', // Orange
 };
+
+// Edge colors by relationship type (ResearchRabbit style)
+const edgeColors: Record<string, string> = {
+  'DISCUSSES_CONCEPT': '#8B5CF6',  // Violet - Paper discusses concept
+  'USES_METHOD': '#F59E0B',        // Amber - Uses methodology
+  'SUPPORTS': '#10B981',           // Green - Supporting evidence
+  'CONTRADICTS': '#EF4444',        // Red - Contradicting evidence
+  'CITES': '#3B82F6',              // Blue - Citation relationship
+  'CO_OCCURS_WITH': '#EC4899',     // Pink - Co-occurrence
+  'RELATED_TO': '#94A3B8',         // Slate - General relation
+  'BRIDGES_GAP': '#FFD700',        // Gold - Gap bridge (special)
+  'HAS_AUTHOR': '#A855F7',         // Purple - Author relationship
+  'default': '#94A3B8',            // Slate - Default
+};
+
+/**
+ * Get edge color based on relationship type
+ */
+function getEdgeColor(relationshipType: string): string {
+  return edgeColors[relationshipType] || edgeColors.default;
+}
 
 /**
  * Cluster-aware force-directed layout
@@ -75,10 +100,10 @@ export function clusterForceLayout(
   const {
     width = 1200,
     height = 800,
-    chargeStrength = -200,
+    chargeStrength = -400,  // Increased repulsion for better node dispersion
     linkStrength = 0.4,
     clusterStrength = 0.1,
-    iterations = 150,
+    iterations = 200,  // More iterations for stable layout
   } = options;
 
   const centerX = width / 2;
@@ -187,6 +212,18 @@ export function clusterForceLayout(
         nodeA.vy! -= fy;
         nodeB.vx! += fx;
         nodeB.vy! += fy;
+
+        // Minimum distance constraint - prevent node overlap
+        const minDistance = 60;
+        if (distance < minDistance) {
+          const pushForce = (minDistance - distance) * 0.5 * alpha;
+          const px = (dx / distance) * pushForce;
+          const py = (dy / distance) * pushForce;
+          nodeA.vx! -= px;
+          nodeA.vy! -= py;
+          nodeB.vx! += px;
+          nodeB.vy! += py;
+        }
       }
     }
 
@@ -222,20 +259,20 @@ export function clusterForceLayout(
         node.vx! += dx * clusterStrength * alpha;
         node.vy! += dy * clusterStrength * alpha;
       } else {
-        // Unclustered nodes attracted to center
+        // Unclustered nodes attracted to center (reduced force)
         const dx = centerX - node.x;
         const dy = centerY - node.y;
-        node.vx! += dx * 0.005 * alpha;
-        node.vy! += dy * 0.005 * alpha;
+        node.vx! += dx * 0.002 * alpha;  // Reduced from 0.005
+        node.vy! += dy * 0.002 * alpha;
       }
     }
 
-    // Apply center gravity (weak)
+    // Apply center gravity (very weak - allows more dispersion)
     for (const node of layoutNodes) {
       const dx = centerX - node.x;
       const dy = centerY - node.y;
-      node.vx! += dx * 0.002 * alpha;
-      node.vy! += dy * 0.002 * alpha;
+      node.vx! += dx * 0.001 * alpha;  // Reduced from 0.002
+      node.vy! += dy * 0.001 * alpha;
     }
 
     // Update positions with velocity
@@ -290,27 +327,44 @@ export function clusterForceLayout(
     };
   });
 
-  // Create edges with styling based on relationship type
+  // Create edges with arrows and styling (ResearchRabbit style)
   const flowEdges: Edge[] = edges.map((edge) => {
     const isGapBridge = edge.relationship_type === 'BRIDGES_GAP';
-    const isCooccurrence = edge.relationship_type === 'CO_OCCURS_WITH';
+    const edgeColor = getEdgeColor(edge.relationship_type);
+    const rawWeight = edge.properties?.weight ?? edge.properties?.confidence;
+    const weight = typeof rawWeight === 'number' ? rawWeight : 1;
 
     return {
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      type: 'smoothstep',
+      type: 'default',  // Straight line (Bezier curve) for better visibility
       animated: isGapBridge,
+      // Arrow marker at target end
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: edgeColor,
+        width: 16,
+        height: 16,
+      },
       style: {
-        stroke: isGapBridge ? '#FFD700' : isCooccurrence ? '#10B981' : '#94A3B8',
-        strokeWidth: isGapBridge ? 2 : 1,
+        stroke: edgeColor,
+        strokeWidth: isGapBridge ? 2 : Math.max(1, weight * 2),
         strokeDasharray: isGapBridge ? '5,5' : undefined,
-        opacity: 0.6,
+        opacity: 0.7,
       },
+      // Optional: show relationship type as label
+      label: edge.relationship_type?.replace(/_/g, ' '),
       labelStyle: {
-        fontSize: 10,
-        fill: '#6B7280',
+        fontSize: 9,
+        fill: '#9CA3AF',
+        fontWeight: 500,
       },
+      labelBgStyle: {
+        fill: '#1a1a2e',
+        fillOpacity: 0.8,
+      },
+      labelBgPadding: [4, 2] as [number, number],
     };
   });
 
@@ -411,17 +465,43 @@ export function radialLayout(
     };
   });
 
-  const flowEdges: Edge[] = edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    type: 'smoothstep',
-    style: {
-      stroke: '#94A3B8',
-      strokeWidth: 1,
-      opacity: 0.5,
-    },
-  }));
+  const flowEdges: Edge[] = edges.map((edge) => {
+    const isGapBridge = edge.relationship_type === 'BRIDGES_GAP';
+    const edgeColor = getEdgeColor(edge.relationship_type);
+    const rawWeight = edge.properties?.weight ?? edge.properties?.confidence;
+    const weight = typeof rawWeight === 'number' ? rawWeight : 1;
+
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: 'default',  // Straight line (Bezier curve) for better visibility
+      animated: isGapBridge,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: edgeColor,
+        width: 16,
+        height: 16,
+      },
+      style: {
+        stroke: edgeColor,
+        strokeWidth: isGapBridge ? 2 : Math.max(1, weight * 2),
+        strokeDasharray: isGapBridge ? '5,5' : undefined,
+        opacity: 0.6,
+      },
+      label: edge.relationship_type?.replace(/_/g, ' '),
+      labelStyle: {
+        fontSize: 9,
+        fill: '#9CA3AF',
+        fontWeight: 500,
+      },
+      labelBgStyle: {
+        fill: '#1a1a2e',
+        fillOpacity: 0.8,
+      },
+      labelBgPadding: [4, 2] as [number, number],
+    };
+  });
 
   return { nodes: flowNodes, edges: flowEdges };
 }

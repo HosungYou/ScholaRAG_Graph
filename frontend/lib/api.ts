@@ -387,6 +387,60 @@ class ApiClient {
       }
     );
   }
+
+  // Centrality Analysis
+  async getCentrality(
+    projectId: string,
+    metric: 'betweenness' | 'degree' | 'eigenvector' = 'betweenness'
+  ): Promise<{
+    metric: string;
+    centrality: Record<string, number>;
+    top_bridges: Array<[string, number]>;
+  }> {
+    return this.request(`/api/graph/centrality/${projectId}?metric=${metric}`);
+  }
+
+  // Node Slicing
+  async sliceGraph(
+    projectId: string,
+    removeTopN: number = 5,
+    metric: 'betweenness' | 'degree' | 'eigenvector' = 'betweenness'
+  ): Promise<{
+    nodes: GraphEntity[];
+    edges: GraphEdge[];
+    removed_node_ids: string[];
+    top_bridges: Array<{ id: string; name: string; score: number }>;
+    original_count: number;
+    filtered_count: number;
+  }> {
+    return this.request(`/api/graph/slice/${projectId}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        remove_top_n: removeTopN,
+        metric,
+      }),
+    });
+  }
+
+  // K-means Clustering
+  async recomputeClusters(
+    projectId: string,
+    clusterCount: number
+  ): Promise<{
+    clusters: Array<{
+      cluster_id: number;
+      concepts: string[];
+      label: string;
+      size: number;
+      color: string;
+    }>;
+    optimal_k: number;
+  }> {
+    return this.request(`/api/graph/clusters/${projectId}`, {
+      method: 'POST',
+      body: JSON.stringify({ cluster_count: clusterCount }),
+    });
+  }
 }
 
 export const api = new ApiClient(API_URL);

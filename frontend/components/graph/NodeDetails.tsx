@@ -24,25 +24,26 @@ interface NodeDetailsProps {
   onShowConnections?: (nodeId: string) => void;
 }
 
+// VS Design Diverge palette - matching PolygonNode.tsx exactly
 const entityTypeConfig: Record<EntityType, { color: string; icon: React.ReactNode }> = {
   Paper: {
-    color: '#64748B',
+    color: '#6366F1', // Indigo - matches PolygonNode
     icon: <Square className="w-4 h-4" strokeWidth={1.5} />
   },
   Author: {
-    color: '#22C55E',
+    color: '#A855F7', // Purple - matches PolygonNode
     icon: <Hexagon className="w-4 h-4" strokeWidth={1.5} />
   },
   Concept: {
-    color: '#2EC4B6', // accent-teal
+    color: '#8B5CF6', // Violet - matches PolygonNode
     icon: <Hexagon className="w-4 h-4" strokeWidth={1.5} />
   },
   Method: {
-    color: '#F4A261', // accent-amber
+    color: '#F59E0B', // Amber - matches PolygonNode
     icon: <Diamond className="w-4 h-4" strokeWidth={1.5} />
   },
   Finding: {
-    color: '#E63946', // accent-red
+    color: '#10B981', // Emerald - matches PolygonNode
     icon: <Pentagon className="w-4 h-4" strokeWidth={1.5} />
   },
 };

@@ -99,7 +99,7 @@ async def get_db():
 
 async def get_graph_store(database=Depends(get_db)) -> GraphStore:
     """Dependency to get GraphStore instance."""
-    return GraphStore(db_connection=database)
+    return GraphStore(db=database)
 
 
 async def verify_project_access(
@@ -347,10 +347,13 @@ async def get_visualization_data(
             for row in node_rows
         ]
 
-        # Get edges connecting visible nodes
+        # Get edges connecting visible nodes (Hybrid Mode: include if BOTH endpoints visible)
         node_ids = [str(row["id"]) for row in node_rows]
+        node_id_set = set(node_ids)
 
         if node_ids:
+            # Fetch edges where both endpoints are visible
+            # This ensures the graph is coherent (no dangling edges)
             edges_query = """
                 SELECT id, source_id, target_id, relationship_type::text, properties, weight
                 FROM relationships
@@ -375,6 +378,8 @@ async def get_visualization_data(
                 )
                 for row in edge_rows
             ]
+
+            logger.info(f"Visualization: {len(nodes)} nodes, {len(edges)} edges (both endpoints visible)")
         else:
             edges = []
 
@@ -1194,3 +1199,378 @@ async def generate_gap_questions(
     except Exception as e:
         logger.error(f"Failed to generate gap questions: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate questions")
+
+
+# ============================================================
+# Centrality Analysis & Slicing Endpoints
+# ============================================================
+
+class CentralityResponse(BaseModel):
+    """Response model for centrality analysis."""
+    metric: str
+    centrality: dict  # node_id -> score
+    top_bridges: List[tuple]  # [(node_id, score), ...]
+
+
+class SliceRequest(BaseModel):
+    """Request model for graph slicing."""
+    remove_top_n: int = 5
+    metric: str = "betweenness"
+
+
+class SliceResponse(BaseModel):
+    """Response model for sliced graph."""
+    nodes: List[NodeResponse]
+    edges: List[EdgeResponse]
+    removed_node_ids: List[str]
+    top_bridges: List[dict]
+    original_count: int
+    filtered_count: int
+
+
+class ClusterRequest(BaseModel):
+    """Request model for clustering."""
+    cluster_count: int = 5
+
+
+class ClusterResponse(BaseModel):
+    """Response model for clustering."""
+    clusters: List[dict]
+    optimal_k: int
+
+
+@router.get("/centrality/{project_id}")
+async def get_centrality(
+    project_id: UUID,
+    metric: str = "betweenness",
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Get centrality metrics for all nodes in the project.
+
+    Supported metrics: betweenness, degree, eigenvector
+
+    Returns:
+        - centrality: dict mapping node_id to centrality score
+        - top_bridges: list of (node_id, score) for top 10 nodes
+    """
+    try:
+        from graph.centrality_analyzer import centrality_analyzer
+
+        # Get nodes
+        node_rows = await database.fetch(
+            """
+            SELECT id, entity_type, name, properties
+            FROM entities
+            WHERE project_id = $1
+            """,
+            str(project_id),
+        )
+
+        # Get edges
+        edge_rows = await database.fetch(
+            """
+            SELECT id, source_id, target_id, relationship_type::text, properties,
+                   COALESCE((properties->>'weight')::float, 1.0) as weight
+            FROM relationships
+            WHERE project_id = $1
+            """,
+            str(project_id),
+        )
+
+        if not node_rows:
+            return {
+                "metric": metric,
+                "centrality": {},
+                "top_bridges": [],
+            }
+
+        # Convert to format expected by analyzer
+        nodes = [
+            {
+                "id": str(row["id"]),
+                "entity_type": row["entity_type"],
+                "name": row["name"],
+                "properties": _parse_json_field(row["properties"]),
+            }
+            for row in node_rows
+        ]
+
+        edges = [
+            {
+                "id": str(row["id"]),
+                "source": str(row["source_id"]),
+                "target": str(row["target_id"]),
+                "relationship_type": row["relationship_type"],
+                "weight": float(row["weight"]) if row["weight"] else 1.0,
+            }
+            for row in edge_rows
+        ]
+
+        # Compute centrality
+        metrics = centrality_analyzer.compute_all_centrality(
+            nodes, edges, cache_key=str(project_id)
+        )
+
+        # Get requested metric
+        if metric == "betweenness":
+            centrality = metrics.betweenness
+        elif metric == "degree":
+            centrality = metrics.degree
+        elif metric == "eigenvector":
+            centrality = metrics.eigenvector
+        else:
+            centrality = metrics.betweenness
+
+        # Get top bridges
+        top_bridges = centrality_analyzer.get_top_bridges(centrality, 10)
+
+        # Add names to top bridges
+        top_bridges_with_names = [
+            (node_id, score, centrality_analyzer.get_node_name(node_id, nodes))
+            for node_id, score in top_bridges
+        ]
+
+        return {
+            "metric": metric,
+            "centrality": centrality,
+            "top_bridges": top_bridges_with_names,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to compute centrality: {e}")
+        raise HTTPException(status_code=500, detail="Failed to compute centrality metrics")
+
+
+@router.post("/slice/{project_id}")
+async def slice_graph(
+    project_id: UUID,
+    request: SliceRequest,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Remove top N nodes by centrality to reveal hidden cluster structures.
+
+    This is the "slicing" operation from InfraNodus that helps discover
+    overlooked connections by temporarily removing bridge nodes.
+
+    Args:
+        remove_top_n: Number of top nodes to remove (default: 5)
+        metric: Centrality metric to use (betweenness, degree, eigenvector)
+
+    Returns:
+        Filtered graph with removed nodes and top bridges info
+    """
+    try:
+        from graph.centrality_analyzer import centrality_analyzer
+
+        # Get nodes
+        node_rows = await database.fetch(
+            """
+            SELECT id, entity_type, name, properties
+            FROM entities
+            WHERE project_id = $1
+            """,
+            str(project_id),
+        )
+
+        # Get edges
+        edge_rows = await database.fetch(
+            """
+            SELECT id, source_id, target_id, relationship_type::text, properties,
+                   COALESCE((properties->>'weight')::float, 1.0) as weight
+            FROM relationships
+            WHERE project_id = $1
+            """,
+            str(project_id),
+        )
+
+        if not node_rows:
+            return {
+                "nodes": [],
+                "edges": [],
+                "removed_node_ids": [],
+                "top_bridges": [],
+                "original_count": 0,
+                "filtered_count": 0,
+            }
+
+        # Convert to format expected by analyzer
+        nodes = [
+            {
+                "id": str(row["id"]),
+                "entity_type": row["entity_type"],
+                "name": row["name"],
+                "properties": _parse_json_field(row["properties"]),
+            }
+            for row in node_rows
+        ]
+
+        edges = [
+            {
+                "id": str(row["id"]),
+                "source": str(row["source_id"]),
+                "target": str(row["target_id"]),
+                "relationship_type": row["relationship_type"],
+                "weight": float(row["weight"]) if row["weight"] else 1.0,
+            }
+            for row in edge_rows
+        ]
+
+        # Perform slicing
+        filtered_nodes, filtered_edges, removed_ids, top_bridges = centrality_analyzer.slice_graph(
+            nodes,
+            edges,
+            request.remove_top_n,
+            request.metric,
+        )
+
+        # Format response
+        response_nodes = [
+            NodeResponse(
+                id=n["id"],
+                entity_type=n["entity_type"],
+                name=n["name"],
+                properties=n["properties"],
+            )
+            for n in filtered_nodes
+        ]
+
+        response_edges = [
+            EdgeResponse(
+                id=e["id"],
+                source=e["source"],
+                target=e["target"],
+                relationship_type=e["relationship_type"],
+                weight=e.get("weight", 1.0),
+            )
+            for e in filtered_edges
+        ]
+
+        top_bridges_formatted = [
+            {
+                "id": node_id,
+                "name": centrality_analyzer.get_node_name(node_id, nodes),
+                "score": score,
+            }
+            for node_id, score in top_bridges
+        ]
+
+        return {
+            "nodes": response_nodes,
+            "edges": response_edges,
+            "removed_node_ids": removed_ids,
+            "top_bridges": top_bridges_formatted,
+            "original_count": len(nodes),
+            "filtered_count": len(filtered_nodes),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to slice graph: {e}")
+        raise HTTPException(status_code=500, detail="Failed to slice graph")
+
+
+@router.post("/clusters/{project_id}")
+async def recompute_clusters(
+    project_id: UUID,
+    request: ClusterRequest,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Recompute K-means clusters for the project's concept graph.
+
+    Args:
+        cluster_count: Desired number of clusters
+
+    Returns:
+        Updated cluster assignments and optimal K value
+    """
+    try:
+        from graph.centrality_analyzer import centrality_analyzer
+        import numpy as np
+
+        # Get nodes with embeddings
+        node_rows = await database.fetch(
+            """
+            SELECT id, entity_type, name, properties, embedding
+            FROM entities
+            WHERE project_id = $1
+            AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
+            AND embedding IS NOT NULL
+            """,
+            str(project_id),
+        )
+
+        if not node_rows:
+            return {
+                "clusters": [],
+                "optimal_k": 2,
+            }
+
+        # Prepare data
+        nodes = [
+            {
+                "id": str(row["id"]),
+                "entity_type": row["entity_type"],
+                "name": row["name"],
+                "properties": _parse_json_field(row["properties"]),
+            }
+            for row in node_rows
+        ]
+
+        embeddings = np.array([list(row["embedding"]) for row in node_rows])
+
+        # Compute optimal K if not specified
+        optimal_k = centrality_analyzer.compute_optimal_k(embeddings, min_k=2, max_k=min(10, len(nodes) - 1))
+
+        # Perform clustering
+        clusters = centrality_analyzer.cluster_nodes(
+            nodes,
+            embeddings,
+            n_clusters=request.cluster_count,
+        )
+
+        # Cluster color palette
+        colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
+            '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F',
+            '#BB8FCE', '#85C1E9', '#F8B500', '#82E0AA',
+        ]
+
+        # Format clusters
+        formatted_clusters = [
+            {
+                "cluster_id": c.cluster_id,
+                "concepts": c.node_ids,
+                "concept_names": c.node_names,
+                "label": c.label or f"Cluster {c.cluster_id + 1}",
+                "size": c.size,
+                "color": colors[c.cluster_id % len(colors)],
+            }
+            for c in clusters
+        ]
+
+        # Update entities with new cluster assignments
+        for cluster in clusters:
+            for node_id in cluster.node_ids:
+                await database.execute(
+                    """
+                    UPDATE entities
+                    SET properties = properties || $1::jsonb
+                    WHERE id = $2
+                    """,
+                    json.dumps({"cluster_id": cluster.cluster_id}),
+                    node_id,
+                )
+
+        return {
+            "clusters": formatted_clusters,
+            "optimal_k": optimal_k,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to recompute clusters: {e}")
+        raise HTTPException(status_code=500, detail="Failed to recompute clusters")

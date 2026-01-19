@@ -268,9 +268,13 @@ class ConceptCentricScholarAGImporter:
             papers = await self._parse_papers_csv(Path(validation["papers_csv_path"]))
             self.progress.papers_total = len(papers)
 
-            # Phase 1: Store paper metadata (NOT as graph nodes)
+            # Phase 1: Store paper metadata (for reference)
             self._update_progress("processing", 0.2, "Storing paper metadata...")
             await self._store_paper_metadata(project_id, papers)
+
+            # Phase 1.5: Store Paper and Author as GRAPH NODES (Hybrid Mode)
+            self._update_progress("processing", 0.22, "Creating Paper/Author graph nodes (Hybrid Mode)...")
+            paper_entity_ids, author_entity_ids = await self._store_paper_and_author_entities(project_id, papers)
 
             # Phase 2: Extract concepts from all papers
             self._update_progress("processing", 0.25, "Extracting concepts with LLM...")
@@ -325,6 +329,13 @@ class ConceptCentricScholarAGImporter:
             # Phase 4: Store concept entities (these ARE graph nodes)
             self._update_progress("processing", 0.65, "Storing concept entities...")
             id_mapping = await self._store_concept_entities(project_id, all_entities)
+
+            # Phase 4.5: Create DISCUSSES_CONCEPT relationships (Paper → Concept)
+            self._update_progress("processing", 0.68, "Creating Paper-Concept relationships...")
+            paper_concept_rels_count = await self._store_paper_concept_relationships(
+                project_id, paper_entity_ids, all_entities, self._concept_cache
+            )
+            logger.info(f"Created {paper_concept_rels_count} Paper→Concept relationships")
 
             # Phase 5: Build relationships
             self._update_progress("building_graph", 0.7, "Building concept relationships...")
@@ -543,6 +554,163 @@ class ConceptCentricScholarAGImporter:
                 )
             except Exception as e:
                 logger.warning(f"Failed to store paper metadata: {e}")
+
+    async def _store_paper_and_author_entities(
+        self, project_id: str, papers: list[PaperData]
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """
+        Store Paper and Author as GRAPH NODES (Hybrid Mode).
+
+        This enables Papers and Authors to be visualized alongside Concepts.
+        Papers connect to Concepts via DISCUSSES_CONCEPT relationships.
+
+        Returns:
+            Tuple of (paper_entity_ids, author_entity_ids) mappings
+        """
+        if not self.db:
+            return {}, {}
+
+        paper_entity_ids = {}  # paper_id -> entity_uuid
+        author_entity_ids = {}  # author_name_normalized -> entity_uuid
+
+        logger.info(f"Creating {len(papers)} Paper entities for Hybrid Mode visualization")
+
+        for paper in papers:
+            # Create Paper entity
+            paper_entity_uuid = str(uuid4())
+            paper_entity_ids[paper.paper_id] = paper_entity_uuid
+
+            try:
+                await self.db.execute(
+                    """
+                    INSERT INTO entities (
+                        id, project_id, entity_type, name, properties,
+                        is_visualized, definition
+                    ) VALUES ($1, $2, $3::entity_type, $4, $5, $6, $7)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    paper_entity_uuid,
+                    project_id,
+                    "Paper",  # Entity type
+                    paper.title[:500] if paper.title else "Untitled",
+                    json.dumps({
+                        "doi": paper.doi,
+                        "year": paper.year,
+                        "authors": paper.authors,
+                        "citation_count": paper.citation_count,
+                        "source": paper.source,
+                        "pdf_url": paper.pdf_url,
+                    }),
+                    True,  # is_visualized = True for Hybrid Mode
+                    paper.abstract[:500] if paper.abstract else "",  # Use abstract as definition
+                )
+            except Exception as e:
+                logger.warning(f"Failed to store Paper entity: {e}")
+
+            # Create Author entities (deduplicated by name)
+            for author_name in paper.authors:
+                normalized_name = author_name.strip().lower()
+                if normalized_name and normalized_name not in author_entity_ids:
+                    author_entity_uuid = str(uuid4())
+                    author_entity_ids[normalized_name] = author_entity_uuid
+
+                    try:
+                        await self.db.execute(
+                            """
+                            INSERT INTO entities (
+                                id, project_id, entity_type, name, properties,
+                                is_visualized
+                            ) VALUES ($1, $2, $3::entity_type, $4, $5, $6)
+                            ON CONFLICT (id) DO NOTHING
+                            """,
+                            author_entity_uuid,
+                            project_id,
+                            "Author",  # Entity type
+                            author_name.strip()[:500],
+                            json.dumps({"paper_count": 1}),
+                            True,  # is_visualized = True for Hybrid Mode
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to store Author entity: {e}")
+                elif normalized_name in author_entity_ids:
+                    # Increment paper_count for existing author (optional)
+                    pass
+
+            # Create HAS_AUTHOR relationships (Paper → Author)
+            for author_name in paper.authors:
+                normalized_name = author_name.strip().lower()
+                if normalized_name in author_entity_ids:
+                    try:
+                        await self.db.execute(
+                            """
+                            INSERT INTO relationships (
+                                id, project_id, source_id, target_id,
+                                relationship_type, properties, weight
+                            ) VALUES ($1, $2, $3, $4, $5::relationship_type, $6, $7)
+                            ON CONFLICT (source_id, target_id, relationship_type) DO NOTHING
+                            """,
+                            str(uuid4()),
+                            project_id,
+                            paper_entity_uuid,  # Paper
+                            author_entity_ids[normalized_name],  # Author
+                            "AUTHORED_BY",  # Use AUTHORED_BY which exists in relationship_type enum
+                            json.dumps({}),
+                            1.0,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to store HAS_AUTHOR relationship: {e}")
+
+        logger.info(f"Created {len(paper_entity_ids)} Paper entities and {len(author_entity_ids)} Author entities")
+        return paper_entity_ids, author_entity_ids
+
+    async def _store_paper_concept_relationships(
+        self,
+        project_id: str,
+        paper_entity_ids: dict[str, str],
+        all_entities: list[dict],
+        concept_cache: dict[str, dict],
+    ) -> int:
+        """
+        Create DISCUSSES_CONCEPT relationships between Papers and extracted Concepts.
+
+        For each concept, link it to all papers that mentioned it via source_paper_ids.
+        """
+        if not self.db:
+            return 0
+
+        relationships_created = 0
+
+        for entity in all_entities:
+            entity_id = entity["id"]
+            source_paper_ids = entity.get("source_paper_ids", [])
+
+            for paper_id in source_paper_ids:
+                paper_entity_uuid = paper_entity_ids.get(paper_id)
+                if not paper_entity_uuid:
+                    continue
+
+                try:
+                    await self.db.execute(
+                        """
+                        INSERT INTO relationships (
+                            id, project_id, source_id, target_id,
+                            relationship_type, properties, weight
+                        ) VALUES ($1, $2, $3, $4, $5::relationship_type, $6, $7)
+                        ON CONFLICT (source_id, target_id, relationship_type) DO NOTHING
+                        """,
+                        str(uuid4()),
+                        project_id,
+                        paper_entity_uuid,  # Paper (source)
+                        entity_id,  # Concept (target)
+                        "DISCUSSES_CONCEPT",
+                        json.dumps({"confidence": entity.get("confidence", 0.8)}),
+                        entity.get("confidence", 0.8),
+                    )
+                    relationships_created += 1
+                except Exception as e:
+                    logger.warning(f"Failed to store DISCUSSES_CONCEPT relationship: {e}")
+
+        return relationships_created
 
     def _group_entities_by_type(self, entities: list[ExtractedEntity]) -> dict[str, list[str]]:
         """Group entities by type for relationship building."""

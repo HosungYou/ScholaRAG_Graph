@@ -50,8 +50,13 @@ interface GraphStore {
   highlightGapConcepts: (gap: StructuralGap) => void;
 }
 
+// Default filters (Hybrid Mode: Paper/Author + Concept-Centric)
 const defaultFilters: FilterState = {
-  entityTypes: ['Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation'] as EntityType[],
+  entityTypes: [
+    'Paper', 'Author',  // Hybrid Mode entities
+    'Concept', 'Method', 'Finding',  // Primary concept-centric
+    'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation'  // Secondary
+  ] as EntityType[],
   yearRange: null,
   searchQuery: '',
 };

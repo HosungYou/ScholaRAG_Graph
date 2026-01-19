@@ -58,3 +58,4 @@ site/
 # pip installation artifacts
 =*
 .serena/
+.vercel

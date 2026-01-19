@@ -25,51 +25,62 @@ interface FilterPanelProps {
   maxYear?: number;
   onReset?: () => void;
   nodeCountsByType?: Record<EntityType, number>;
+  // Data source information
+  dataSource?: 'zotero' | 'pdf' | 'scholarag' | null;
 }
 
-// Concept-centric entity type config with polygon shapes
+// VS Design Diverge palette - matching PolygonNode colors exactly
 const entityTypeConfig: Record<string, { color: string; icon: React.ReactNode }> = {
-  Concept: {
-    color: '#2EC4B6', // accent-teal
-    icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
-  },
-  Method: {
-    color: '#F4A261', // accent-amber
-    icon: <Diamond className="w-3 h-3" strokeWidth={2} />
-  },
-  Finding: {
-    color: '#E63946', // accent-red
-    icon: <Pentagon className="w-3 h-3" strokeWidth={2} />
-  },
-  Problem: {
-    color: '#9B5DE5',
-    icon: <Octagon className="w-3 h-3" strokeWidth={2} />
-  },
-  Dataset: {
-    color: '#00BBF9',
-    icon: <Square className="w-3 h-3" strokeWidth={2} />
-  },
-  Metric: {
-    color: '#EC4899',
-    icon: <Diamond className="w-3 h-3" strokeWidth={2} />
-  },
-  Innovation: {
-    color: '#14B8A6',
-    icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
-  },
-  Limitation: {
-    color: '#F97316',
-    icon: <Pentagon className="w-3 h-3" strokeWidth={2} />
-  },
-  // Legacy types (hidden in UI but kept for compatibility)
+  // Primary entities (Hybrid Mode: visualized)
   Paper: {
-    color: '#64748B',
+    color: '#6366F1', // Indigo - 논문 노드
     icon: <Square className="w-3 h-3" strokeWidth={2} />
   },
   Author: {
-    color: '#22C55E',
+    color: '#A855F7', // Purple - 저자 노드
     icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
   },
+  // Concept-centric entities (always visualized)
+  Concept: {
+    color: '#8B5CF6', // Violet - matches PolygonNode
+    icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
+  },
+  Method: {
+    color: '#F59E0B', // Amber - matches PolygonNode
+    icon: <Diamond className="w-3 h-3" strokeWidth={2} />
+  },
+  Finding: {
+    color: '#10B981', // Emerald - matches PolygonNode
+    icon: <Pentagon className="w-3 h-3" strokeWidth={2} />
+  },
+  // Secondary entities
+  Problem: {
+    color: '#EF4444', // Red
+    icon: <Octagon className="w-3 h-3" strokeWidth={2} />
+  },
+  Dataset: {
+    color: '#3B82F6', // Blue
+    icon: <Square className="w-3 h-3" strokeWidth={2} />
+  },
+  Metric: {
+    color: '#EC4899', // Pink
+    icon: <Diamond className="w-3 h-3" strokeWidth={2} />
+  },
+  Innovation: {
+    color: '#14B8A6', // Teal
+    icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
+  },
+  Limitation: {
+    color: '#F97316', // Orange
+    icon: <Pentagon className="w-3 h-3" strokeWidth={2} />
+  },
+};
+
+// Data source badge styles
+const dataSourceStyles: Record<string, { bg: string; text: string; label: string }> = {
+  zotero: { bg: 'bg-purple-500/10', text: 'text-purple-400', label: 'ZOTERO' },
+  pdf: { bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'PDF' },
+  scholarag: { bg: 'bg-accent-teal/10', text: 'text-accent-teal', label: 'SCHOLARAG' },
 };
 
 export function FilterPanel({
@@ -82,6 +93,7 @@ export function FilterPanel({
   maxYear = 2025,
   onReset,
   nodeCountsByType,
+  dataSource,
 }: FilterPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -115,7 +127,13 @@ export function FilterPanel({
           <span className="font-mono text-xs uppercase tracking-wider text-ink dark:text-paper">
             Filters
           </span>
-          {hasActiveFilters && (
+          {/* Data Source Badge */}
+          {dataSource && dataSourceStyles[dataSource] && (
+            <span className={`px-1.5 py-0.5 ${dataSourceStyles[dataSource].bg} ${dataSourceStyles[dataSource].text} text-xs font-mono`}>
+              {dataSourceStyles[dataSource].label}
+            </span>
+          )}
+          {hasActiveFilters && !dataSource && (
             <span className="px-1.5 py-0.5 bg-accent-teal/10 text-accent-teal text-xs font-mono">
               ON
             </span>

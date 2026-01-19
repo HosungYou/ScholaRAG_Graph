@@ -601,9 +601,19 @@ class ZoteroRDFImporter:
                 self.progress.errors.append(error_msg)
                 results["errors"].append(error_msg)
 
-        # Build relationships
-        if extract_concepts and self.graph_store and self.progress.concepts_extracted > 0:
-            self._update_progress("building_relationships", 0.92, "관계 구축 중...")
+        # Create embeddings FIRST (needed for relationship building)
+        embeddings_created = 0
+        if self.graph_store and self.progress.concepts_extracted > 0:
+            self._update_progress("embeddings", 0.90, "임베딩 생성 중 (Cohere)...")
+            try:
+                embeddings_created = await self.graph_store.create_embeddings(project_id=project_id)
+                logger.info(f"Created {embeddings_created} embeddings")
+            except Exception as e:
+                logger.warning(f"Embedding creation failed: {e}")
+
+        # Build relationships AFTER embeddings are created
+        if extract_concepts and self.graph_store and embeddings_created > 0:
+            self._update_progress("building_relationships", 0.95, "관계 구축 중...")
 
             try:
                 relationship_count = await self.graph_store.build_concept_relationships(
@@ -611,16 +621,9 @@ class ZoteroRDFImporter:
                 )
                 self.progress.relationships_created = relationship_count
                 results["relationships_created"] = relationship_count
+                logger.info(f"Created {relationship_count} relationships")
             except Exception as e:
                 logger.warning(f"Relationship building failed: {e}")
-
-        # Create embeddings
-        if self.graph_store:
-            self._update_progress("embeddings", 0.96, "임베딩 생성 중...")
-            try:
-                await self.graph_store.create_embeddings(project_id=project_id)
-            except Exception as e:
-                logger.warning(f"Embedding creation failed: {e}")
 
         self._update_progress("complete", 1.0, "Import 완료!")
 

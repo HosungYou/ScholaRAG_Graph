@@ -516,7 +516,7 @@ def get_orchestrator() -> AgentOrchestrator:
         graph_store = None
         try:
             if db.is_connected:
-                graph_store = GraphStore(db_connection=db)
+                graph_store = GraphStore(db=db)
                 logger.info("Initialized GraphStore with DB connection")
         except Exception as e:
             logger.warning(f"Failed to initialize GraphStore: {e}")

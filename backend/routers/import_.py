@@ -28,6 +28,11 @@ from jobs import JobStore, JobStatus
 from config import settings
 from auth.dependencies import require_auth_if_configured
 from auth.models import User
+from llm.claude_provider import ClaudeProvider
+from llm.gemini_provider import GeminiProvider
+from llm.openai_provider import OpenAIProvider
+from llm.groq_provider import GroqProvider
+from llm.cached_provider import wrap_with_cache
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +55,50 @@ ALLOWED_IMPORT_ROOTS: List[str] = get_allowed_import_roots()
 
 # Maximum path depth to prevent deep traversal
 MAX_PATH_DEPTH = 10
+
+
+def get_llm_provider():
+    """
+    Get an LLM provider instance based on settings.
+
+    Supports:
+    - anthropic: Claude (requires ANTHROPIC_API_KEY)
+    - google: Gemini (requires GOOGLE_API_KEY) - FREE TIER AVAILABLE
+    - openai: GPT (requires OPENAI_API_KEY)
+    - groq: Llama/Mixtral (requires GROQ_API_KEY) - FREE TIER: 14,400 req/day!
+
+    Returns:
+        BaseLLMProvider or None if no API key is configured
+    """
+    provider_name = settings.default_llm_provider
+
+    # Anthropic Claude
+    if provider_name == "anthropic" and settings.anthropic_api_key:
+        logger.info("Using Anthropic Claude provider")
+        base_provider = ClaudeProvider(api_key=settings.anthropic_api_key)
+        return wrap_with_cache(base_provider)
+
+    # Google Gemini (FREE TIER AVAILABLE!)
+    if provider_name == "google" and settings.google_api_key:
+        logger.info("Using Google Gemini provider (free tier)")
+        base_provider = GeminiProvider(api_key=settings.google_api_key)
+        return wrap_with_cache(base_provider)
+
+    # OpenAI GPT
+    if provider_name == "openai" and settings.openai_api_key:
+        logger.info("Using OpenAI GPT provider")
+        base_provider = OpenAIProvider(api_key=settings.openai_api_key)
+        return wrap_with_cache(base_provider)
+
+    # Groq (FREE TIER - 14,400 requests/day, FASTEST inference!)
+    if provider_name == "groq" and settings.groq_api_key:
+        logger.info("Using Groq provider (free tier, fastest inference!)")
+        base_provider = GroqProvider(api_key=settings.groq_api_key)
+        return wrap_with_cache(base_provider)
+
+    # No provider configured
+    logger.warning(f"LLM provider '{provider_name}' not configured or no API key")
+    return None
 
 
 def validate_safe_path(folder_path: str) -> Path:
@@ -190,6 +239,7 @@ class ImportJobResponse(BaseModel):
     message: str
     project_id: Optional[UUID] = None
     stats: Optional[dict] = None
+    result: Optional[dict] = None  # Contains nodes_created, edges_created for frontend
     created_at: datetime
     updated_at: datetime
 
@@ -504,6 +554,15 @@ async def get_import_status(job_id: str):
             JobStatus.FAILED: ImportStatus.FAILED,
             JobStatus.CANCELLED: ImportStatus.FAILED,
         }
+        # Extract result data for frontend compatibility
+        result_data = None
+        if job.result:
+            result_data = {
+                "project_id": job.result.get("project_id"),
+                "nodes_created": job.result.get("nodes_created", 0),
+                "edges_created": job.result.get("edges_created", 0),
+            }
+
         return ImportJobResponse(
             job_id=job.id,
             status=status_map.get(job.status, ImportStatus.PENDING),
@@ -511,6 +570,7 @@ async def get_import_status(job_id: str):
             message=job.message,
             project_id=job.result.get("project_id") if job.result else None,
             stats=job.result.get("stats") if job.result else None,
+            result=result_data,
             created_at=job.created_at,
             updated_at=job.updated_at,
         )
@@ -722,8 +782,14 @@ async def _run_pdf_import(
 
         # Create importer with database connection and GraphStore
         graph_store = GraphStore(db=db)
+
+        # Get actual LLM provider object (not string) for concept extraction
+        llm_provider = get_llm_provider() if extract_concepts else None
+        if extract_concepts and llm_provider is None:
+            logger.warning("Concept extraction requested but LLM provider not configured")
+
         importer = PDFImporter(
-            llm_provider=settings.default_llm_provider,
+            llm_provider=llm_provider,
             llm_model=settings.default_llm_model,
             db_connection=db,
             graph_store=graph_store,
@@ -927,8 +993,14 @@ async def _run_multiple_pdf_import(
         )
 
         graph_store = GraphStore(db=db)
+
+        # Get actual LLM provider object (not string) for concept extraction
+        llm_provider = get_llm_provider() if extract_concepts else None
+        if extract_concepts and llm_provider is None:
+            logger.warning("Concept extraction requested but LLM provider not configured")
+
         importer = PDFImporter(
-            llm_provider=settings.default_llm_provider,
+            llm_provider=llm_provider,
             llm_model=settings.default_llm_model,
             db_connection=db,
             graph_store=graph_store,
@@ -1300,8 +1372,14 @@ async def _run_zotero_import(
 
         # Create importer with database connection and GraphStore
         graph_store = GraphStore(db=db)
+
+        # Get actual LLM provider object (not string) for concept extraction
+        llm_provider = get_llm_provider() if extract_concepts else None
+        if extract_concepts and llm_provider is None:
+            logger.warning("Concept extraction requested but LLM provider not configured, using fallback extraction")
+
         importer = ZoteroRDFImporter(
-            llm_provider=settings.default_llm_provider if extract_concepts else None,
+            llm_provider=llm_provider,
             llm_model=settings.default_llm_model,
             db_connection=db,
             graph_store=graph_store,
@@ -1316,6 +1394,9 @@ async def _run_zotero_import(
         )
 
         if result.get("success"):
+            concepts_count = result.get("concepts_extracted", 0)
+            relationships_count = result.get("relationships_created", 0)
+
             _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
             _import_jobs[job_id]["progress"] = 1.0
             _import_jobs[job_id]["message"] = f"Zotero import 완료: {result.get('papers_imported', 0)}개 논문"
@@ -1323,8 +1404,16 @@ async def _run_zotero_import(
             _import_jobs[job_id]["stats"] = {
                 "papers_imported": result.get("papers_imported", 0),
                 "pdfs_processed": result.get("pdfs_processed", 0),
-                "concepts_extracted": result.get("concepts_extracted", 0),
-                "relationships_created": result.get("relationships_created", 0),
+                "concepts_extracted": concepts_count,
+                "relationships_created": relationships_count,
+                # Frontend-compatible field names
+                "nodes_created": concepts_count,
+                "edges_created": relationships_count,
+            }
+            _import_jobs[job_id]["result"] = {
+                "project_id": str(result.get("project_id")) if result.get("project_id") else None,
+                "nodes_created": concepts_count,
+                "edges_created": relationships_count,
             }
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
@@ -1337,6 +1426,8 @@ async def _run_zotero_import(
                 result={
                     "project_id": str(result.get("project_id")) if result.get("project_id") else None,
                     "stats": _import_jobs[job_id]["stats"],
+                    "nodes_created": concepts_count,
+                    "edges_created": relationships_count,
                 },
             )
 

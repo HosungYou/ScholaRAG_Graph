@@ -7,9 +7,11 @@ Provides methods for storing, querying, and traversing the knowledge graph.
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, List
 from uuid import UUID, uuid4
 from dataclasses import dataclass
+
+from graph.relationship_builder import ConceptCentricRelationshipBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +430,264 @@ class GraphStore:
             "relationship_counts": relationship_counts,
         }
 
+    async def create_project(
+        self,
+        name: str,
+        description: str = None,
+        config: dict = None,
+    ) -> str:
+        """
+        Create a new project in the database.
+
+        Args:
+            name: Project name
+            description: Research question or description
+            config: Additional configuration metadata (stored in research_question as JSON note)
+
+        Returns:
+            The UUID of the created project
+        """
+        from uuid import uuid4
+        from datetime import datetime
+
+        project_id = uuid4()
+        now = datetime.now()
+
+        if self.db:
+            # Base schema (001_init.sql): id, name, research_question, source_path, created_at, updated_at
+            # Note: owner_id is added in 005_user_profiles.sql migration - not required for import
+            await self.db.execute(
+                """
+                INSERT INTO projects (id, name, research_question, source_path, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                """,
+                project_id,
+                name,
+                description,
+                None,  # source_path
+                now,
+                now,
+            )
+            logger.info(f"Created project {project_id}: {name}")
+            return str(project_id)
+        else:
+            # In-memory fallback
+            logger.warning(f"No database - returning temporary project ID for: {name}")
+            return str(project_id)
+
+    async def store_paper_metadata(
+        self,
+        project_id: str,
+        title: str,
+        abstract: str = "",
+        authors: List[str] = None,
+        year: int = None,
+        doi: str = None,
+        source: str = None,
+        properties: dict = None,
+    ) -> str:
+        """
+        Store paper metadata in the database.
+        
+        Args:
+            project_id: UUID of the project
+            title: Paper title (required)
+            abstract: Paper abstract
+            authors: List of author names
+            year: Publication year
+            doi: Digital Object Identifier
+            source: Source of the paper (e.g., 'zotero', 'semantic_scholar')
+            properties: Additional metadata as dict
+            
+        Returns:
+            The UUID of the stored paper
+        """
+        from uuid import uuid4
+        from datetime import datetime
+        import json
+        
+        paper_id = uuid4()
+        
+        # Convert authors to JSONB format
+        authors_json = json.dumps([{"name": a} for a in (authors or [])])
+        
+        if self.db:
+            try:
+                await self.db.execute(
+                    """
+                    INSERT INTO paper_metadata (
+                        id, project_id, title, abstract, authors, year, doi, source, created_at
+                    ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+                    """,
+                    paper_id,
+                    project_id if isinstance(project_id, type(paper_id)) else __import__('uuid').UUID(project_id),
+                    title,
+                    abstract,
+                    authors_json,
+                    year,
+                    doi,
+                    source,
+                    datetime.now(),
+                )
+                logger.info(f"Stored paper metadata: {title[:50]}...")
+                return str(paper_id)
+            except Exception as e:
+                logger.error(f"Failed to store paper metadata: {e}")
+                raise
+        else:
+            logger.warning(f"No database - returning temporary paper ID for: {title[:50]}")
+            return str(paper_id)
+
+    async def create_embeddings(
+        self,
+        project_id: str,
+        embedding_provider=None,
+    ) -> int:
+        """
+        Create embeddings for all entities in a project using Cohere.
+
+        Args:
+            project_id: UUID of the project
+            embedding_provider: CohereEmbeddingProvider instance (optional, will create from config if None)
+
+        Returns:
+            Number of entities that received embeddings
+        """
+        import uuid as uuid_module
+
+        logger.info(f"Embeddings creation requested for project {project_id}")
+
+        if not self.db:
+            logger.warning("No database connection - skipping embedding creation")
+            return 0
+
+        # Get or create embedding provider
+        if embedding_provider is None:
+            from config import settings
+            if settings.cohere_api_key:
+                from llm.cohere_embeddings import CohereEmbeddingProvider
+                embedding_provider = CohereEmbeddingProvider(api_key=settings.cohere_api_key)
+            else:
+                logger.warning("No Cohere API key configured - skipping embedding creation")
+                return 0
+
+        project_uuid = uuid_module.UUID(project_id) if isinstance(project_id, str) else project_id
+
+        try:
+            # Fetch entities without embeddings
+            rows = await self.db.fetch(
+                """
+                SELECT id, name, entity_type, properties
+                FROM entities
+                WHERE project_id = $1 AND embedding IS NULL
+                ORDER BY created_at
+                """,
+                project_uuid,
+            )
+
+            if not rows:
+                logger.info(f"No entities need embeddings in project {project_id}")
+                return 0
+
+            logger.info(f"Generating embeddings for {len(rows)} entities")
+
+            # Prepare texts for embedding
+            texts = []
+            entity_ids = []
+            for row in rows:
+                # Create rich text for embedding: name + description/definition
+                name = row["name"]
+                props = row["properties"] or {}
+                # Handle case where properties is a JSON string instead of dict
+                if isinstance(props, str):
+                    try:
+                        props = json.loads(props)
+                    except (json.JSONDecodeError, TypeError):
+                        props = {}
+                definition = props.get("definition", props.get("description", ""))
+                entity_type = row["entity_type"]
+
+                text = f"{entity_type}: {name}"
+                if definition:
+                    text += f" - {definition}"
+
+                texts.append(text)
+                entity_ids.append(row["id"])
+
+            # Generate embeddings in batches
+            embeddings = await embedding_provider.get_embeddings(
+                texts,
+                input_type="search_document",
+            )
+
+            # Update entities with embeddings
+            updated_count = 0
+            for i, (entity_id, embedding) in enumerate(zip(entity_ids, embeddings)):
+                try:
+                    # Convert embedding list to string format for pgvector
+                    # asyncpg requires string format: '[0.1, 0.2, ...]'
+                    embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+                    await self.db.execute(
+                        """
+                        UPDATE entities
+                        SET embedding = $1::vector, updated_at = NOW()
+                        WHERE id = $2
+                        """,
+                        embedding_str,
+                        entity_id,
+                    )
+                    updated_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to update embedding for entity {entity_id}: {e}")
+
+            logger.info(f"Successfully created embeddings for {updated_count}/{len(rows)} entities")
+            return updated_count
+
+        except Exception as e:
+            logger.error(f"Failed to create embeddings: {e}")
+            return 0
+
+    async def store_entity(
+        self,
+        project_id: str,
+        name: str,
+        entity_type: str,
+        description: str = "",
+        source_paper_id: str = None,
+        confidence: float = 0.5,
+        properties: dict = None,
+    ) -> str:
+        """
+        Store an entity in the knowledge graph (wrapper for importers).
+        
+        Args:
+            project_id: UUID of the project
+            name: Entity name
+            entity_type: Type of entity (Concept, Method, Finding, etc.)
+            description: Entity description
+            source_paper_id: UUID of the source paper
+            confidence: Extraction confidence score
+            properties: Additional properties
+            
+        Returns:
+            The UUID of the stored entity
+        """
+        # Merge description and metadata into properties
+        entity_properties = properties or {}
+        if description:
+            entity_properties["description"] = description
+        if source_paper_id:
+            entity_properties["source_paper_id"] = source_paper_id
+        entity_properties["confidence"] = confidence
+        
+        # Use existing add_entity method
+        return await self.add_entity(
+            project_id=project_id,
+            entity_type=entity_type,
+            name=name,
+            properties=entity_properties,
+        )
+
     # =========================================================================
     # Database methods (asyncpg implementation)
     # =========================================================================
@@ -777,3 +1037,92 @@ class GraphStore:
             "entity_counts": entity_counts,
             "relationship_counts": relationship_counts,
         }
+
+    async def build_concept_relationships(
+        self,
+        project_id: str,
+        similarity_threshold: float = 0.7,
+        llm_provider=None,
+    ) -> int:
+        """
+        Build semantic relationships between concepts in a project.
+
+        Uses embedding similarity to create RELATED_TO relationships
+        between concepts that are semantically similar.
+
+        Args:
+            project_id: Project ID
+            similarity_threshold: Minimum cosine similarity for relationship (0-1)
+            llm_provider: Optional LLM provider for advanced relationship detection
+
+        Returns:
+            Number of relationships created
+        """
+        try:
+            # Get all concepts with embeddings from the project
+            query = """
+                SELECT id, name, embedding
+                FROM entities
+                WHERE project_id = $1
+                  AND entity_type = 'Concept'
+                  AND embedding IS NOT NULL
+            """
+            project_uuid = UUID(project_id) if isinstance(project_id, str) else project_id
+            rows = await self.db.fetch(query, project_uuid)
+
+            if len(rows) < 2:
+                logger.info(f"Not enough concepts with embeddings for relationship building: {len(rows)}")
+                return 0
+
+            # Convert to format expected by RelationshipBuilder
+            concepts = []
+            for row in rows:
+                embedding = row["embedding"]
+                # Handle embedding format (could be list or string)
+                if isinstance(embedding, str):
+                    # Parse pgvector format: "[0.1, 0.2, ...]"
+                    embedding = [float(x) for x in embedding.strip("[]").split(",")]
+                concepts.append({
+                    "id": str(row["id"]),
+                    "name": row["name"],
+                    "embedding": embedding,
+                })
+
+            logger.info(f"Building relationships for {len(concepts)} concepts")
+
+            # Use RelationshipBuilder for semantic relationships
+            builder = ConceptCentricRelationshipBuilder(
+                llm_provider=llm_provider,
+                similarity_threshold=similarity_threshold,
+            )
+            candidates = builder.build_semantic_relationships(
+                concepts=concepts,
+                similarity_threshold=similarity_threshold,
+            )
+
+            # Store relationships
+            relationships_created = 0
+            for candidate in candidates:
+                try:
+                    await self.add_relationship(
+                        project_id=project_id,
+                        source_id=candidate.source_id,
+                        target_id=candidate.target_id,
+                        relationship_type=candidate.relationship_type,
+                        properties={
+                            "confidence": candidate.confidence,
+                            "auto_generated": True,
+                            **candidate.properties,
+                        },
+                        weight=candidate.confidence,
+                    )
+                    relationships_created += 1
+                except Exception as e:
+                    logger.warning(f"Failed to create relationship: {e}")
+
+            logger.info(f"Created {relationships_created} semantic relationships")
+            return relationships_created
+
+        except Exception as e:
+            logger.error(f"Error building concept relationships: {e}")
+            return 0

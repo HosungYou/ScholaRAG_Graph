@@ -269,6 +269,56 @@ class EntityExtractor:
         self._extraction_cache[cache_key] = result
         return result
 
+    async def extract_entities(
+        self,
+        text: str,
+        title: str = "",
+        context: str = "",
+    ) -> list:
+        """
+        Extract entities from text (wrapper for compatibility with importers).
+        
+        Args:
+            text: Text to extract entities from (abstract or full text)
+            title: Paper title
+            context: Research context (not used, for API compatibility)
+            
+        Returns:
+            List of ExtractedEntity objects
+        """
+        # Use extract_from_paper internally
+        result = await self.extract_from_paper(
+            title=title,
+            abstract=text,
+            paper_id=None,
+            use_accurate_model=False,
+        )
+        
+        # Convert dict result to list of ExtractedEntity
+        entities = []
+        
+        for entity_type, entity_list in result.items():
+            if entity_type in ("concepts", "methods", "findings"):
+                type_map = {
+                    "concepts": EntityType.CONCEPT,
+                    "methods": EntityType.METHOD,
+                    "findings": EntityType.FINDING,
+                }
+                for entity_data in entity_list:
+                    if isinstance(entity_data, dict):
+                        entities.append(ExtractedEntity(
+                            name=entity_data.get("name", ""),
+                            entity_type=type_map.get(entity_type, EntityType.CONCEPT),
+                            description=entity_data.get("description", ""),
+                            confidence=entity_data.get("confidence", 0.5),
+                            source_paper_id=entity_data.get("source_paper_id"),
+                            properties=entity_data.get("properties", {}),
+                        ))
+                    elif isinstance(entity_data, ExtractedEntity):
+                        entities.append(entity_data)
+        
+        return entities
+
     async def _llm_extraction(
         self,
         title: str,

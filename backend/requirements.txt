@@ -15,12 +15,17 @@ pgvector>=0.2.4,<1.0.0
 anthropic>=0.18.0,<1.0.0
 openai>=1.12.0,<2.0.0
 google-generativeai>=0.4.0,<1.0.0
+cohere>=5.0.0,<6.0.0
 
 # Data Processing
 pandas>=2.2.0,<3.0.0
 numpy>=1.26.0,<3.0.0
 pyyaml>=6.0.1,<7.0.0
 python-dotenv>=1.0.1,<2.0.0
+
+# Graph Analysis
+networkx>=3.2.1,<4.0.0
+scikit-learn>=1.4.0,<2.0.0
 
 # PDF Processing
 PyMuPDF>=1.23.0,<2.0.0

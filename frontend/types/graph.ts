@@ -2,8 +2,18 @@
  * Core entity types for ScholaRAG Graph
  */
 
-// Entity Types
-export type EntityType = 'Paper' | 'Author' | 'Concept' | 'Method' | 'Finding';
+// Entity Types (Hybrid Mode: Paper/Author + Concept-Centric)
+export type EntityType =
+  | 'Paper'      // Hybrid Mode - 논문 노드
+  | 'Author'     // Hybrid Mode - 저자 노드
+  | 'Concept'    // Primary - 핵심 개념
+  | 'Method'     // Primary - 연구 방법론
+  | 'Finding'    // Primary - 연구 결과
+  | 'Problem'    // Secondary - 연구 문제
+  | 'Dataset'    // Secondary - 데이터셋
+  | 'Metric'     // Secondary - 측정 지표
+  | 'Innovation' // Secondary - 혁신/기여
+  | 'Limitation'; // Secondary - 한계점
 
 // Relationship Types (Updated for Concept-Centric Design)
 export type RelationshipType =

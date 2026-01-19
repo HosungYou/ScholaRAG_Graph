@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Sparkles,
   Lightbulb,
   ArrowRight,
@@ -14,14 +16,27 @@ import {
   Loader2,
   Copy,
   Check,
+  Hexagon,
 } from 'lucide-react';
-import type { StructuralGap, ConceptCluster, CentralityMetrics } from '@/types';
+import type { StructuralGap, ConceptCluster } from '@/types';
 
-// Cluster colors matching layout.ts
+/* ============================================================
+   GapPanel - VS Design Diverge Style
+   Direction B (T-Score 0.4) "Editorial Research"
+
+   Design Principles:
+   - Line-based layout (no rounded-lg, minimal border-radius)
+   - Left accent bars for emphasis
+   - Monospace labels and metadata
+   - High-contrast cluster colors
+   - Decorative corner accents
+   ============================================================ */
+
+// VS Design Diverge high-contrast cluster colors
 const clusterColors = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
-  '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F',
-  '#BB8FCE', '#85C1E9', '#F8B500', '#82E0AA',
+  '#E63946', '#2EC4B6', '#F4A261', '#457B9D', '#A8DADC',
+  '#9D4EDD', '#06D6A0', '#118AB2', '#EF476F', '#FFD166',
+  '#073B4C', '#7209B7',
 ];
 
 interface GapPanelProps {
@@ -33,6 +48,9 @@ interface GapPanelProps {
   onClearHighlights: () => void;
   isLoading?: boolean;
   onRefresh?: () => Promise<void>;
+  // Minimize toggle - controlled by parent for MiniMap offset coordination
+  isMinimized?: boolean;
+  onToggleMinimize?: () => void;
 }
 
 export function GapPanel({
@@ -44,6 +62,8 @@ export function GapPanel({
   onClearHighlights,
   isLoading = false,
   onRefresh,
+  isMinimized = false,
+  onToggleMinimize,
 }: GapPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [selectedGap, setSelectedGap] = useState<StructuralGap | null>(null);
@@ -109,51 +129,92 @@ export function GapPanel({
   }, []);
 
   return (
-    <div className="absolute top-4 left-4 bg-gray-800/95 rounded-lg shadow-xl border border-gray-700 w-80 max-h-[80vh] overflow-hidden z-20">
-      {/* Header */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-gray-700/50 transition-colors border-b border-gray-700"
-      >
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-yellow-400" />
-          <span className="font-medium text-gray-100">Research Gaps</span>
-          {gaps.length > 0 && (
-            <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
-              {gaps.length}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {isLoading && <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />}
-          {onRefresh && !isLoading && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onRefresh();
-              }}
-              className="p-1 hover:bg-gray-600 rounded transition-colors"
-              title="Refresh gap analysis"
-            >
-              <RefreshCw className="w-3 h-3 text-gray-400" />
-            </button>
-          )}
-          {isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-400" />
+    <div className={`absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 ${
+      isMinimized ? 'w-12' : 'w-64'
+    }`}>
+      {/* Decorative corner accent - only show when not minimized */}
+      {!isMinimized && (
+        <div className="absolute top-0 right-0 w-16 h-16 bg-accent-amber/10 transform rotate-45 translate-x-8 -translate-y-8" />
+      )}
+
+      {/* Minimize Toggle Button */}
+      {onToggleMinimize && (
+        <button
+          onClick={onToggleMinimize}
+          className="absolute top-2 -right-3 w-6 h-6 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 flex items-center justify-center z-30 hover:bg-surface/10 transition-colors"
+          title={isMinimized ? 'Expand panel' : 'Minimize panel'}
+        >
+          {isMinimized ? (
+            <ChevronRight className="w-3 h-3 text-muted" />
           ) : (
-            <ChevronDown className="w-4 h-4 text-gray-400" />
+            <ChevronLeft className="w-3 h-3 text-muted" />
+          )}
+        </button>
+      )}
+
+      {/* Minimized State - Icon only */}
+      {isMinimized ? (
+        <div className="p-3 flex flex-col items-center gap-2">
+          <div className="w-6 h-6 flex items-center justify-center bg-accent-amber/10">
+            <Sparkles className="w-3 h-3 text-accent-amber" />
+          </div>
+          {gaps.length > 0 && (
+            <span className="font-mono text-xs text-accent-amber">{gaps.length}</span>
           )}
         </div>
-      </button>
+      ) : (
+        <>
+          {/* Header */}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="w-full flex items-center justify-between p-3 hover:bg-surface/5 transition-colors border-b border-ink/10 dark:border-paper/10 relative"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 flex items-center justify-center bg-accent-amber/10">
+                <Sparkles className="w-3 h-3 text-accent-amber" />
+              </div>
+              <div className="text-left">
+                <span className="font-mono text-xs uppercase tracking-wider text-ink dark:text-paper block">
+                  Research Gaps
+                </span>
+                {gaps.length > 0 && (
+                  <span className="font-mono text-xs text-accent-amber">
+                    {gaps.length} detected
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {isLoading && <Loader2 className="w-3 h-3 text-accent-teal animate-spin" />}
+              {onRefresh && !isLoading && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRefresh();
+                  }}
+                  className="p-1 hover:bg-surface/10 transition-colors"
+                  title="Refresh gap analysis"
+                >
+                  <RefreshCw className="w-3 h-3 text-muted hover:text-accent-teal transition-colors" />
+                </button>
+              )}
+              {isExpanded ? (
+                <ChevronUp className="w-3 h-3 text-muted" />
+              ) : (
+                <ChevronDown className="w-3 h-3 text-muted" />
+              )}
+            </div>
+          </button>
 
       {/* Content */}
       {isExpanded && (
-        <div className="overflow-y-auto max-h-[calc(80vh-60px)]">
+        <div className="overflow-y-auto max-h-[calc(80vh-80px)]">
           {/* Description */}
-          <div className="p-3 bg-gray-700/30 border-b border-gray-700">
-            <div className="flex items-start gap-2">
-              <HelpCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-gray-400">
+          <div className="p-4 border-b border-ink/10 dark:border-paper/10 relative">
+            <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent-teal/50" />
+            <div className="flex items-start gap-2 pl-3">
+              <HelpCircle className="w-4 h-4 text-accent-teal mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-muted leading-relaxed">
                 Research gaps are areas where concept clusters have weak connections.
                 Click a gap to see AI-suggested research questions.
               </p>
@@ -162,59 +223,64 @@ export function GapPanel({
 
           {/* Gaps List */}
           {gaps.length === 0 ? (
-            <div className="p-6 text-center">
-              <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center mx-auto mb-3">
-                <Sparkles className="w-6 h-6 text-gray-500" />
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 flex items-center justify-center bg-surface/5 mx-auto mb-4">
+                <Sparkles className="w-8 h-8 text-muted" />
               </div>
-              <p className="text-gray-400 text-sm">No research gaps detected</p>
-              <p className="text-gray-500 text-xs mt-1">
+              <p className="font-mono text-xs text-muted uppercase tracking-wider mb-2">No Gaps Detected</p>
+              <p className="text-sm text-muted">
                 Import more papers to discover potential research opportunities
               </p>
             </div>
           ) : (
-            <div className="p-2 space-y-2">
-              {displayedGaps.map((gap) => {
+            <div className="p-3 space-y-2">
+              {displayedGaps.map((gap, gapIndex) => {
                 const isSelected = selectedGap?.id === gap.id;
                 const isExpandedItem = expandedGapId === gap.id;
 
                 return (
                   <div
                     key={gap.id}
-                    className={`rounded-lg border transition-all ${
+                    className={`border transition-all relative ${
                       isSelected
-                        ? 'border-yellow-500/50 bg-yellow-500/10'
-                        : 'border-gray-600 bg-gray-700/30 hover:border-gray-500'
+                        ? 'border-accent-amber/50 bg-accent-amber/5'
+                        : 'border-ink/10 dark:border-paper/10 hover:border-ink/20 dark:hover:border-paper/20'
                     }`}
                   >
+                    {/* Gap number badge */}
+                    <div className="absolute -top-2 -left-2 w-6 h-6 flex items-center justify-center bg-surface text-white font-mono text-xs">
+                      {String(gapIndex + 1).padStart(2, '0')}
+                    </div>
+
                     {/* Gap Header */}
                     <button
                       onClick={() => handleGapClick(gap)}
-                      className="w-full p-3 text-left"
+                      className="w-full p-4 pt-3 text-left"
                     >
                       <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <div
-                            className="w-2 h-2 rounded-full"
+                            className="w-3 h-3"
                             style={{ backgroundColor: getClusterColor(gap.cluster_a_id) }}
                           />
-                          <span className="text-xs text-gray-300 truncate max-w-[80px]">
+                          <span className="font-mono text-xs text-ink dark:text-paper truncate max-w-[70px]">
                             {getClusterLabel(gap.cluster_a_id)}
                           </span>
-                          <ArrowRight className="w-3 h-3 text-gray-500" />
+                          <ArrowRight className="w-3 h-3 text-muted" />
                           <div
-                            className="w-2 h-2 rounded-full"
+                            className="w-3 h-3"
                             style={{ backgroundColor: getClusterColor(gap.cluster_b_id) }}
                           />
-                          <span className="text-xs text-gray-300 truncate max-w-[80px]">
+                          <span className="font-mono text-xs text-ink dark:text-paper truncate max-w-[70px]">
                             {getClusterLabel(gap.cluster_b_id)}
                           </span>
                         </div>
-                        <span className={`text-xs font-medium ${
+                        <span className={`font-mono text-xs px-2 py-0.5 ${
                           gap.gap_strength > 0.7
-                            ? 'text-red-400'
+                            ? 'bg-accent-red/10 text-accent-red'
                             : gap.gap_strength > 0.4
-                            ? 'text-yellow-400'
-                            : 'text-green-400'
+                            ? 'bg-accent-amber/10 text-accent-amber'
+                            : 'bg-accent-teal/10 text-accent-teal'
                         }`}>
                           {formatGapStrength(gap.gap_strength)}
                         </span>
@@ -222,32 +288,32 @@ export function GapPanel({
 
                       {/* Gap Preview */}
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-muted truncate flex-1 mr-2">
                           {gap.cluster_a_names.slice(0, 2).join(', ')} ↔ {gap.cluster_b_names.slice(0, 2).join(', ')}
                         </p>
                         {isExpandedItem ? (
-                          <ChevronUp className="w-3 h-3 text-gray-500" />
+                          <ChevronUp className="w-3 h-3 text-muted flex-shrink-0" />
                         ) : (
-                          <ChevronDown className="w-3 h-3 text-gray-500" />
+                          <ChevronDown className="w-3 h-3 text-muted flex-shrink-0" />
                         )}
                       </div>
                     </button>
 
                     {/* Expanded Content */}
                     {isExpandedItem && (
-                      <div className="px-3 pb-3 space-y-3 border-t border-gray-600 pt-3">
+                      <div className="px-4 pb-4 space-y-4 border-t border-ink/10 dark:border-paper/10 pt-4">
                         {/* Bridge Candidates */}
                         {gap.bridge_candidates.length > 0 && (
                           <div>
-                            <p className="text-xs font-medium text-gray-300 mb-1 flex items-center gap-1">
-                              <Sparkles className="w-3 h-3 text-yellow-400" />
+                            <p className="font-mono text-xs uppercase tracking-wider text-accent-amber mb-2 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" />
                               Bridge Concepts
                             </p>
                             <div className="flex flex-wrap gap-1">
                               {gap.bridge_candidates.slice(0, 5).map((candidate, idx) => (
                                 <span
                                   key={idx}
-                                  className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded border border-yellow-500/30"
+                                  className="font-mono text-xs px-2 py-1 bg-accent-amber/10 text-accent-amber border border-accent-amber/30"
                                 >
                                   {candidate}
                                 </span>
@@ -259,29 +325,29 @@ export function GapPanel({
                         {/* Research Questions */}
                         {gap.research_questions.length > 0 && (
                           <div>
-                            <p className="text-xs font-medium text-gray-300 mb-2 flex items-center gap-1">
-                              <Lightbulb className="w-3 h-3 text-purple-400" />
+                            <p className="font-mono text-xs uppercase tracking-wider text-accent-teal mb-2 flex items-center gap-1">
+                              <Lightbulb className="w-3 h-3" />
                               AI Research Questions
                             </p>
                             <div className="space-y-2">
                               {gap.research_questions.map((question, qIdx) => (
                                 <div
                                   key={qIdx}
-                                  className="bg-gray-800 rounded p-2 group"
+                                  className="relative bg-surface/5 p-3 group border-l-2 border-accent-teal/50"
                                 >
                                   <div className="flex items-start justify-between gap-2">
-                                    <p className="text-xs text-gray-300 leading-relaxed">
+                                    <p className="text-xs text-ink dark:text-paper leading-relaxed pr-6">
                                       {question}
                                     </p>
                                     <button
                                       onClick={() => handleCopyQuestion(question, gap.id, qIdx)}
-                                      className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-surface/10"
                                       title="Copy question"
                                     >
                                       {copiedQuestionId === `${gap.id}-${qIdx}` ? (
-                                        <Check className="w-3 h-3 text-green-400" />
+                                        <Check className="w-3 h-3 text-accent-teal" />
                                       ) : (
-                                        <Copy className="w-3 h-3 text-gray-500 hover:text-gray-300" />
+                                        <Copy className="w-3 h-3 text-muted hover:text-ink dark:hover:text-paper" />
                                       )}
                                     </button>
                                   </div>
@@ -292,40 +358,40 @@ export function GapPanel({
                         )}
 
                         {/* Concepts in each cluster */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <p className="text-xs text-gray-500 mb-1">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="border border-ink/10 dark:border-paper/10 p-2">
+                            <p className="font-mono text-xs text-muted mb-2 flex items-center gap-1">
                               <span
-                                className="inline-block w-2 h-2 rounded-full mr-1"
+                                className="inline-block w-2 h-2"
                                 style={{ backgroundColor: getClusterColor(gap.cluster_a_id) }}
                               />
                               Cluster A ({gap.cluster_a_names.length})
                             </p>
-                            <div className="text-xs text-gray-400 space-y-0.5 max-h-24 overflow-y-auto">
+                            <div className="text-xs text-ink dark:text-paper space-y-1 max-h-24 overflow-y-auto">
                               {gap.cluster_a_names.slice(0, 5).map((name, idx) => (
-                                <div key={idx} className="truncate">{name}</div>
+                                <div key={idx} className="truncate font-mono">{name}</div>
                               ))}
                               {gap.cluster_a_names.length > 5 && (
-                                <div className="text-gray-500">
+                                <div className="text-muted font-mono">
                                   +{gap.cluster_a_names.length - 5} more
                                 </div>
                               )}
                             </div>
                           </div>
-                          <div>
-                            <p className="text-xs text-gray-500 mb-1">
+                          <div className="border border-ink/10 dark:border-paper/10 p-2">
+                            <p className="font-mono text-xs text-muted mb-2 flex items-center gap-1">
                               <span
-                                className="inline-block w-2 h-2 rounded-full mr-1"
+                                className="inline-block w-2 h-2"
                                 style={{ backgroundColor: getClusterColor(gap.cluster_b_id) }}
                               />
                               Cluster B ({gap.cluster_b_names.length})
                             </p>
-                            <div className="text-xs text-gray-400 space-y-0.5 max-h-24 overflow-y-auto">
+                            <div className="text-xs text-ink dark:text-paper space-y-1 max-h-24 overflow-y-auto">
                               {gap.cluster_b_names.slice(0, 5).map((name, idx) => (
-                                <div key={idx} className="truncate">{name}</div>
+                                <div key={idx} className="truncate font-mono">{name}</div>
                               ))}
                               {gap.cluster_b_names.length > 5 && (
-                                <div className="text-gray-500">
+                                <div className="text-muted font-mono">
                                   +{gap.cluster_b_names.length - 5} more
                                 </div>
                               )}
@@ -342,7 +408,7 @@ export function GapPanel({
               {gaps.length > 5 && (
                 <button
                   onClick={() => setShowAllGaps(!showAllGaps)}
-                  className="w-full py-2 text-xs text-gray-400 hover:text-gray-300 transition-colors flex items-center justify-center gap-1"
+                  className="w-full py-2 font-mono text-xs text-muted hover:text-accent-teal transition-colors flex items-center justify-center gap-2 border border-ink/10 dark:border-paper/10 hover:border-accent-teal/30"
                 >
                   {showAllGaps ? (
                     <>
@@ -362,10 +428,10 @@ export function GapPanel({
 
           {/* Clear Highlights Button */}
           {selectedGap && (
-            <div className="p-3 border-t border-gray-700">
+            <div className="p-3 border-t border-ink/10 dark:border-paper/10">
               <button
                 onClick={handleClearHighlights}
-                className="w-full py-2 px-3 bg-gray-700 hover:bg-gray-600 rounded text-sm text-gray-300 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-3 bg-surface/10 hover:bg-surface/20 font-mono text-xs text-ink dark:text-paper uppercase tracking-wider transition-colors flex items-center justify-center gap-2"
               >
                 <EyeOff className="w-4 h-4" />
                 Clear Highlights
@@ -375,30 +441,38 @@ export function GapPanel({
 
           {/* Cluster Overview */}
           {clusters.length > 0 && (
-            <div className="p-3 border-t border-gray-700">
-              <p className="text-xs font-medium text-gray-300 mb-2">Concept Clusters</p>
-              <div className="grid grid-cols-3 gap-1">
+            <div className="p-4 border-t border-ink/10 dark:border-paper/10">
+              <div className="flex items-center gap-2 mb-3">
+                <Hexagon className="w-4 h-4 text-accent-teal" />
+                <p className="font-mono text-xs uppercase tracking-wider text-ink dark:text-paper">
+                  Concept Clusters
+                </p>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
                 {clusters.slice(0, 12).map((cluster) => (
                   <div
                     key={cluster.cluster_id}
-                    className="flex items-center gap-1 p-1 rounded bg-gray-700/50"
+                    className="flex items-center gap-1 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5"
+                    title={`Cluster ${cluster.cluster_id + 1}: ${cluster.size} concepts`}
                   >
                     <div
-                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      className="w-2 h-2 flex-shrink-0"
                       style={{ backgroundColor: getClusterColor(cluster.cluster_id) }}
                     />
-                    <span className="text-xs text-gray-400 truncate">
+                    <span className="font-mono text-xs text-muted">
                       {cluster.size}
                     </span>
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="font-mono text-xs text-muted mt-3">
                 {clusters.reduce((sum, c) => sum + c.size, 0)} concepts in {clusters.length} clusters
               </p>
             </div>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

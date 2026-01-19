@@ -18,17 +18,19 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     google_api_key: str = ""
+    groq_api_key: str = ""  # FREE! Get key at https://console.groq.com
+    cohere_api_key: str = ""  # FREE! For embeddings - https://dashboard.cohere.com/api-keys
 
     # Default LLM Configuration
-    default_llm_provider: Literal["anthropic", "openai", "google"] = "anthropic"
+    default_llm_provider: Literal["anthropic", "openai", "google", "groq"] = "anthropic"
     default_llm_model: str = "claude-3-5-haiku-20241022"
 
     # Embedding Configuration
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dimension: int = 1536
+    embedding_model: str = "embed-english-v3.0"  # Cohere model
+    embedding_dimension: int = 1024  # Cohere v3 dimension
 
     # CORS - comma-separated list of allowed origins
-    cors_origins: str = "http://localhost:3000,https://scholarag-graph.vercel.app"
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,https://scholarag-graph.vercel.app"
     frontend_url: str = "http://localhost:3000"
 
     # Server

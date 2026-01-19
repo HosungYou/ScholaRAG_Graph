@@ -2,7 +2,7 @@
 
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { Lightbulb, Beaker, Trophy, AlertCircle, Database, Target, Sparkles, AlertTriangle } from 'lucide-react';
+import { Lightbulb, Beaker, Trophy, AlertCircle, Database, Target, Sparkles, AlertTriangle, FileText, User } from 'lucide-react';
 import clsx from 'clsx';
 
 /* ============================================================
@@ -35,8 +35,12 @@ interface PolygonNodeData {
   paperCount?: number;
 }
 
-// Entity type icons
+// Entity type icons (Hybrid Mode: Paper/Author + Concept-Centric)
 const iconMap: Record<string, React.ReactNode> = {
+  // Hybrid Mode entities
+  Paper: <FileText className="w-full h-full" />,
+  Author: <User className="w-full h-full" />,
+  // Concept-centric entities
   Concept: <Lightbulb className="w-full h-full" />,
   Method: <Beaker className="w-full h-full" />,
   Finding: <Trophy className="w-full h-full" />,
@@ -47,9 +51,13 @@ const iconMap: Record<string, React.ReactNode> = {
   Limitation: <AlertTriangle className="w-full h-full" />,
 };
 
-// Entity type colors (VS Design Diverge palette)
+// Entity type colors (VS Design Diverge palette - Hybrid Mode)
 const entityColors: Record<string, string> = {
-  Concept: '#8B5CF6',    // Purple - Hexagon
+  // Hybrid Mode entities (Paper-centric visualization)
+  Paper: '#6366F1',      // Indigo - Rectangle
+  Author: '#A855F7',     // Purple - Circle
+  // Concept-centric entities
+  Concept: '#8B5CF6',    // Violet - Hexagon
   Method: '#F59E0B',     // Amber - Diamond
   Finding: '#10B981',    // Emerald - Square
   Problem: '#EF4444',    // Red - Pentagon
@@ -68,6 +76,14 @@ const clusterColors = [
 
 // SVG Path generators for different polygon shapes
 const polygonPaths: Record<string, (size: number) => string> = {
+  // Rectangle - horizontal (Paper)
+  rectangle: (size: number) => {
+    const width = size;
+    const height = size * 0.7;
+    const y = (size - height) / 2;
+    return `M0,${y} L${width},${y} L${width},${y + height} L0,${y + height}Z`;
+  },
+
   // Hexagon - 6 sides (Concept)
   hexagon: (size: number) => {
     const r = size / 2;
@@ -140,7 +156,12 @@ const polygonPaths: Record<string, (size: number) => string> = {
 };
 
 // Map entity types to polygon shapes
+// Map entity types to polygon shapes (Hybrid Mode)
 const entityShapes: Record<string, string> = {
+  // Hybrid Mode entities
+  Paper: 'rectangle',      // 논문: 직사각형 (문서 형태)
+  Author: 'circle',        // 저자: 원형 (사람 노드)
+  // Concept-centric entities
   Concept: 'hexagon',
   Method: 'diamond',
   Finding: 'square',

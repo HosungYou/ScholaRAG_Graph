@@ -533,8 +533,13 @@
 }
 
 .btn--secondary {
-  @apply bg-transparent border border-border-light text-ink;
-  @apply hover:border-ink;
+  @apply bg-transparent border border-ink/30 text-ink;
+  @apply hover:border-ink hover:bg-ink/5;
+}
+
+.dark .btn--secondary {
+  @apply border-paper/30 text-paper;
+  @apply hover:border-paper hover:bg-paper/5;
 }
 
 .btn--tertiary {
