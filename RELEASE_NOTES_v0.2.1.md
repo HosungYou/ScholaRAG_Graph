@@ -341,3 +341,54 @@ Added in follow-up to improve user experience:
 - **Resize**: Drag the grip handle between panels
 - **Collapse**: Click the panel close icon in header
 - **Expand**: Click the collapsed "Chat" tab on left edge
+
+---
+
+## Additional Fix: 3D Graph Node Stabilization & Labels
+
+**Commit**: `63f3467`
+
+### Issues Addressed
+
+1. **Wobbly Nodes**: Nodes were moving erratically, making them impossible to click
+2. **Missing Labels**: No visible labels on nodes - couldn't identify relationships
+
+### Root Cause
+
+1. Force simulation damping was too low (`d3VelocityDecay=0.3`)
+2. Text labels only appeared on hover (tooltip), no persistent labels
+
+### Solution
+
+1. **Node Stabilization**
+   - `d3VelocityDecay`: 0.3 → 0.7 (faster damping)
+   - `d3AlphaDecay`: 0.02 → 0.05 (faster simulation convergence)
+
+2. **Persistent Labels for Top 20% Centrality Nodes**
+   - Calculate centrality threshold (top 20%)
+   - Render Three.js CanvasTexture sprites as labels
+   - Position labels above nodes
+   - Truncate long names to 20 characters with ellipsis
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `frontend/components/graph/Graph3D.tsx` | +85 lines - stabilization params + label sprites |
+
+### Technical Details
+
+```typescript
+// Stabilization parameters
+d3AlphaDecay={0.05}    // Was 0.02
+d3VelocityDecay={0.7}  // Was 0.3
+
+// Label display logic
+const shouldShowLabel = nodeCentrality >= labelCentralityThreshold;
+// Creates CanvasTexture sprite positioned above node
+```
+
+### User Experience Improvement
+
+- **Before**: Nodes constantly moving, no way to identify concepts
+- **After**: Nodes quickly stabilize, top 20% most important nodes have visible labels
