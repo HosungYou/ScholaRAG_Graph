@@ -871,7 +871,7 @@ async def get_gap_analysis(
         clusters = [
             ConceptClusterResponse(
                 cluster_id=row["cluster_id"],
-                concepts=row["concepts"] or [],
+                concepts=[str(c) for c in (row["concepts"] or [])],  # Convert UUIDs to strings
                 concept_names=row["concept_names"] or [],
                 size=row["size"],
                 density=row["density"] or 0.0,
@@ -1084,7 +1084,7 @@ async def refresh_gap_analysis(
                 """,
                 str(project_id),
                 cluster.id,  # ConceptCluster uses 'id' not 'cluster_id'
-                cluster.concept_ids,  # ConceptCluster uses 'concept_ids' not 'concepts'
+                [str(cid) for cid in cluster.concept_ids],  # Convert to strings for TEXT[]
                 cluster_concept_names,  # Derived from concept_ids
                 len(cluster.concept_ids),  # Computed size
                 0.0,  # Default density (can be calculated if needed)
@@ -1106,6 +1106,10 @@ async def refresh_gap_analysis(
                 for pe in (gap.potential_edges or [])
             ]
 
+            # Convert concept IDs to strings
+            concept_a_ids_str = [str(cid) for cid in gap.concept_a_ids]
+            concept_b_ids_str = [str(cid) for cid in gap.concept_b_ids]
+
             await database.execute(
                 """
                 INSERT INTO structural_gaps (
@@ -1118,13 +1122,13 @@ async def refresh_gap_analysis(
                 str(project_id),
                 gap.cluster_a_id,
                 gap.cluster_b_id,
-                gap.concept_a_ids,
-                gap.concept_b_ids,
-                [c["name"] for c in concepts if c["id"] in gap.concept_a_ids][:5],
-                [c["name"] for c in concepts if c["id"] in gap.concept_b_ids][:5],
+                concept_a_ids_str,
+                concept_b_ids_str,
+                [c["name"] for c in concepts if c["id"] in concept_a_ids_str][:5],
+                [c["name"] for c in concepts if c["id"] in concept_b_ids_str][:5],
                 gap.gap_strength,
-                gap.bridge_concepts,
-                gap.suggested_research_questions,
+                gap.bridge_concepts or [],
+                gap.suggested_research_questions or [],
                 json.dumps(potential_edges_json),
             )
 
