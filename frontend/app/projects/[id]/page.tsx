@@ -128,6 +128,11 @@ export default function ProjectDetailPage() {
       Concept: 0,
       Method: 0,
       Finding: 0,
+      Problem: 0,
+      Dataset: 0,
+      Metric: 0,
+      Innovation: 0,
+      Limitation: 0,
     };
 
     for (const node of graphData.nodes) {
