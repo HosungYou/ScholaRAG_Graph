@@ -38,6 +38,32 @@ def _parse_json_field(value) -> dict:
         except (json.JSONDecodeError, TypeError):
             return {}
     return {}
+
+
+def _parse_embedding(value) -> list:
+    """Parse a pgvector embedding that might be a string, list, or vector type."""
+    if value is None:
+        return []
+    # Already a list of floats
+    if isinstance(value, list):
+        return value
+    # String format from pgvector: "[0.1, 0.2, ...]"
+    if isinstance(value, str):
+        try:
+            # Remove brackets and split
+            clean = value.strip("[]")
+            if not clean:
+                return []
+            return [float(x.strip()) for x in clean.split(",")]
+        except (ValueError, AttributeError):
+            return []
+    # Try to convert directly (some drivers return native types)
+    try:
+        return list(value)
+    except (TypeError, ValueError):
+        return []
+
+
 router = APIRouter()
 
 
@@ -779,6 +805,16 @@ class ConceptClusterResponse(BaseModel):
     label: Optional[str] = None
 
 
+class PotentialEdgeResponse(BaseModel):
+    """Potential (ghost) edge between clusters for visualization."""
+    source_id: str
+    target_id: str
+    similarity: float
+    gap_id: str
+    source_name: Optional[str] = None
+    target_name: Optional[str] = None
+
+
 class StructuralGapResponse(BaseModel):
     id: str
     cluster_a_id: int
@@ -790,6 +826,7 @@ class StructuralGapResponse(BaseModel):
     gap_strength: float
     bridge_candidates: List[str]
     research_questions: List[str]
+    potential_edges: List[PotentialEdgeResponse] = []  # Ghost edges for visualization
 
 
 class CentralityMetricsResponse(BaseModel):
@@ -849,7 +886,7 @@ async def get_gap_analysis(
             SELECT id, cluster_a_id, cluster_b_id,
                    cluster_a_concepts, cluster_b_concepts,
                    cluster_a_names, cluster_b_names,
-                   gap_strength, bridge_candidates, research_questions
+                   gap_strength, bridge_candidates, research_questions, potential_edges
             FROM structural_gaps
             WHERE project_id = $1
             ORDER BY gap_strength DESC
@@ -857,21 +894,34 @@ async def get_gap_analysis(
             str(project_id),
         )
 
-        gaps = [
-            StructuralGapResponse(
-                id=str(row["id"]),
-                cluster_a_id=row["cluster_a_id"],
-                cluster_b_id=row["cluster_b_id"],
-                cluster_a_concepts=row["cluster_a_concepts"] or [],
-                cluster_b_concepts=row["cluster_b_concepts"] or [],
-                cluster_a_names=row["cluster_a_names"] or [],
-                cluster_b_names=row["cluster_b_names"] or [],
-                gap_strength=row["gap_strength"] or 0.0,
-                bridge_candidates=row["bridge_candidates"] or [],
-                research_questions=row["research_questions"] or [],
+        gaps = []
+        for row in gap_rows:
+            # Parse potential_edges from JSON
+            potential_edges_data = row.get("potential_edges")
+            if potential_edges_data:
+                if isinstance(potential_edges_data, str):
+                    potential_edges_data = json.loads(potential_edges_data)
+                potential_edges = [
+                    PotentialEdgeResponse(**pe) for pe in (potential_edges_data or [])
+                ]
+            else:
+                potential_edges = []
+
+            gaps.append(
+                StructuralGapResponse(
+                    id=str(row["id"]),
+                    cluster_a_id=row["cluster_a_id"],
+                    cluster_b_id=row["cluster_b_id"],
+                    cluster_a_concepts=row["cluster_a_concepts"] or [],
+                    cluster_b_concepts=row["cluster_b_concepts"] or [],
+                    cluster_a_names=row["cluster_a_names"] or [],
+                    cluster_b_names=row["cluster_b_names"] or [],
+                    gap_strength=row["gap_strength"] or 0.0,
+                    bridge_candidates=row["bridge_candidates"] or [],
+                    research_questions=row["research_questions"] or [],
+                    potential_edges=potential_edges,
+                )
             )
-            for row in gap_rows
-        ]
 
         # Get centrality metrics from entities
         centrality_rows = await database.fetch(
@@ -984,7 +1034,7 @@ async def refresh_gap_analysis(
             {
                 "id": str(row["id"]),
                 "name": row["name"],
-                "embedding": list(row["embedding"]) if row["embedding"] else None,
+                "embedding": _parse_embedding(row["embedding"]) or None,
                 "properties": row["properties"] or {},
             }
             for row in concept_rows
@@ -1034,25 +1084,39 @@ async def refresh_gap_analysis(
 
         # Store gaps
         for gap in analysis.get("gaps", []):
+            # Convert potential_edges to JSON-serializable format
+            potential_edges_json = [
+                {
+                    "source_id": pe.source_id,
+                    "target_id": pe.target_id,
+                    "similarity": pe.similarity,
+                    "gap_id": pe.gap_id,
+                    "source_name": pe.source_name,
+                    "target_name": pe.target_name,
+                }
+                for pe in (gap.potential_edges or [])
+            ]
+
             await database.execute(
                 """
                 INSERT INTO structural_gaps (
                     project_id, cluster_a_id, cluster_b_id,
                     cluster_a_concepts, cluster_b_concepts,
                     cluster_a_names, cluster_b_names,
-                    gap_strength, bridge_candidates, research_questions
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    gap_strength, bridge_candidates, research_questions, potential_edges
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 """,
                 str(project_id),
                 gap.cluster_a_id,
                 gap.cluster_b_id,
-                gap.cluster_a_concepts,
-                gap.cluster_b_concepts,
-                gap.cluster_a_names,
-                gap.cluster_b_names,
+                gap.concept_a_ids,
+                gap.concept_b_ids,
+                [c["name"] for c in concepts if c["id"] in gap.concept_a_ids][:5],
+                [c["name"] for c in concepts if c["id"] in gap.concept_b_ids][:5],
                 gap.gap_strength,
-                gap.bridge_candidates,
-                gap.research_questions,
+                gap.bridge_concepts,
+                gap.suggested_research_questions,
+                json.dumps(potential_edges_json),
             )
 
         # Update entity centrality
@@ -1095,7 +1159,7 @@ async def get_gap_detail(
                    cluster_a_concepts, cluster_b_concepts,
                    cluster_a_names, cluster_b_names,
                    gap_strength, bridge_candidates, research_questions,
-                   project_id
+                   potential_edges, project_id
             FROM structural_gaps
             WHERE id = $1
             """,
@@ -1110,6 +1174,17 @@ async def get_gap_detail(
         # Verify project access
         await verify_project_access(database, project_id, current_user, "access")
 
+        # Parse potential_edges from JSON
+        potential_edges_data = row.get("potential_edges")
+        if potential_edges_data:
+            if isinstance(potential_edges_data, str):
+                potential_edges_data = json.loads(potential_edges_data)
+            potential_edges = [
+                PotentialEdgeResponse(**pe) for pe in (potential_edges_data or [])
+            ]
+        else:
+            potential_edges = []
+
         return StructuralGapResponse(
             id=str(row["id"]),
             cluster_a_id=row["cluster_a_id"],
@@ -1121,6 +1196,7 @@ async def get_gap_detail(
             gap_strength=row["gap_strength"] or 0.0,
             bridge_candidates=row["bridge_candidates"] or [],
             research_questions=row["research_questions"] or [],
+            potential_edges=potential_edges,
         )
 
     except HTTPException:
@@ -1343,6 +1419,142 @@ async def get_centrality(
         raise HTTPException(status_code=500, detail="Failed to compute centrality metrics")
 
 
+class GraphMetricsResponse(BaseModel):
+    """Response model for graph quality metrics (Insight HUD)."""
+    modularity: float  # Cluster separation quality (0-1)
+    diversity: float   # Cluster size balance (0-1)
+    density: float     # Connection density (0-1)
+    avg_clustering: float  # Average clustering coefficient
+    num_components: int    # Number of connected components
+    node_count: int
+    edge_count: int
+    cluster_count: int
+
+
+@router.get("/metrics/{project_id}", response_model=GraphMetricsResponse)
+async def get_graph_metrics(
+    project_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Get graph quality metrics for Insight HUD display (InfraNodus-style).
+
+    Returns:
+        - modularity: Cluster separation quality (0-1, higher = better separated)
+        - diversity: Cluster size balance (0-1, higher = more even distribution)
+        - density: Connection density (0-1)
+        - avg_clustering: Average clustering coefficient
+        - num_components: Number of connected components
+        - node_count: Total number of nodes
+        - edge_count: Total number of edges
+        - cluster_count: Number of clusters
+    """
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
+    try:
+        from graph.centrality_analyzer import centrality_analyzer, ClusterResult
+
+        # Get nodes
+        node_rows = await database.fetch(
+            """
+            SELECT id, entity_type::text, name, properties
+            FROM entities
+            WHERE project_id = $1
+            AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
+            """,
+            str(project_id),
+        )
+
+        # Get edges
+        edge_rows = await database.fetch(
+            """
+            SELECT id, source_id, target_id, relationship_type::text,
+                   COALESCE((properties->>'weight')::float, 1.0) as weight
+            FROM relationships
+            WHERE project_id = $1
+            """,
+            str(project_id),
+        )
+
+        # Get clusters
+        cluster_rows = await database.fetch(
+            """
+            SELECT cluster_id, concepts, size
+            FROM concept_clusters
+            WHERE project_id = $1
+            ORDER BY cluster_id
+            """,
+            str(project_id),
+        )
+
+        if not node_rows:
+            return GraphMetricsResponse(
+                modularity=0.0,
+                diversity=0.0,
+                density=0.0,
+                avg_clustering=0.0,
+                num_components=0,
+                node_count=0,
+                edge_count=0,
+                cluster_count=0,
+            )
+
+        # Convert to format expected by analyzer
+        nodes = [
+            {
+                "id": str(row["id"]),
+                "entity_type": row["entity_type"],
+                "name": row["name"],
+                "properties": _parse_json_field(row["properties"]),
+            }
+            for row in node_rows
+        ]
+
+        edges = [
+            {
+                "id": str(row["id"]),
+                "source": str(row["source_id"]),
+                "target": str(row["target_id"]),
+                "weight": float(row["weight"]) if row["weight"] else 1.0,
+            }
+            for row in edge_rows
+        ]
+
+        # Convert clusters to ClusterResult objects
+        clusters = [
+            ClusterResult(
+                cluster_id=row["cluster_id"],
+                node_ids=row["concepts"] or [],
+                node_names=[],
+                centroid=None,
+                size=row["size"],
+            )
+            for row in cluster_rows
+        ]
+
+        # Compute graph metrics
+        metrics = centrality_analyzer.compute_graph_metrics(nodes, edges, clusters)
+
+        return GraphMetricsResponse(
+            modularity=metrics["modularity"],
+            diversity=metrics["diversity"],
+            density=metrics["density"],
+            avg_clustering=metrics["avg_clustering"],
+            num_components=metrics["num_components"],
+            node_count=len(nodes),
+            edge_count=len(edges),
+            cluster_count=len(clusters),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to compute graph metrics: {e}")
+        raise HTTPException(status_code=500, detail="Failed to compute graph metrics")
+
+
 @router.post("/slice/{project_id}")
 async def slice_graph(
     project_id: UUID,
@@ -1521,7 +1733,7 @@ async def recompute_clusters(
             for row in node_rows
         ]
 
-        embeddings = np.array([list(row["embedding"]) for row in node_rows])
+        embeddings = np.array([_parse_embedding(row["embedding"]) for row in node_rows], dtype=np.float32)
 
         # Compute optimal K if not specified
         optimal_k = centrality_analyzer.compute_optimal_k(embeddings, min_k=2, max_k=min(10, len(nodes) - 1))
