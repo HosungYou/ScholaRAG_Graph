@@ -3,7 +3,7 @@
 import { useCallback, useRef, useMemo, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
 import * as THREE from 'three';
-import type { GraphEntity, GraphEdge, ConceptCluster, CentralityMetrics, StructuralGap } from '@/types';
+import type { GraphEntity, GraphEdge, ConceptCluster, CentralityMetrics, StructuralGap, PotentialEdge } from '@/types';
 
 // Dynamic import to avoid SSR issues with Three.js
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
@@ -47,6 +47,8 @@ interface ForceGraphLink {
   weight: number;
   relationshipType: string;
   isHighlighted?: boolean;
+  isGhost?: boolean;  // Ghost edge (potential edge) for InfraNodus-style visualization
+  similarity?: number;  // Similarity score for ghost edges
 }
 
 // Graph data for ForceGraph
@@ -98,6 +100,9 @@ export interface Graph3DProps {
   onBackgroundClick?: () => void;
   showParticles?: boolean;
   particleSpeed?: number;
+  // Ghost Edge props (InfraNodus-style)
+  showGhostEdges?: boolean;
+  potentialEdges?: PotentialEdge[];
 }
 
 export interface Graph3DRef {
@@ -121,6 +126,8 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   onBackgroundClick,
   showParticles = true,
   particleSpeed = 0.005,
+  showGhostEdges = false,
+  potentialEdges = [],
 }, ref) => {
   const fgRef = useRef<any>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -146,6 +153,42 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   // Build highlighted sets for O(1) lookup
   const highlightedNodeSet = useMemo(() => new Set(highlightedNodes), [highlightedNodes]);
   const highlightedEdgeSet = useMemo(() => new Set(highlightedEdges), [highlightedEdges]);
+
+  // Build node -> cluster mapping for edge coloring
+  const nodeClusterMap = useMemo(() => {
+    const map = new Map<string, number>();
+    nodes.forEach(node => {
+      const clusterId = (node.properties as { cluster_id?: number })?.cluster_id;
+      if (clusterId !== undefined) {
+        map.set(node.id, clusterId);
+      }
+    });
+    return map;
+  }, [nodes]);
+
+  // Helper function: Convert hex to rgba
+  const hexToRgba = useCallback((hex: string, alpha: number): string => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }, []);
+
+  // Helper function: Blend two hex colors
+  const blendColors = useCallback((color1: string, color2: string, ratio: number = 0.5): string => {
+    const r1 = parseInt(color1.slice(1, 3), 16);
+    const g1 = parseInt(color1.slice(3, 5), 16);
+    const b1 = parseInt(color1.slice(5, 7), 16);
+    const r2 = parseInt(color2.slice(1, 3), 16);
+    const g2 = parseInt(color2.slice(3, 5), 16);
+    const b2 = parseInt(color2.slice(5, 7), 16);
+
+    const r = Math.round(r1 * (1 - ratio) + r2 * ratio);
+    const g = Math.round(g1 * (1 - ratio) + g2 * ratio);
+    const b = Math.round(b1 * (1 - ratio) + b2 * ratio);
+
+    return `rgba(${r}, ${g}, ${b}, 0.35)`;
+  }, []);
 
   // Transform data for ForceGraph3D
   const graphData = useMemo<ForceGraphData>(() => {
@@ -192,10 +235,26 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       weight: edge.weight || 1,
       relationshipType: edge.relationship_type,
       isHighlighted: highlightedEdgeSet.has(edge.id),
+      isGhost: false,
     }));
 
+    // Add ghost edges (potential edges) if enabled
+    if (showGhostEdges && potentialEdges.length > 0) {
+      const ghostLinks: ForceGraphLink[] = potentialEdges.map((pe, index) => ({
+        id: `ghost-${pe.source_id}-${pe.target_id}-${index}`,
+        source: pe.source_id,
+        target: pe.target_id,
+        weight: pe.similarity,
+        relationshipType: 'POTENTIAL',
+        isHighlighted: true,  // Always highlight ghost edges
+        isGhost: true,
+        similarity: pe.similarity,
+      }));
+      forceLinks.push(...ghostLinks);
+    }
+
     return { nodes: forceNodes, links: forceLinks };
-  }, [nodes, edges, clusterColorMap, centralityMap, highlightedNodeSet, highlightedEdgeSet]);
+  }, [nodes, edges, clusterColorMap, centralityMap, highlightedNodeSet, highlightedEdgeSet, showGhostEdges, potentialEdges]);
 
   // Custom node rendering with glow effect
   const nodeThreeObject = useCallback((nodeData: unknown) => {
@@ -246,17 +305,96 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   // Link width based on weight
   const linkWidth = useCallback((linkData: unknown) => {
     const link = linkData as ForceGraphLink;
+    if (link.isGhost) {
+      // Ghost edges are thinner with dashed appearance feel
+      return 1.5;
+    }
     const baseWidth = Math.max(0.3, (link.weight || 1) * 0.5);
     return link.isHighlighted ? baseWidth * 2 : baseWidth;
   }, []);
 
-  // Link color
+  // Link color - Cluster-based coloring (InfraNodus-style)
   const linkColor = useCallback((linkData: unknown) => {
     const link = linkData as ForceGraphLink;
-    if (link.isHighlighted) {
-      return 'rgba(255, 215, 0, 0.8)'; // Gold
+
+    // Ghost edges: amber/orange with transparency based on similarity
+    if (link.isGhost) {
+      const alpha = 0.4 + (link.similarity || 0.5) * 0.4;
+      return `rgba(255, 170, 0, ${alpha})`;
     }
+
+    // Highlighted edges: gold
+    if (link.isHighlighted) {
+      return 'rgba(255, 215, 0, 0.8)';
+    }
+
+    // Get source and target node IDs
+    const sourceId = typeof link.source === 'string' ? link.source : (link.source as ForceGraphNode).id;
+    const targetId = typeof link.target === 'string' ? link.target : (link.target as ForceGraphNode).id;
+
+    // Get cluster IDs for source and target
+    const sourceCluster = nodeClusterMap.get(sourceId);
+    const targetCluster = nodeClusterMap.get(targetId);
+
+    // Same cluster: use cluster color with low opacity
+    if (sourceCluster !== undefined && sourceCluster === targetCluster) {
+      const clusterColor = clusterColorMap.get(sourceCluster);
+      if (clusterColor) {
+        return hexToRgba(clusterColor, 0.35);
+      }
+    }
+
+    // Cross-cluster: blend colors if both have cluster assignments
+    if (sourceCluster !== undefined && targetCluster !== undefined && sourceCluster !== targetCluster) {
+      const sourceColor = clusterColorMap.get(sourceCluster);
+      const targetColor = clusterColorMap.get(targetCluster);
+      if (sourceColor && targetColor) {
+        return blendColors(sourceColor, targetColor, 0.5);
+      }
+    }
+
+    // Default: white with low opacity
     return 'rgba(255, 255, 255, 0.15)';
+  }, [nodeClusterMap, clusterColorMap, hexToRgba, blendColors]);
+
+  // Custom link rendering for ghost edges (dashed lines)
+  const linkThreeObject = useCallback((linkData: unknown) => {
+    const link = linkData as ForceGraphLink;
+
+    if (!link.isGhost) {
+      return null; // Use default rendering for regular edges
+    }
+
+    // Create dashed line for ghost edges
+    const geometry = new THREE.BufferGeometry();
+    const material = new THREE.LineDashedMaterial({
+      color: 0xffaa00,
+      dashSize: 3,
+      gapSize: 2,
+      opacity: 0.6,
+      transparent: true,
+    });
+
+    const line = new THREE.Line(geometry, material);
+    line.computeLineDistances();
+
+    return line;
+  }, []);
+
+  // Update ghost edge positions
+  const linkPositionUpdate = useCallback((line: THREE.Object3D, coords: { start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number } }, linkData: unknown) => {
+    const link = linkData as ForceGraphLink;
+
+    if (link.isGhost && line instanceof THREE.Line) {
+      const positions = new Float32Array([
+        coords.start.x, coords.start.y, coords.start.z,
+        coords.end.x, coords.end.y, coords.end.z
+      ]);
+      line.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      line.computeLineDistances();
+      return true;
+    }
+    return false;
   }, []);
 
   // Node click handler
@@ -442,6 +580,8 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         linkWidth={linkWidth}
         linkColor={linkColor}
         linkOpacity={0.6}
+        linkThreeObject={linkThreeObject}
+        linkPositionUpdate={linkPositionUpdate}
         linkDirectionalParticles={showParticles ? 2 : 0}
         linkDirectionalParticleSpeed={particleSpeed}
         linkDirectionalParticleWidth={1.5}

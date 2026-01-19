@@ -408,6 +408,20 @@ class ApiClient {
     return this.request(`/api/graph/centrality/${projectId}?metric=${metric}`);
   }
 
+  // Graph Metrics (Insight HUD)
+  async getGraphMetrics(projectId: string): Promise<{
+    modularity: number;
+    diversity: number;
+    density: number;
+    avg_clustering: number;
+    num_components: number;
+    node_count: number;
+    edge_count: number;
+    cluster_count: number;
+  }> {
+    return this.request(`/api/graph/metrics/${projectId}`);
+  }
+
   // Node Slicing
   async sliceGraph(
     projectId: string,

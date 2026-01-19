@@ -8,6 +8,8 @@ import { ClusterPanel } from './ClusterPanel';
 import { GraphLegend } from './GraphLegend';
 import { StatusBar } from './StatusBar';
 import { NodeDetails } from './NodeDetails';
+import { InsightHUD } from './InsightHUD';
+import { MainTopicsPanel } from './MainTopicsPanel';
 import { useGraphStore } from '@/hooks/useGraphStore';
 import { useGraph3DStore, applyLOD } from '@/hooks/useGraph3DStore';
 import type { GraphEntity, EntityType, StructuralGap } from '@/types';
@@ -22,6 +24,8 @@ import {
   Zap,
   ZapOff,
   Scissors,
+  BarChart3,
+  PieChart,
 } from 'lucide-react';
 
 interface KnowledgeGraph3DProps {
@@ -39,6 +43,8 @@ export function KnowledgeGraph3D({
   const [showGapPanel, setShowGapPanel] = useState(true);
   const [showCentralityPanel, setShowCentralityPanel] = useState(false);
   const [showClusterPanel, setShowClusterPanel] = useState(false);
+  const [showInsightHUD, setShowInsightHUD] = useState(true);
+  const [showMainTopics, setShowMainTopics] = useState(false);
   const [isGapPanelMinimized, setIsGapPanelMinimized] = useState(false);
 
   // Graph store (existing)
@@ -359,6 +365,32 @@ export function KnowledgeGraph3D({
           >
             <Layers className="w-4 h-4" />
           </button>
+
+          {/* Toggle Insight HUD */}
+          <button
+            onClick={() => setShowInsightHUD(!showInsightHUD)}
+            className={`p-2 transition-colors ${
+              showInsightHUD
+                ? 'bg-accent-teal/10 text-accent-teal'
+                : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+            }`}
+            title="Toggle insight HUD"
+          >
+            <BarChart3 className="w-4 h-4" />
+          </button>
+
+          {/* Toggle Main Topics */}
+          <button
+            onClick={() => setShowMainTopics(!showMainTopics)}
+            className={`p-2 transition-colors ${
+              showMainTopics
+                ? 'bg-accent-violet/10 text-accent-violet'
+                : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+            }`}
+            title="Toggle main topics"
+          >
+            <PieChart className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -416,6 +448,20 @@ export function KnowledgeGraph3D({
 
       {/* Status Bar */}
       <StatusBar projectId={projectId} />
+
+      {/* Insight HUD - Bottom Left */}
+      {showInsightHUD && <InsightHUD projectId={projectId} />}
+
+      {/* Main Topics Panel - Bottom Left, above InsightHUD */}
+      {showMainTopics && (
+        <MainTopicsPanel
+          clusters={clusters}
+          onFocusCluster={handleFocusCluster}
+          onHighlightCluster={setHighlightedNodes}
+          onClearHighlight={clearHighlights}
+          className={`absolute z-20 ${showInsightHUD ? 'bottom-52 left-4' : 'bottom-4 left-4'}`}
+        />
+      )}
 
       {/* 3D Mode Badge */}
       <div className="absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 px-3 py-1.5">

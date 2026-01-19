@@ -353,6 +353,101 @@ class CentralityAnalyzer:
         else:
             self._cache.clear()
 
+    def compute_graph_metrics(
+        self,
+        nodes: List[dict],
+        edges: List[dict],
+        clusters: Optional[List[ClusterResult]] = None
+    ) -> Dict[str, float]:
+        """
+        Compute graph quality metrics for Insight HUD (InfraNodus-style).
+
+        Args:
+            nodes: List of node dictionaries
+            edges: List of edge dictionaries
+            clusters: Optional list of ClusterResult objects
+
+        Returns:
+            Dictionary with modularity, diversity, and density metrics
+        """
+        G = self.build_graph(nodes, edges)
+
+        if G.number_of_nodes() == 0:
+            return {
+                "modularity": 0.0,
+                "diversity": 0.0,
+                "density": 0.0,
+                "avg_clustering": 0.0,
+                "num_components": 0,
+            }
+
+        # 1. Modularity: cluster separation quality (0-1)
+        modularity = 0.0
+        if clusters and len(clusters) > 1:
+            try:
+                # Convert clusters to community format for NetworkX
+                communities = [set(c.node_ids) for c in clusters]
+                # Filter to only include nodes that exist in the graph
+                communities = [
+                    c.intersection(set(G.nodes()))
+                    for c in communities
+                ]
+                communities = [c for c in communities if len(c) > 0]
+
+                if len(communities) > 1:
+                    modularity = nx.algorithms.community.quality.modularity(
+                        G, communities
+                    )
+                    # Normalize to 0-1 range (modularity can be negative)
+                    modularity = max(0.0, min(1.0, (modularity + 0.5) / 1.5))
+            except Exception as e:
+                logger.warning(f"Failed to compute modularity: {e}")
+
+        # 2. Diversity: cluster size balance (0-1)
+        # Uses normalized entropy of cluster sizes
+        diversity = 0.0
+        if clusters and len(clusters) > 1:
+            try:
+                sizes = [c.size for c in clusters]
+                total = sum(sizes)
+                if total > 0:
+                    # Calculate normalized entropy
+                    probs = [s / total for s in sizes]
+                    entropy = -sum(p * np.log(p + 1e-10) for p in probs if p > 0)
+                    max_entropy = np.log(len(clusters))  # Maximum entropy for uniform distribution
+                    diversity = entropy / max_entropy if max_entropy > 0 else 0.0
+            except Exception as e:
+                logger.warning(f"Failed to compute diversity: {e}")
+
+        # 3. Density: connection density (0-1)
+        try:
+            density = nx.density(G)
+        except Exception as e:
+            logger.warning(f"Failed to compute density: {e}")
+            density = 0.0
+
+        # 4. Average clustering coefficient
+        try:
+            avg_clustering = nx.average_clustering(G)
+        except Exception as e:
+            logger.warning(f"Failed to compute clustering coefficient: {e}")
+            avg_clustering = 0.0
+
+        # 5. Number of connected components
+        try:
+            num_components = nx.number_connected_components(G)
+        except Exception as e:
+            logger.warning(f"Failed to compute connected components: {e}")
+            num_components = 1
+
+        return {
+            "modularity": round(modularity, 3),
+            "diversity": round(diversity, 3),
+            "density": round(density, 3),
+            "avg_clustering": round(avg_clustering, 3),
+            "num_components": num_components,
+        }
+
 
 # Singleton instance
 centrality_analyzer = CentralityAnalyzer()

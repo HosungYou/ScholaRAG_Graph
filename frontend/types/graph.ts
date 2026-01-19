@@ -213,6 +213,17 @@ export interface ConceptCluster {
   size: number;
   density: number;
   label?: string;
+  color?: string;  // Cluster color for visualization
+}
+
+// Potential Edge for Ghost Edge visualization (InfraNodus-style)
+export interface PotentialEdge {
+  source_id: string;
+  target_id: string;
+  similarity: number;
+  gap_id: string;
+  source_name?: string;
+  target_name?: string;
 }
 
 export interface StructuralGap {
@@ -226,6 +237,7 @@ export interface StructuralGap {
   gap_strength: number;
   bridge_candidates: string[];
   research_questions: string[];
+  potential_edges?: PotentialEdge[];  // Ghost edges for visualization
   created_at?: string;
 }
 

@@ -8,6 +8,7 @@ import type {
   ConceptCluster,
   CentralityMetrics,
   GapAnalysisResult,
+  PotentialEdge,
 } from '@/types';
 
 interface FilterState {
@@ -33,6 +34,10 @@ interface GraphStore {
   isGapLoading: boolean;
   selectedGap: StructuralGap | null;
 
+  // Ghost Edge State (InfraNodus-style)
+  showGhostEdges: boolean;
+  potentialEdges: PotentialEdge[];
+
   // Actions
   fetchGraphData: (projectId: string) => Promise<void>;
   setSelectedNode: (node: GraphEntity | null) => void;
@@ -48,6 +53,11 @@ interface GraphStore {
   fetchGapAnalysis: (projectId: string) => Promise<void>;
   setSelectedGap: (gap: StructuralGap | null) => void;
   highlightGapConcepts: (gap: StructuralGap) => void;
+
+  // Ghost Edge Actions
+  toggleGhostEdges: () => void;
+  setShowGhostEdges: (show: boolean) => void;
+  getPotentialEdgesForGap: (gap: StructuralGap) => PotentialEdge[];
 }
 
 // Default filters (Hybrid Mode: Paper/Author + Concept-Centric)
@@ -77,6 +87,10 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   centralityMetrics: [],
   isGapLoading: false,
   selectedGap: null,
+
+  // Ghost Edge State
+  showGhostEdges: false,
+  potentialEdges: [],
 
   // Actions
   fetchGraphData: async (projectId: string) => {
@@ -219,6 +233,21 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     set({
       highlightedNodes: allConceptIds,
       selectedGap: gap,
+      // Also set potential edges for the selected gap
+      potentialEdges: gap.potential_edges || [],
     });
+  },
+
+  // Ghost Edge Actions
+  toggleGhostEdges: () => {
+    set((state) => ({ showGhostEdges: !state.showGhostEdges }));
+  },
+
+  setShowGhostEdges: (show) => {
+    set({ showGhostEdges: show });
+  },
+
+  getPotentialEdgesForGap: (gap) => {
+    return gap.potential_edges || [];
   },
 }));
