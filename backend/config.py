@@ -30,9 +30,10 @@ class Settings(BaseSettings):
     embedding_dimension: int = 1024  # Cohere v3 dimension
 
     # CORS - comma-separated list of allowed origins
-    # Note: Vercel preview URLs are also allowed via regex in main.py
+    # Vercel Preview URLs are allowed via regex in main.py:
+    #   Pattern: ^https://schola-rag-graph-[a-z0-9]+-hosung-yous-projects\.vercel\.app$
     # IMPORTANT: schola-rag-graph.vercel.app is the production frontend URL
-    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,https://schola-rag-graph.vercel.app,https://scholarag-graph.vercel.app,https://schola-rag-graph-hvippndzu-hosung-yous-projects.vercel.app"
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,https://schola-rag-graph.vercel.app,https://scholarag-graph.vercel.app"
     frontend_url: str = "http://localhost:3000"
 
     # Server

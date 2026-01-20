@@ -114,9 +114,9 @@ app = FastAPI(
 )
 
 # CORS middleware
-# SECURITY: Use explicit origins only. Wildcard regex with credentials is dangerous.
+# SECURITY: Use explicit origins + strict regex for Vercel previews.
 # Production origins are configured via CORS_ORIGINS environment variable.
-# For Vercel preview deployments, add specific URLs to CORS_ORIGINS.
+# Vercel Preview URLs are allowed via strict regex pattern (project/team scoped).
 _cors_origins = settings.cors_origins_list or []
 if settings.environment == "development":
     # Development mode: allow localhost variants
@@ -126,10 +126,17 @@ if settings.environment == "development":
         "http://localhost:8000",
     ]))
 
+# Vercel Preview URL regex pattern
+# Pattern: https://schola-rag-graph-{hash}-hosung-yous-projects.vercel.app
+# This is scoped to specific project/team to minimize security exposure
+_vercel_preview_regex = r"^https://schola-rag-graph-[a-z0-9]+-hosung-yous-projects\.vercel\.app$"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    # REMOVED: allow_origin_regex - wildcard regex with credentials is a security risk
+    # Re-enabled with strict project/team-scoped pattern for Vercel previews
+    # NOTE: This is safer than broad wildcards because it's locked to specific project
+    allow_origin_regex=_vercel_preview_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
