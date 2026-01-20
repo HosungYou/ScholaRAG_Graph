@@ -23,7 +23,7 @@
     "react-dom": "^18.2.0",
     "react-force-graph-3d": "^1.24.0",
     "reactflow": "^11.10.0",
-    "tailwind-merge": "^2.2.0",
+    "tailwind-merge": "^3.4.0",
     "three": "^0.160.0",
     "zustand": "^4.5.0"
   },
