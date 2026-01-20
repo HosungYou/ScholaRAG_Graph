@@ -76,6 +76,9 @@ class Database:
                 command_timeout=command_timeout,
                 # Connection health settings for free tier stability
                 max_inactive_connection_lifetime=300.0,  # Close idle connections after 5 min
+                # pgbouncer compatibility: disable prepared statements
+                # Supabase uses pgbouncer in transaction mode which doesn't support prepared statements
+                statement_cache_size=0,
             )
             logger.info(f"Database connected (pool: {min_size}-{max_size})")
         except Exception as e:
