@@ -136,7 +136,7 @@ def validate_safe_path(folder_path: str) -> Path:
         # Resolve symbolic links and normalize path
         resolved_path = path.resolve()
 
-        # SECURITY: Enforce allowed roots in production
+        # SECURITY: Enforce allowed roots
         if not ALLOWED_IMPORT_ROOTS:
             if settings.environment in ("staging", "production"):
                 # In production/staging, fail hard if no roots configured
@@ -149,10 +149,25 @@ def validate_safe_path(folder_path: str) -> Path:
                     detail="Import service not configured. Contact administrator."
                 )
             else:
-                # Development mode only: warn but allow
+                # SECURITY: Even in development, block access to sensitive system directories
+                # This prevents accidental or malicious access to /etc, /var, system configs, etc.
+                blocked_prefixes = [
+                    "/etc", "/var", "/usr", "/bin", "/sbin", "/lib", "/boot",
+                    "/root", "/sys", "/proc", "/dev", "/run", "/snap",
+                    "/System", "/Library", "/private",  # macOS system directories
+                    "C:\\Windows", "C:\\Program Files",  # Windows system directories
+                ]
+                resolved_str = str(resolved_path)
+                for blocked in blocked_prefixes:
+                    if resolved_str.startswith(blocked):
+                        logger.warning(f"Blocked access to system directory: {resolved_str}")
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Access denied: Cannot import from system directories"
+                        )
                 logger.warning(
                     "SECURITY WARNING: No ALLOWED_IMPORT_ROOTS configured. "
-                    "This is only allowed in development mode."
+                    "Allowing non-system paths in development mode only."
                 )
                 return resolved_path
 

@@ -114,14 +114,25 @@ app = FastAPI(
 )
 
 # CORS middleware
-# Support explicit origins + Vercel preview URLs via regex
+# SECURITY: Use explicit origins only. Wildcard regex with credentials is dangerous.
+# Production origins are configured via CORS_ORIGINS environment variable.
+# For Vercel preview deployments, add specific URLs to CORS_ORIGINS.
+_cors_origins = settings.cors_origins_list or []
+if settings.environment == "development":
+    # Development mode: allow localhost variants
+    _cors_origins = list(set(_cors_origins + [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+    ]))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel preview deployments
+    allow_origins=_cors_origins,
+    # REMOVED: allow_origin_regex - wildcard regex with credentials is a security risk
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # Rate limiting middleware

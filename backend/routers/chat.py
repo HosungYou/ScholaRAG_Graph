@@ -76,10 +76,19 @@ async def verify_project_access(
         action: Description of the action for error messages
 
     Raises:
-        HTTPException: 403 if access denied, 404 if project not found
+        HTTPException: 403 if access denied, 404 if project not found, 503 if DB unavailable in production
     """
     if not await _check_db_available():
-        # In memory-only mode, skip project check (development mode)
+        # SECURITY: In production/staging, deny access if DB is unavailable
+        # This prevents authentication bypass when database connection fails
+        if settings.environment in ("production", "staging"):
+            logger.warning(f"Chat access denied: database unavailable in {settings.environment}")
+            raise HTTPException(
+                status_code=503,
+                detail="Service temporarily unavailable. Please try again later."
+            )
+        # Development mode only: allow memory-only operation with warning
+        logger.warning("Database unavailable - allowing memory-only mode (development only)")
         return
 
     # Check project exists
@@ -147,7 +156,7 @@ async def _db_add_messages(
     user_message: "ChatMessage",
     assistant_message: "ChatMessage"
 ) -> None:
-    """Add user and assistant messages to a conversation."""
+    """Add user and assistant messages to a conversation using a transaction."""
     if not await _check_db_available():
         # Fallback to in-memory
         if conversation_id in _conversations_db:
@@ -158,55 +167,59 @@ async def _db_add_messages(
         return
 
     try:
-        # Insert user message
-        await db.execute(
-            """
-            INSERT INTO messages (
-                id, conversation_id, role, content, citations,
-                highlighted_nodes, highlighted_edges, suggested_follow_ups, created_at
+        # BUG-012 FIX: Use transaction to ensure atomicity of message insertion
+        # All three operations (user message, assistant message, timestamp update)
+        # will either all succeed or all fail together
+        async with db.transaction() as conn:
+            # Insert user message
+            await conn.execute(
+                """
+                INSERT INTO messages (
+                    id, conversation_id, role, content, citations,
+                    highlighted_nodes, highlighted_edges, suggested_follow_ups, created_at
+                )
+                VALUES (
+                    gen_random_uuid(), $1, $2, $3, $4::jsonb,
+                    $5::jsonb, $6::jsonb, $7::jsonb, $8
+                )
+                """,
+                conversation_id,
+                user_message.role,
+                user_message.content,
+                json.dumps(user_message.citations or []),
+                json.dumps(user_message.highlighted_nodes or []),
+                json.dumps(user_message.highlighted_edges or []),
+                json.dumps(user_message.suggested_follow_ups or []),
+                user_message.timestamp,
             )
-            VALUES (
-                gen_random_uuid(), $1, $2, $3, $4::jsonb,
-                $5::jsonb, $6::jsonb, $7::jsonb, $8
-            )
-            """,
-            conversation_id,
-            user_message.role,
-            user_message.content,
-            json.dumps(user_message.citations or []),
-            json.dumps(user_message.highlighted_nodes or []),
-            json.dumps(user_message.highlighted_edges or []),
-            json.dumps(user_message.suggested_follow_ups or []),
-            user_message.timestamp,
-        )
 
-        # Insert assistant message
-        await db.execute(
-            """
-            INSERT INTO messages (
-                id, conversation_id, role, content, citations,
-                highlighted_nodes, highlighted_edges, suggested_follow_ups, created_at
+            # Insert assistant message
+            await conn.execute(
+                """
+                INSERT INTO messages (
+                    id, conversation_id, role, content, citations,
+                    highlighted_nodes, highlighted_edges, suggested_follow_ups, created_at
+                )
+                VALUES (
+                    gen_random_uuid(), $1, $2, $3, $4::jsonb,
+                    $5::jsonb, $6::jsonb, $7::jsonb, $8
+                )
+                """,
+                conversation_id,
+                assistant_message.role,
+                assistant_message.content,
+                json.dumps(assistant_message.citations or []),
+                json.dumps(assistant_message.highlighted_nodes or []),
+                json.dumps(assistant_message.highlighted_edges or []),
+                json.dumps(assistant_message.suggested_follow_ups or []),
+                assistant_message.timestamp,
             )
-            VALUES (
-                gen_random_uuid(), $1, $2, $3, $4::jsonb,
-                $5::jsonb, $6::jsonb, $7::jsonb, $8
-            )
-            """,
-            conversation_id,
-            assistant_message.role,
-            assistant_message.content,
-            json.dumps(assistant_message.citations or []),
-            json.dumps(assistant_message.highlighted_nodes or []),
-            json.dumps(assistant_message.highlighted_edges or []),
-            json.dumps(assistant_message.suggested_follow_ups or []),
-            assistant_message.timestamp,
-        )
 
-        # Update conversation timestamp
-        await db.execute(
-            "UPDATE conversations SET updated_at = NOW() WHERE id = $1",
-            conversation_id,
-        )
+            # Update conversation timestamp
+            await conn.execute(
+                "UPDATE conversations SET updated_at = NOW() WHERE id = $1",
+                conversation_id,
+            )
     except Exception as e:
         logger.error(f"Failed to add messages to DB: {e}")
         # Fallback to in-memory

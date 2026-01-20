@@ -1336,25 +1336,28 @@ class GraphStore:
     ) -> list:
         """
         Search chunks by vector similarity.
-        
+
         Args:
             project_id: Project UUID
             query_embedding: Query embedding vector
-            top_k: Number of results
+            top_k: Number of results (max 100 for safety)
             section_filter: Optional list of section types to filter
             min_score: Minimum similarity score
-            
+
         Returns:
             List of matching chunks with scores
         """
         if not self.db:
             return []
-        
+
+        # SECURITY: Validate and sanitize top_k to prevent injection
+        top_k = max(1, min(int(top_k), 100))
+
         project_uuid = UUID(project_id) if isinstance(project_id, str) else project_id
-        
-        # Build query
+
+        # Build query with parameterized LIMIT
         sql = """
-            SELECT 
+            SELECT
                 sc.id,
                 sc.text,
                 sc.section_type,
@@ -1370,16 +1373,21 @@ class GraphStore:
               AND sc.embedding IS NOT NULL
               AND 1 - (sc.embedding <=> $1::vector) >= $3
         """
-        
+
         params = [query_embedding, project_uuid, min_score]
-        
+
         if section_filter:
-            placeholders = ", ".join(f"${i+4}" for i in range(len(section_filter)))
+            # Calculate next parameter index
+            next_param_idx = len(params) + 1
+            placeholders = ", ".join(f"${next_param_idx + i}" for i in range(len(section_filter)))
             sql += f"\n  AND sc.section_type IN ({placeholders})"
             params.extend(section_filter)
-        
-        sql += f"\nORDER BY similarity DESC\nLIMIT {top_k}"
-        
+
+        # Add LIMIT as parameterized query (last parameter)
+        limit_param_idx = len(params) + 1
+        sql += f"\nORDER BY similarity DESC\nLIMIT ${limit_param_idx}"
+        params.append(top_k)
+
         rows = await self.db.fetch(sql, *params)
         
         return [
