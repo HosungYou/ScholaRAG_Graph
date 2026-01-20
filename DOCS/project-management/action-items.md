@@ -101,7 +101,7 @@
   1. Rate limiter 429 응답에 CORS 헤더 추가
   2. `/api/import/status/*` 폴링 limit 완화 (60/min)
   3. `/api/import/*` limit 증가 (5 → 10/min)
-- **Commit**: `TBD`
+- **Commit**: `882f14a`
 - **Completed**: 2026-01-20
 - **Related**: Session `2026-01-20_render-docker-deployment-troubleshooting.md`
 
