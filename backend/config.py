@@ -31,7 +31,8 @@ class Settings(BaseSettings):
 
     # CORS - comma-separated list of allowed origins
     # Note: Vercel preview URLs are also allowed via regex in main.py
-    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,https://scholarag-graph.vercel.app,https://schola-rag-graph-hvippndzu-hosung-yous-projects.vercel.app"
+    # IMPORTANT: schola-rag-graph.vercel.app is the production frontend URL
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,https://schola-rag-graph.vercel.app,https://scholarag-graph.vercel.app,https://schola-rag-graph-hvippndzu-hosung-yous-projects.vercel.app"
     frontend_url: str = "http://localhost:3000"
 
     # Server

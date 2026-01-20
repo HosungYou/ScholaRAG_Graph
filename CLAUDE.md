@@ -1,7 +1,7 @@
 # CLAUDE.md - ScholaRAG_Graph Project Instructions
 
-> **Last Updated**: 2026-01-15
-> **Version**: 2.1.0
+> **Last Updated**: 2026-01-20
+> **Version**: 3.0.0
 
 ## Project Overview
 
@@ -112,27 +112,69 @@ Run in order: `001_init.sql` → `002_pgvector.sql` → `003_graph_tables.sql` �
 
 ## Environment Variables
 
+### Backend (Render Docker: scholarag-graph-docker)
+
 ```env
 # Required
-DATABASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY, ANTHROPIC_API_KEY
+DATABASE_URL=postgresql://...
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=eyJ...
 
-# Optional
-OPENAI_API_KEY, GOOGLE_API_KEY, ZOTERO_API_KEY, ZOTERO_USER_ID
+# LLM (at least one required)
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+GROQ_API_KEY=gsk_...  # FREE! Recommended for cost savings
+
+# CORS (CRITICAL - must include actual frontend URL)
+CORS_ORIGINS=https://schola-rag-graph.vercel.app,https://scholarag-graph.vercel.app,http://localhost:3000
 
 # Defaults
-DEFAULT_LLM_PROVIDER=anthropic
-DEFAULT_LLM_MODEL=claude-3-5-haiku-20241022
+DEFAULT_LLM_PROVIDER=groq  # or anthropic/openai
+DEFAULT_LLM_MODEL=llama-3.3-70b-versatile
+ENVIRONMENT=production
 ```
+
+### Frontend (Vercel: schola-rag-graph)
+
+```env
+NEXT_PUBLIC_API_URL=https://scholarag-graph-docker.onrender.com
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+```
+
+### Common Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| CORS error | Frontend URL not in CORS_ORIGINS | Add URL to Render env vars |
+| 503 error | DB connection pool exhaustion | Reduce pool size, enable retries |
+| Auth failure | Missing Supabase keys | Check both backend & frontend env vars |
 
 ---
 
 ## Deployment
 
-| Service | Platform | Branch |
-|---------|----------|--------|
-| Frontend | Vercel | `main` |
-| Backend | Render | `main` |
-| Database | Supabase | - |
+> ⚠️ **INFRA-004 (2026-01-20)**: Backend migrated from Python service to Docker service.
+
+| Service | Platform | Type | URL |
+|---------|----------|------|-----|
+| Frontend | Vercel | Next.js | `https://schola-rag-graph.vercel.app` |
+| Backend | Render | **Docker** | `https://scholarag-graph-docker.onrender.com` |
+| Database | Supabase | PostgreSQL+pgvector | - |
+
+### ⚠️ Deprecated Services
+| Service | Status | Notes |
+|---------|--------|-------|
+| `scholarag-graph-api` | ❌ Deleted | Replaced by `scholarag-graph-docker` |
+
+### CORS Configuration (Critical!)
+
+Backend must include frontend URL in `CORS_ORIGINS` environment variable:
+```
+CORS_ORIGINS=https://schola-rag-graph.vercel.app,https://scholarag-graph.vercel.app,http://localhost:3000
+```
+
+**Render Dashboard Path**: `scholarag-graph-docker` → Settings → Environment Variables
 
 ---
 
@@ -195,6 +237,44 @@ Skip documentation for:
 - Simple Q&A (no code changes)
 - File exploration only
 - User explicitly says "don't document"
+
+---
+
+## 🏗️ Infrastructure Change Documentation Protocol
+
+> **CRITICAL**: All infrastructure changes MUST be documented IMMEDIATELY after deployment.
+
+### Mandatory Documentation for Infrastructure Changes
+
+| Change Type | Required Updates | Example |
+|-------------|------------------|---------|
+| Service migration | CLAUDE.md Deployment section, Release Notes | Python → Docker |
+| URL change | CLAUDE.md, Frontend config, CORS settings | New Render URL |
+| Database change | CLAUDE.md, Migration scripts | Supabase → RDS |
+| Provider change | CLAUDE.md, Environment Variables section | Render → Railway |
+
+### Infrastructure Change Checklist
+
+When making infrastructure changes:
+```
+□ Update CLAUDE.md Deployment section with new service info
+□ Update CORS_ORIGINS in both:
+  - backend/config.py (default values)
+  - Render/Platform environment variables
+□ Update frontend API URL configuration
+□ Create Release Notes (RELEASE_NOTES_vX.X.X.md)
+□ Mark deprecated services clearly
+□ Test health endpoint: curl <new-url>/health
+□ Test CORS: browser console should show no CORS errors
+```
+
+### INFRA- Prefix for Infrastructure Issues
+
+Use `INFRA-XXX` prefix for infrastructure-related action items:
+- `INFRA-001`: Initial deployment setup
+- `INFRA-002`: CI/CD configuration
+- `INFRA-003`: Environment variables setup
+- `INFRA-004`: Service migration (e.g., Python → Docker)
 
 ---
 
@@ -314,11 +394,23 @@ async def connect_zotero():
 
 ## API Endpoints (Quick Reference)
 
+**Base URL**: `https://scholarag-graph-docker.onrender.com`
+
 ```
+GET  /health                   # Health check (DB + LLM status)
 POST /api/import/scholarag     # ScholaRAG folder import
 POST /api/import/pdf           # PDF import
+POST /api/import/zotero/validate  # Zotero file validation
 GET  /api/projects             # Project list
 POST /api/chat                 # Chat (6-Agent)
 GET  /api/graph/{project_id}   # Graph data
+GET  /api/graph/visualization/{project_id}  # Graph visualization
 GET  /api/integrations/zotero/collections  # Zotero collections
+```
+
+### Health Check
+
+```bash
+curl https://scholarag-graph-docker.onrender.com/health
+# Expected: {"status":"healthy","database":"connected","llm_provider":"groq"}
 ```
