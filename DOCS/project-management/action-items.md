@@ -2,7 +2,7 @@
 
 > 이 문서는 코드 리뷰, 기능 구현, 버그 수정 등에서 발견된 액션 아이템을 추적합니다.
 >
-> **마지막 업데이트**: 2026-01-15
+> **마지막 업데이트**: 2026-01-19
 > **관리자**: Claude Code
 
 ---
@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 3 | 3 | 0 | 0 |
-| 🟡 Medium | 3 | 3 | 0 | 0 |
-| 🟢 Low | 3 | 3 | 0 | 0 |
-| **Total** | **9** | **9** | **0** | **0** |
+| 🔴 High | 5 | 5 | 0 | 0 |
+| 🟡 Medium | 5 | 4 | 0 | 1 |
+| 🟢 Low | 5 | 3 | 0 | 2 |
+| **Total** | **15** | **12** | **0** | **3** |
 
 ---
 
@@ -26,17 +26,83 @@
 
 ## 🟡 Medium Priority (Short-term)
 
-*모든 Medium Priority 항목이 완료되어 Archive 섹션으로 이동되었습니다.*
+### PERF-004: 503 에러 모니터링
+- **Source**: Render Starter Optimization 2026-01-19
+- **Status**: ⬜ Pending
+- **Assignee**: DevOps Team
+- **Description**: 배포 후 503 에러 발생률 모니터링
+- **Acceptance Criteria**:
+  - [ ] Render 로그에서 503 에러 빈도 확인
+  - [ ] 에러 발생 시 알림 설정
+- **Created**: 2026-01-19
+- **Related**: Session `2026-01-19_render-starter-optimization.md`
 
 ---
 
 ## 🟢 Low Priority (Long-term)
 
-*모든 Low Priority 항목이 완료되어 Archive 섹션으로 이동되었습니다.*
+### DOC-001: 배포 가이드에 Starter 플랜 권장사항 추가
+- **Source**: Render Starter Optimization 2026-01-19
+- **Status**: ⬜ Pending
+- **Assignee**: Docs Team
+- **Description**: Render Starter 플랜 최적화 설정 문서화
+- **Acceptance Criteria**:
+  - [ ] 연결 풀 설정 권장값 문서화
+  - [ ] 프론트엔드 재시도 로직 설명 추가
+- **Created**: 2026-01-19
+
+---
+
+### FUNC-003: /api/system/status 엔드포인트 구현
+- **Source**: Render Starter Optimization 2026-01-19
+- **Status**: ⬜ Pending
+- **Assignee**: Backend Team
+- **Description**: StatusBar 컴포넌트용 시스템 상태 API 구현
+- **Acceptance Criteria**:
+  - [ ] LLM 연결 상태 반환
+  - [ ] 벡터 인덱싱 상태 반환
+  - [ ] 데이터 소스 정보 반환
+- **Created**: 2026-01-19
 
 ---
 
 ## 📝 Completed Items Archive
+
+### BUG-004: 503 에러 - DB 연결 풀 최적화
+- **Source**: Render Starter Optimization 2026-01-19
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/database.py` - 연결 풀 크기 축소 (min:2, max:5)
+- **Description**: Free-tier DB 연결 제한(~20)에 맞게 풀 크기 최적화
+- **Acceptance Criteria**:
+  - [x] min_size=2, max_size=5 설정
+  - [x] max_inactive_connection_lifetime=300 추가
+  - [x] 503 에러 감소 확인
+- **Created**: 2026-01-19
+- **Completed**: 2026-01-19
+- **Verified By**: Claude Code
+- **Notes**: 5회 연속 테스트 모두 200 OK 확인
+
+---
+
+### PERF-005: 프론트엔드 API 재시도 로직
+- **Source**: Render Starter Optimization 2026-01-19
+- **Status**: ✅ Completed
+- **Assignee**: Frontend Team
+- **Files**:
+  - `frontend/lib/api.ts` - 503 에러 자동 재시도 로직 추가
+- **Description**: Starter 플랜용 빠른 재시도 로직 (500ms 백오프)
+- **Acceptance Criteria**:
+  - [x] 3회 재시도 로직 구현
+  - [x] 500ms × attempt 지수 백오프
+  - [x] 네트워크 에러 및 503 처리
+- **Created**: 2026-01-19
+- **Completed**: 2026-01-19
+- **Verified By**: Claude Code
+- **Notes**: Starter 플랜은 cold start 없음 → 빠른 백오프 적용
+
+---
 
 ### SEC-001: Graph/Chat 엔드포인트 인증 강제
 - **Source**: Code Review 2026-01-15
