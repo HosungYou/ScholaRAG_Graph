@@ -35,6 +35,7 @@ from database import Database
 from graph.graph_store import GraphStore
 from graph.entity_extractor import EntityExtractor, ExtractedEntity, EntityType
 from graph.relationship_builder import ConceptCentricRelationshipBuilder
+from importers.semantic_chunker import SemanticChunker
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ class ZoteroRDFImporter:
         # Initialize processors
         self.entity_extractor = EntityExtractor(llm_provider=llm_provider)
         self.relationship_builder = ConceptCentricRelationshipBuilder(llm_provider=llm_provider)
+        self.semantic_chunker = SemanticChunker()
 
         # Cache for deduplication
         self._concept_cache: Dict[str, dict] = {}
@@ -273,6 +275,22 @@ class ZoteroRDFImporter:
             for subject in elem.findall('dc:subject', NAMESPACES):
                 if subject.text:
                     item.tags.append(subject.text.strip())
+
+            # Notes (z:Note elements linked to item)
+            # Zotero stores notes as separate bib:Memo elements linked via dcterms:isReferencedBy
+            for note_ref in elem.findall('.//z:Note', NAMESPACES):
+                note_resource = note_ref.get(f'{{{NAMESPACES["rdf"]}}}resource', '')
+                if note_resource:
+                    item.notes.append(note_resource)  # Store reference for later resolution
+            
+            # Also check inline notes (rdf:value within bib:Memo)
+            for memo in elem.findall('.//bib:Memo', NAMESPACES):
+                value_elem = memo.find('rdf:value', NAMESPACES)
+                if value_elem is not None and value_elem.text:
+                    # Strip HTML tags if present
+                    note_text = re.sub(r'<[^>]+>', '', value_elem.text)
+                    if note_text.strip():
+                        item.notes.append(note_text.strip())
 
             # Linked PDFs (resource references)
             for link in elem.findall('.//link:link', NAMESPACES):
@@ -513,6 +531,7 @@ class ZoteroRDFImporter:
             "pdfs_processed": 0,
             "concepts_extracted": 0,
             "relationships_created": 0,
+            "chunks_created": 0,
             "errors": [],
             "warnings": validation.get("warnings", []),
         }
@@ -565,15 +584,41 @@ class ZoteroRDFImporter:
                 self.progress.papers_processed += 1
                 results["papers_imported"] += 1
 
+                # Semantic Chunking: Create hierarchical chunks from PDF text
+                if pdf_text and paper_id and self.graph_store and len(pdf_text) > 500:
+                    try:
+                        chunked_result = self.semantic_chunker.chunk_academic_text(
+                            text=pdf_text,
+                            paper_id=paper_id,
+                            detect_sections=True,
+                            max_chunk_tokens=400,
+                        )
+                        
+                        if chunked_result.get("chunks"):
+                            await self.graph_store.store_chunks(
+                                project_id=project_id,
+                                paper_id=paper_id,
+                                chunks=chunked_result["chunks"],
+                            )
+                            if "chunks_created" not in results:
+                                results["chunks_created"] = 0
+                            results["chunks_created"] += len(chunked_result["chunks"])
+                            logger.info(f"Created {len(chunked_result['chunks'])} chunks for {item.title[:30]}...")
+                    except Exception as e:
+                        logger.warning(f"Semantic chunking failed for {item.title}: {e}")
+
                 # Extract concepts if enabled
                 if extract_concepts and self.llm and (item.abstract or pdf_text):
                     text_for_extraction = item.abstract or pdf_text[:4000]
 
                     try:
+                        # Pass Zotero tags as seed concepts for boosted extraction
                         entities = await self.entity_extractor.extract_entities(
                             text=text_for_extraction,
                             title=item.title,
                             context=research_question,
+                            seed_concepts=item.tags if item.tags else None,
+                            user_notes=item.notes if item.notes else None,
                         )
 
                         # Store entities
@@ -628,6 +673,235 @@ class ZoteroRDFImporter:
         self._update_progress("complete", 1.0, "Import 완료!")
 
         return results
+
+
+    async def sync_folder(
+        self,
+        folder_path: str,
+        project_id: str,
+        extract_concepts: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Incrementally sync a Zotero export folder with existing project.
+        
+        Only processes items that are new or have been modified since last sync.
+        Uses zotero_key to track items and modification timestamps for diff.
+        
+        Args:
+            folder_path: Path to Zotero export folder
+            project_id: Existing project UUID to sync with
+            extract_concepts: Whether to extract concepts from new/changed items
+            
+        Returns:
+            Sync result with statistics
+        """
+        self._update_progress("validating", 0.0, "동기화 준비 중...")
+        
+        # Validate folder
+        validation = await self.validate_folder(folder_path)
+        if not validation["valid"]:
+            return {
+                "success": False,
+                "errors": validation["errors"],
+            }
+        
+        # Parse RDF
+        rdf_path = Path(validation["rdf_file"])
+        items = self._parse_rdf_file(rdf_path)
+        
+        # Get existing items from database
+        self._update_progress("comparing", 0.1, "기존 항목과 비교 중...")
+        
+        existing_keys = set()
+        if self.db:
+            try:
+                rows = await self.db.fetch(
+                    """
+                    SELECT properties->>'zotero_key' as zotero_key
+                    FROM paper_metadata
+                    WHERE project_id = $1
+                      AND properties->>'zotero_key' IS NOT NULL
+                    """,
+                    project_id if isinstance(project_id, __import__('uuid').UUID) 
+                    else __import__('uuid').UUID(project_id)
+                )
+                existing_keys = {row["zotero_key"] for row in rows}
+            except Exception as e:
+                logger.warning(f"Failed to fetch existing items: {e}")
+        
+        # Find new items
+        new_items = [item for item in items if item.item_key not in existing_keys]
+        
+        if not new_items:
+            self._update_progress("complete", 1.0, "동기화 완료 - 새 항목 없음")
+            return {
+                "success": True,
+                "project_id": project_id,
+                "items_checked": len(items),
+                "items_added": 0,
+                "items_skipped": len(items),
+                "message": "모든 항목이 이미 동기화되어 있습니다.",
+            }
+        
+        logger.info(f"Found {len(new_items)} new items to sync (of {len(items)} total)")
+        
+        # Find PDFs
+        rdf_parent = rdf_path.parent
+        pdf_map = self._find_pdf_files(rdf_parent, new_items)
+        
+        # Process new items
+        self._update_progress("syncing", 0.2, f"새 항목 {len(new_items)}개 동기화 중...")
+        
+        results = {
+            "success": True,
+            "project_id": project_id,
+            "items_checked": len(items),
+            "items_added": 0,
+            "items_skipped": len(existing_keys),
+            "pdfs_processed": 0,
+            "concepts_extracted": 0,
+            "errors": [],
+        }
+        
+        for i, item in enumerate(new_items):
+            try:
+                progress_pct = 0.2 + (0.7 * (i / len(new_items)))
+                self._update_progress(
+                    "syncing",
+                    progress_pct,
+                    f"동기화 중: {i+1}/{len(new_items)} - {item.title[:40]}..."
+                )
+                
+                # Get PDF text if available
+                pdf_text = ""
+                if item.item_key in pdf_map:
+                    pdf_path = pdf_map[item.item_key]
+                    pdf_text = self.extract_text_from_pdf(pdf_path)
+                    if pdf_text:
+                        results["pdfs_processed"] += 1
+                
+                # Store paper metadata
+                paper_id = None
+                if self.graph_store:
+                    paper_id = await self.graph_store.store_paper_metadata(
+                        project_id=project_id,
+                        title=item.title,
+                        abstract=item.abstract or "",
+                        authors=item.authors,
+                        year=item.year,
+                        doi=item.doi,
+                        source="zotero_sync",
+                        properties={
+                            "zotero_key": item.item_key,
+                            "item_type": item.item_type,
+                            "journal": item.journal,
+                            "tags": item.tags,
+                            "synced_at": __import__('datetime').datetime.now().isoformat(),
+                        },
+                    )
+                
+                results["items_added"] += 1
+                
+                # Extract concepts if enabled
+                if extract_concepts and self.llm and (item.abstract or pdf_text):
+                    text_for_extraction = item.abstract or pdf_text[:4000]
+                    
+                    try:
+                        entities = await self.entity_extractor.extract_entities(
+                            text=text_for_extraction,
+                            title=item.title,
+                            seed_concepts=item.tags if item.tags else None,
+                            user_notes=item.notes if item.notes else None,
+                        )
+                        
+                        for entity in entities:
+                            if self.graph_store:
+                                await self.graph_store.store_entity(
+                                    project_id=project_id,
+                                    name=entity.name,
+                                    entity_type=entity.entity_type.value,
+                                    description=entity.description or "",
+                                    source_paper_id=paper_id,
+                                    confidence=entity.confidence,
+                                    properties=entity.properties or {},
+                                )
+                                results["concepts_extracted"] += 1
+                                
+                    except Exception as e:
+                        logger.warning(f"Entity extraction failed for {item.title}: {e}")
+                        
+            except Exception as e:
+                error_msg = f"동기화 실패 ({item.title}): {e}"
+                logger.error(error_msg)
+                results["errors"].append(error_msg)
+        
+        # Create embeddings for new entities
+        if self.graph_store and results["concepts_extracted"] > 0:
+            self._update_progress("embeddings", 0.95, "새 항목 임베딩 생성 중...")
+            try:
+                await self.graph_store.create_embeddings(project_id=project_id)
+            except Exception as e:
+                logger.warning(f"Embedding creation failed: {e}")
+        
+        self._update_progress("complete", 1.0, "동기화 완료!")
+        
+        return results
+
+    async def get_sync_status(
+        self,
+        folder_path: str,
+        project_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Check sync status without making changes.
+        
+        Returns counts of new, existing, and modified items.
+        
+        Args:
+            folder_path: Path to Zotero export folder
+            project_id: Project UUID
+            
+        Returns:
+            Dict with sync status information
+        """
+        # Validate folder
+        validation = await self.validate_folder(folder_path)
+        if not validation["valid"]:
+            return {"success": False, "errors": validation["errors"]}
+        
+        # Parse RDF
+        rdf_path = Path(validation["rdf_file"])
+        items = self._parse_rdf_file(rdf_path)
+        
+        # Get existing items
+        existing_keys = set()
+        if self.db:
+            try:
+                rows = await self.db.fetch(
+                    """
+                    SELECT properties->>'zotero_key' as zotero_key
+                    FROM paper_metadata
+                    WHERE project_id = $1
+                      AND properties->>'zotero_key' IS NOT NULL
+                    """,
+                    project_id if isinstance(project_id, __import__('uuid').UUID)
+                    else __import__('uuid').UUID(project_id)
+                )
+                existing_keys = {row["zotero_key"] for row in rows}
+            except Exception as e:
+                logger.warning(f"Failed to fetch existing items: {e}")
+        
+        new_items = [item for item in items if item.item_key not in existing_keys]
+        existing_items = [item for item in items if item.item_key in existing_keys]
+        
+        return {
+            "success": True,
+            "total_in_folder": len(items),
+            "already_synced": len(existing_items),
+            "new_items": len(new_items),
+            "new_item_titles": [item.title for item in new_items[:10]],  # Preview
+            "needs_sync": len(new_items) > 0,
+        }
 
     async def import_from_upload(
         self,

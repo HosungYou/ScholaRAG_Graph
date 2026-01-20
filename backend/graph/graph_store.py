@@ -1126,3 +1126,367 @@ class GraphStore:
         except Exception as e:
             logger.error(f"Error building concept relationships: {e}")
             return 0
+
+
+    # =========================================================================
+    # Semantic Chunks Methods (v0.3.0)
+    # =========================================================================
+
+    async def store_chunks(
+        self,
+        project_id: str,
+        paper_id: str,
+        chunks: list,
+        create_embeddings: bool = True,
+    ) -> int:
+        """
+        Store semantic chunks from a paper.
+        
+        Args:
+            project_id: Project UUID
+            paper_id: Paper UUID
+            chunks: List of Chunk objects from SemanticChunker
+            create_embeddings: Whether to create embeddings immediately
+            
+        Returns:
+            Number of chunks stored
+        """
+        if not self.db:
+            logger.warning("No database - cannot store chunks")
+            return 0
+        
+        from uuid import uuid4
+        
+        project_uuid = UUID(project_id) if isinstance(project_id, str) else project_id
+        paper_uuid = UUID(paper_id) if isinstance(paper_id, str) else paper_id
+        
+        stored_count = 0
+        chunk_id_map = {}  # Map chunk.id to database UUID for parent references
+        
+        # First pass: Store parent chunks (level 0)
+        for chunk in chunks:
+            if chunk.chunk_level != 0:
+                continue
+            
+            chunk_uuid = uuid4()
+            chunk_id_map[chunk.id] = chunk_uuid
+            
+            try:
+                await self.db.execute(
+                    """
+                    INSERT INTO semantic_chunks (
+                        id, project_id, paper_id, text, section_type,
+                        section_title, chunk_level, token_count, sequence_order
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    """,
+                    chunk_uuid,
+                    project_uuid,
+                    paper_uuid,
+                    chunk.text,
+                    chunk.section_type.value if hasattr(chunk.section_type, 'value') else str(chunk.section_type),
+                    chunk.metadata.get("title", ""),
+                    chunk.chunk_level,
+                    chunk.token_count,
+                    chunk.sequence_order,
+                )
+                stored_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to store parent chunk: {e}")
+        
+        # Second pass: Store child chunks (level 1) with parent references
+        for chunk in chunks:
+            if chunk.chunk_level != 1:
+                continue
+            
+            chunk_uuid = uuid4()
+            parent_uuid = chunk_id_map.get(chunk.parent_id) if chunk.parent_id else None
+            
+            try:
+                await self.db.execute(
+                    """
+                    INSERT INTO semantic_chunks (
+                        id, project_id, paper_id, text, section_type,
+                        parent_chunk_id, chunk_level, token_count, sequence_order
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    """,
+                    chunk_uuid,
+                    project_uuid,
+                    paper_uuid,
+                    chunk.text,
+                    chunk.section_type.value if hasattr(chunk.section_type, 'value') else str(chunk.section_type),
+                    parent_uuid,
+                    chunk.chunk_level,
+                    chunk.token_count,
+                    chunk.sequence_order,
+                )
+                stored_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to store child chunk: {e}")
+        
+        logger.info(f"Stored {stored_count} chunks for paper {paper_id}")
+        
+        # Create embeddings if requested
+        if create_embeddings and stored_count > 0:
+            await self.create_chunk_embeddings(project_id)
+        
+        return stored_count
+
+    async def create_chunk_embeddings(
+        self,
+        project_id: str,
+        embedding_provider=None,
+        batch_size: int = 50,
+        use_specter: bool = False,
+    ) -> int:
+        """
+        Create embeddings for chunks without embeddings.
+        
+        Args:
+            project_id: Project UUID
+            embedding_provider: Optional custom embedding provider
+            batch_size: Number of chunks to embed at once
+            use_specter: If True, use SPECTER2 for academic embeddings
+            
+        Returns:
+            Number of embeddings created
+        """
+        if not self.db:
+            return 0
+        
+        project_uuid = UUID(project_id) if isinstance(project_id, str) else project_id
+        
+        # Get chunks without embeddings
+        rows = await self.db.fetch(
+            """
+            SELECT id, text
+            FROM semantic_chunks
+            WHERE project_id = $1 AND embedding IS NULL
+            ORDER BY created_at
+            """,
+            project_uuid,
+        )
+        
+        if not rows:
+            logger.info("No chunks need embeddings")
+            return 0
+        
+        # Get or create embedding provider
+        if not embedding_provider:
+            if use_specter:
+                try:
+                    from llm.embedding_factory import get_embedding_factory, EmbeddingProvider
+                    factory = get_embedding_factory()
+                    # Use factory for SPECTER2 embeddings
+                except ImportError:
+                    logger.warning("SPECTER2 not available, falling back to Cohere")
+                    use_specter = False
+            
+            if not use_specter:
+                from llm.cohere_embeddings import get_cohere_embeddings
+                embedding_provider = get_cohere_embeddings()
+        
+        embeddings_created = 0
+        
+        # Process in batches
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i:i + batch_size]
+            texts = [row["text"] for row in batch]
+            ids = [row["id"] for row in batch]
+            
+            try:
+                if use_specter and not embedding_provider:
+                    # Use SPECTER2 via factory
+                    from llm.embedding_factory import get_embedding_factory, EmbeddingProvider
+                    factory = get_embedding_factory()
+                    result = await factory.get_embeddings(
+                        texts, provider=EmbeddingProvider.SPECTER
+                    )
+                    embeddings = result.embeddings
+                else:
+                    embeddings = await embedding_provider.get_embeddings(
+                        texts, input_type="search_document"
+                    )
+                
+                # Update each chunk with its embedding
+                for chunk_id, embedding in zip(ids, embeddings):
+                    await self.db.execute(
+                        """
+                        UPDATE semantic_chunks
+                        SET embedding = $1::vector
+                        WHERE id = $2
+                        """,
+                        embedding,
+                        chunk_id,
+                    )
+                    embeddings_created += 1
+                    
+            except Exception as e:
+                logger.error(f"Failed to create chunk embeddings: {e}")
+        
+        logger.info(f"Created {embeddings_created} chunk embeddings (specter={use_specter})")
+        return embeddings_created
+
+    async def search_chunks(
+        self,
+        project_id: str,
+        query_embedding: list,
+        top_k: int = 5,
+        section_filter: list = None,
+        min_score: float = 0.5,
+    ) -> list:
+        """
+        Search chunks by vector similarity.
+        
+        Args:
+            project_id: Project UUID
+            query_embedding: Query embedding vector
+            top_k: Number of results
+            section_filter: Optional list of section types to filter
+            min_score: Minimum similarity score
+            
+        Returns:
+            List of matching chunks with scores
+        """
+        if not self.db:
+            return []
+        
+        project_uuid = UUID(project_id) if isinstance(project_id, str) else project_id
+        
+        # Build query
+        sql = """
+            SELECT 
+                sc.id,
+                sc.text,
+                sc.section_type,
+                sc.chunk_level,
+                sc.parent_chunk_id,
+                sc.paper_id,
+                sc.token_count,
+                pm.title as paper_title,
+                1 - (sc.embedding <=> $1::vector) AS similarity
+            FROM semantic_chunks sc
+            LEFT JOIN paper_metadata pm ON sc.paper_id = pm.id
+            WHERE sc.project_id = $2
+              AND sc.embedding IS NOT NULL
+              AND 1 - (sc.embedding <=> $1::vector) >= $3
+        """
+        
+        params = [query_embedding, project_uuid, min_score]
+        
+        if section_filter:
+            placeholders = ", ".join(f"${i+4}" for i in range(len(section_filter)))
+            sql += f"\n  AND sc.section_type IN ({placeholders})"
+            params.extend(section_filter)
+        
+        sql += f"\nORDER BY similarity DESC\nLIMIT {top_k}"
+        
+        rows = await self.db.fetch(sql, *params)
+        
+        return [
+            {
+                "id": str(row["id"]),
+                "text": row["text"],
+                "section_type": row["section_type"],
+                "chunk_level": row["chunk_level"],
+                "parent_chunk_id": str(row["parent_chunk_id"]) if row["parent_chunk_id"] else None,
+                "paper_id": str(row["paper_id"]) if row["paper_id"] else None,
+                "paper_title": row["paper_title"],
+                "similarity": float(row["similarity"]),
+            }
+            for row in rows
+        ]
+
+    async def get_chunk_with_context(
+        self,
+        chunk_id: str,
+    ) -> dict:
+        """
+        Get a chunk with its parent context.
+        
+        Uses the database function get_chunk_with_context()
+        to retrieve both the chunk and its siblings.
+        
+        Args:
+            chunk_id: Chunk UUID
+            
+        Returns:
+            Dict with chunk and context
+        """
+        if not self.db:
+            return {}
+        
+        chunk_uuid = UUID(chunk_id) if isinstance(chunk_id, str) else chunk_id
+        
+        rows = await self.db.fetch(
+            "SELECT * FROM get_chunk_with_context($1)",
+            chunk_uuid,
+        )
+        
+        result = {
+            "target": None,
+            "context": [],
+        }
+        
+        for row in rows:
+            chunk_data = {
+                "id": str(row["id"]),
+                "text": row["text"],
+                "section_type": row["section_type"],
+                "chunk_level": row["chunk_level"],
+            }
+            
+            if row["is_target"]:
+                result["target"] = chunk_data
+            else:
+                result["context"].append(chunk_data)
+        
+        return result
+
+    async def get_chunks_by_paper(
+        self,
+        paper_id: str,
+        section_type: str = None,
+    ) -> list:
+        """
+        Get all chunks for a paper, optionally filtered by section.
+        
+        Args:
+            paper_id: Paper UUID
+            section_type: Optional section type filter
+            
+        Returns:
+            List of chunks
+        """
+        if not self.db:
+            return []
+        
+        paper_uuid = UUID(paper_id) if isinstance(paper_id, str) else paper_id
+        
+        sql = """
+            SELECT id, text, section_type, chunk_level, parent_chunk_id,
+                   token_count, sequence_order
+            FROM semantic_chunks
+            WHERE paper_id = $1
+        """
+        params = [paper_uuid]
+        
+        if section_type:
+            sql += " AND section_type = $2"
+            params.append(section_type)
+        
+        sql += " ORDER BY sequence_order"
+        
+        rows = await self.db.fetch(sql, *params)
+        
+        return [
+            {
+                "id": str(row["id"]),
+                "text": row["text"],
+                "section_type": row["section_type"],
+                "chunk_level": row["chunk_level"],
+                "parent_chunk_id": str(row["parent_chunk_id"]) if row["parent_chunk_id"] else None,
+                "token_count": row["token_count"],
+                "sequence_order": row["sequence_order"],
+            }
+            for row in rows
+        ]

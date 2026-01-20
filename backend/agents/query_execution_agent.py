@@ -9,6 +9,8 @@ import logging
 from typing import Any, Optional
 from pydantic import BaseModel
 
+from graph.hierarchical_retriever import HierarchicalRetriever, RetrievalMode
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +39,9 @@ class QueryExecutionAgent:
         self.graph_store = graph_store
         self.llm = llm_provider
         self._previous_results: dict[int, Any] = {}  # Store results for dependent tasks
+        
+        # Initialize hierarchical retriever for chunk-based search
+        self.hierarchical_retriever = HierarchicalRetriever(graph_store=graph_store) if graph_store else None
 
     async def execute(self, task_plan) -> ExecutionResult:
         """
@@ -70,6 +75,10 @@ class QueryExecutionAgent:
                 # Route to appropriate handler
                 if task.task_type == "search":
                     data = await self._execute_search(task.parameters)
+                elif task.task_type == "document_search":
+                    # Chunk-based document search with hierarchical retrieval
+                    params = {**task.parameters, "use_chunks": True}
+                    data = await self._execute_search(params)
                 elif task.task_type == "retrieve":
                     data = await self._execute_retrieve(task.parameters)
                 elif task.task_type == "analyze":
@@ -112,12 +121,46 @@ class QueryExecutionAgent:
         )
 
     async def _execute_search(self, params: dict) -> list:
-        """Execute a search query against the graph store."""
+        """Execute a search query against the graph store.
+        
+        Supports both entity search and chunk-based document search.
+        Set use_chunks=True to search through semantic chunks with parent context expansion.
+        """
         query = params.get("query", "")
         limit = params.get("limit", 20)
         entity_types = params.get("entity_types")
         project_id = params.get("project_id")
+        use_chunks = params.get("use_chunks", False)
+        section_filter = params.get("section_filter")  # e.g., ["methodology", "results"]
 
+        # Chunk-based hierarchical search
+        if use_chunks and self.hierarchical_retriever and project_id:
+            try:
+                retrieval_result = await self.hierarchical_retriever.search(
+                    query=query,
+                    project_id=project_id,
+                    mode=RetrievalMode.PARENT_EXPAND,  # Expand to parent for context
+                    section_filter=section_filter,
+                    limit=limit,
+                )
+                # Convert to serializable format
+                return [
+                    {
+                        "chunk_id": r.chunk_id,
+                        "text": r.text,
+                        "summary": r.summary,
+                        "section_type": r.section_type,
+                        "score": r.score,
+                        "paper_id": r.paper_id,
+                        "parent_context": r.parent_context.text if r.parent_context else None,
+                    }
+                    for r in retrieval_result.results
+                ]
+            except Exception as e:
+                logger.warning(f"Hierarchical retrieval failed: {e}")
+                # Fall through to entity search
+
+        # Entity-based search (default)
         if self.graph_store and project_id:
             try:
                 results = await self.graph_store.search_entities(

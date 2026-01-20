@@ -28,6 +28,7 @@ from database import Database
 from graph.graph_store import GraphStore
 from graph.entity_extractor import EntityExtractor
 from graph.relationship_builder import ConceptCentricRelationshipBuilder
+from importers.semantic_chunker import SemanticChunker
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,9 @@ class PDFImporter:
         self.graph_store = graph_store
         self.progress_callback = progress_callback
 
-        # Initialize entity extractor
+        # Initialize entity extractor and semantic chunker
         self.entity_extractor = EntityExtractor(llm_provider=llm_provider)
+        self.semantic_chunker = SemanticChunker()
 
     def _update_progress(self, stage: str, progress: float, message: str):
         """Update import progress."""
@@ -454,6 +456,7 @@ class PDFImporter:
                 "concepts_extracted": 0,
                 "methods_extracted": 0,
                 "findings_extracted": 0,
+                "chunks_created": 0,
             }
 
             # Create Paper entity using GraphStore
@@ -490,6 +493,80 @@ class PDFImporter:
                         relationship_type="AUTHORED_BY",
                         properties={},
                     )
+
+            # Semantic Chunking: Create hierarchical chunks from full text
+            chunks_created = 0
+            if paper_id and self.graph_store and len(full_text) > 500:
+                try:
+                    # Chunk the full text with section detection
+                    chunked_result = self.semantic_chunker.chunk_academic_text(
+                        text=full_text,
+                        paper_id=paper_id,
+                        detect_sections=True,
+                        max_chunk_tokens=400,
+                    )
+                    
+                    if chunked_result.get("chunks"):
+                        # Store chunks using graph_store
+                        await self.graph_store.store_chunks(
+                            project_id=project_id,
+                            paper_id=paper_id,
+                            chunks=chunked_result["chunks"],
+                        )
+                        chunks_created = len(chunked_result["chunks"])
+                        logger.info(f"Created {chunks_created} semantic chunks for {filename}")
+                        
+                        # Use section-aware extraction if sections detected
+                        if chunked_result.get("sections") and extract_concepts:
+                            try:
+                                section_entities = await self.entity_extractor.extract_from_sections(
+                                    sections=chunked_result["sections"],
+                                    paper_id=paper_id,
+                                )
+                                # Merge section entities into main extraction
+                                if section_entities:
+                                    for entity in section_entities:
+                                        entity_type_str = str(entity.entity_type.value) if hasattr(entity.entity_type, 'value') else str(entity.entity_type)
+                                        entity_id = await self.graph_store.add_entity(
+                                            project_id=project_id,
+                                            entity_type=entity_type_str,
+                                            name=entity.name,
+                                            properties={
+                                                "definition": getattr(entity, 'definition', ''),
+                                                "description": getattr(entity, 'description', ''),
+                                                "source_paper_ids": [paper_id],
+                                                "confidence": getattr(entity, 'confidence', 0.7),
+                                                "source_section": getattr(entity, 'source_section', ''),
+                                            },
+                                        )
+                                        if paper_id and entity_id:
+                                            rel_type = {
+                                                "Concept": "DISCUSSES_CONCEPT",
+                                                "Method": "USES_METHOD",
+                                                "Finding": "REPORTS_FINDING",
+                                                "Problem": "ADDRESSES_PROBLEM",
+                                                "Innovation": "PROPOSES_INNOVATION",
+                                                "Dataset": "USES_DATASET",
+                                            }.get(entity_type_str, "RELATED_TO")
+                                            await self.graph_store.add_relationship(
+                                                project_id=project_id,
+                                                source_id=paper_id,
+                                                target_id=entity_id,
+                                                relationship_type=rel_type,
+                                                properties={"confidence": getattr(entity, 'confidence', 0.7)},
+                                            )
+                                        if entity_type_str == "Concept":
+                                            stats["concepts_extracted"] += 1
+                                        elif entity_type_str == "Method":
+                                            stats["methods_extracted"] += 1
+                                        elif entity_type_str == "Finding":
+                                            stats["findings_extracted"] += 1
+                            except Exception as e:
+                                logger.warning(f"Section-aware extraction failed: {e}")
+                except Exception as e:
+                    logger.warning(f"Semantic chunking failed for {filename}: {e}")
+            
+            stats["chunks_created"] = chunks_created
 
             if extract_concepts and self.graph_store:
                 try:

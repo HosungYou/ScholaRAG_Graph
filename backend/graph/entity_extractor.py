@@ -190,19 +190,101 @@ JSON Response:"""
 # Simplified Prompt for High-Speed Extraction (Claude 3.5 Haiku)
 # ============================================================================
 
-FAST_EXTRACTION_PROMPT = """Extract key concepts from this academic paper.
+FAST_EXTRACTION_PROMPT = """Extract key entities from this academic paper.
 
 Title: {title}
 Abstract: {abstract}
 
+Return JSON with these categories:
+- concepts: [{{"name": "...", "definition": "...", "confidence": 0.9}}] (max 10) - Key theoretical concepts
+- methods: [{{"name": "...", "type": "quantitative|qualitative|mixed"}}] (max 3) - Research methodologies
+- findings: [{{"name": "...", "effect_type": "positive|negative|neutral"}}] (max 3) - Key results
+- problems: [{{"name": "...", "description": "..."}}] (max 2) - Research problems/questions addressed
+- innovations: [{{"name": "...", "novelty": "..."}}] (max 2) - Novel contributions
+- limitations: [{{"name": "...", "impact": "..."}}] (max 2) - Study limitations
+- datasets: [{{"name": "...", "size": "...", "domain": "..."}}] (max 2) - Datasets used/created
+
+Rules: lowercase names, 1-4 words each, only JSON output. Omit empty categories.
+
+JSON:"""
+
+
+# ============================================================================
+# Section-Specific Prompts for Section-Aware Extraction
+# ============================================================================
+
+SECTION_PROMPTS = {
+    "introduction": """Extract entities from the INTRODUCTION section of this academic paper.
+
+Section Text: {text}
+
+Focus on:
+- Research problems/questions being addressed
+- Key concepts that frame the study
+- Background theories or frameworks
+
 Return JSON with:
-- concepts: [{{"name": "...", "definition": "...", "confidence": 0.9}}] (max 10)
-- methods: [{{"name": "...", "type": "quantitative|qualitative|mixed"}}] (max 3)
-- findings: [{{"name": "...", "effect_type": "positive|negative|neutral"}}] (max 3)
+- concepts: [{{"name": "...", "definition": "...", "confidence": 0.9}}] (max 5)
+- problems: [{{"name": "...", "description": "..."}}] (max 3)
 
 Rules: lowercase names, 1-4 words each, only JSON output.
 
-JSON:"""
+JSON:""",
+
+    "methodology": """Extract entities from the METHODOLOGY section of this academic paper.
+
+Section Text: {text}
+
+Focus on:
+- Research methods and approaches used
+- Datasets mentioned or created
+- Measurement metrics and instruments
+- Sample characteristics
+
+Return JSON with:
+- methods: [{{"name": "...", "type": "quantitative|qualitative|mixed", "description": "..."}}] (max 5)
+- datasets: [{{"name": "...", "size": "...", "domain": "..."}}] (max 3)
+
+Rules: lowercase names, 1-4 words each, only JSON output.
+
+JSON:""",
+
+    "results": """Extract entities from the RESULTS section of this academic paper.
+
+Section Text: {text}
+
+Focus on:
+- Key findings and discoveries
+- Statistical results and effect sizes
+- Metrics and their values
+
+Return JSON with:
+- findings: [{{"name": "...", "effect_type": "positive|negative|neutral", "description": "..."}}] (max 5)
+- concepts: [{{"name": "...", "definition": "...", "confidence": 0.8}}] (max 3)
+
+Rules: lowercase names, 1-4 words each, only JSON output.
+
+JSON:""",
+
+    "discussion": """Extract entities from the DISCUSSION section of this academic paper.
+
+Section Text: {text}
+
+Focus on:
+- Implications and contributions
+- Limitations of the study
+- Future research directions
+- Novel innovations or insights
+
+Return JSON with:
+- innovations: [{{"name": "...", "novelty": "..."}}] (max 3)
+- limitations: [{{"name": "...", "impact": "..."}}] (max 3)
+- concepts: [{{"name": "...", "definition": "...", "confidence": 0.7}}] (max 3)
+
+Rules: lowercase names, 1-4 words each, only JSON output.
+
+JSON:""",
+}
 
 
 class EntityExtractor:
@@ -231,6 +313,8 @@ class EntityExtractor:
         abstract: str,
         paper_id: Optional[str] = None,
         use_accurate_model: bool = False,
+        seed_concepts: Optional[List[str]] = None,
+        user_notes: Optional[List[str]] = None,
     ) -> dict:
         """
         Extract entities from a paper's title and abstract.
@@ -240,6 +324,8 @@ class EntityExtractor:
             abstract: Paper abstract
             paper_id: Optional paper ID for tracking source
             use_accurate_model: Use more accurate (slower/expensive) model
+            seed_concepts: User-provided concepts (from Zotero tags) to boost
+            user_notes: User notes to include in extraction context
 
         Returns:
             Dictionary with extracted entities by type
@@ -257,7 +343,8 @@ class EntityExtractor:
         if self.llm:
             try:
                 result = await self._llm_extraction(
-                    title, abstract, paper_id, use_accurate_model
+                    title, abstract, paper_id, use_accurate_model,
+                    seed_concepts=seed_concepts, user_notes=user_notes
                 )
                 self._extraction_cache[cache_key] = result
                 return result
@@ -274,6 +361,8 @@ class EntityExtractor:
         text: str,
         title: str = "",
         context: str = "",
+        seed_concepts: Optional[List[str]] = None,
+        user_notes: Optional[List[str]] = None,
     ) -> list:
         """
         Extract entities from text (wrapper for compatibility with importers).
@@ -282,6 +371,8 @@ class EntityExtractor:
             text: Text to extract entities from (abstract or full text)
             title: Paper title
             context: Research context (not used, for API compatibility)
+            seed_concepts: User-provided concepts (from Zotero tags) to boost
+            user_notes: User notes to include in extraction context
             
         Returns:
             List of ExtractedEntity objects
@@ -292,17 +383,23 @@ class EntityExtractor:
             abstract=text,
             paper_id=None,
             use_accurate_model=False,
+            seed_concepts=seed_concepts,
+            user_notes=user_notes,
         )
         
         # Convert dict result to list of ExtractedEntity
         entities = []
         
         for entity_type, entity_list in result.items():
-            if entity_type in ("concepts", "methods", "findings"):
+            if entity_type in ("concepts", "methods", "findings", "problems", "innovations", "limitations", "datasets"):
                 type_map = {
                     "concepts": EntityType.CONCEPT,
                     "methods": EntityType.METHOD,
                     "findings": EntityType.FINDING,
+                    "problems": EntityType.PROBLEM,
+                    "innovations": EntityType.INNOVATION,
+                    "limitations": EntityType.LIMITATION,
+                    "datasets": EntityType.DATASET,
                 }
                 for entity_data in entity_list:
                     if isinstance(entity_data, dict):
@@ -317,6 +414,20 @@ class EntityExtractor:
                     elif isinstance(entity_data, ExtractedEntity):
                         entities.append(entity_data)
         
+        # Add seed concepts as high-confidence USER_TAG entities
+        if seed_concepts:
+            for tag in seed_concepts:
+                # Check if tag already exists in extracted entities
+                tag_normalized = tag.strip().lower()
+                if not any(e.name == tag_normalized for e in entities):
+                    entities.append(ExtractedEntity(
+                        name=tag_normalized,
+                        entity_type=EntityType.CONCEPT,
+                        description=f"User-tagged concept from Zotero",
+                        confidence=0.95,  # High confidence for user-provided tags
+                        properties={"source": "zotero_tag", "user_provided": True},
+                    ))
+        
         return entities
 
     async def _llm_extraction(
@@ -325,18 +436,29 @@ class EntityExtractor:
         abstract: str,
         paper_id: Optional[str],
         use_accurate: bool,
+        seed_concepts: Optional[List[str]] = None,
+        user_notes: Optional[List[str]] = None,
     ) -> dict:
         """Extract entities using LLM."""
+        # Build additional context from seed concepts and notes
+        additional_context = ""
+        if seed_concepts:
+            additional_context += f"\nUser-tagged keywords: {', '.join(seed_concepts)}"
+        if user_notes:
+            # Truncate notes to avoid token overflow
+            notes_text = " | ".join(n[:200] for n in user_notes[:3])
+            additional_context += f"\nUser notes: {notes_text}"
+        
         # Select prompt based on mode
         if self.use_fast_mode:
             prompt = FAST_EXTRACTION_PROMPT.format(
                 title=title,
-                abstract=abstract[:2000],
+                abstract=abstract[:2000] + additional_context,
             )
         else:
             prompt = CONCEPT_CENTRIC_EXTRACTION_PROMPT.format(
                 title=title,
-                abstract=abstract[:3000],
+                abstract=abstract[:3000] + additional_context,
             )
 
         # Call LLM
@@ -455,6 +577,24 @@ class EntityExtractor:
                         description=l.get("description", ""),
                         confidence=float(l.get("confidence", 0.7)),
                         source_paper_id=paper_id,
+                    )
+                )
+
+            # Parse datasets
+            for d in data.get("datasets", [])[:3]:
+                if not d.get("name"):
+                    continue
+                result["datasets"].append(
+                    ExtractedEntity(
+                        entity_type=EntityType.DATASET,
+                        name=d.get("name", ""),
+                        description=d.get("description", ""),
+                        confidence=float(d.get("confidence", 0.7)),
+                        source_paper_id=paper_id,
+                        properties={
+                            "size": d.get("size", ""),
+                            "domain": d.get("domain", ""),
+                        },
                     )
                 )
 
@@ -583,6 +723,7 @@ class EntityExtractor:
             "problems": [],
             "innovations": [],
             "limitations": [],
+            "datasets": [],
         }
 
     async def batch_extract(
@@ -625,6 +766,98 @@ class EntityExtractor:
         """Clear extraction cache."""
         self._extraction_cache.clear()
         logger.debug("Extraction cache cleared")
+
+    async def extract_from_sections(
+        self,
+        sections: List[Dict],
+        paper_id: Optional[str] = None,
+    ) -> List:
+        """
+        Extract entities from paper sections using section-specific prompts.
+        
+        This method provides more accurate extraction by using prompts
+        tailored to each section type (introduction, methodology, results, discussion).
+        
+        Args:
+            sections: List of dicts with 'section_type', 'text', 'title' keys
+                      (compatible with SemanticChunker Section output)
+            paper_id: Optional paper ID for tracking source
+            
+        Returns:
+            List of ExtractedEntity objects
+        """
+        all_entities = []
+        
+        for section in sections:
+            section_type = section.get("section_type", "unknown").lower()
+            text = section.get("text", "")
+            
+            if not text or len(text) < 50:
+                continue
+            
+            # Get section-specific prompt or fall back to default
+            if section_type in ("methodology", "methods"):
+                prompt_template = SECTION_PROMPTS.get("methodology")
+            elif section_type in ("results", "findings"):
+                prompt_template = SECTION_PROMPTS.get("results")
+            elif section_type in ("discussion", "conclusion"):
+                prompt_template = SECTION_PROMPTS.get("discussion")
+            elif section_type == "introduction":
+                prompt_template = SECTION_PROMPTS.get("introduction")
+            else:
+                # Use fast extraction for other sections
+                prompt_template = None
+            
+            if prompt_template and self.llm:
+                try:
+                    # Use section-specific prompt
+                    prompt = prompt_template.format(text=text[:3000])
+                    
+                    response = await self.llm.generate(
+                        prompt,
+                        max_tokens=1000,
+                        temperature=0.1,
+                    )
+                    
+                    # Parse response
+                    result = self._parse_llm_response(response, paper_id)
+                    
+                    # Convert to entities with section metadata
+                    for entity_type, entity_list in result.items():
+                        for entity in entity_list:
+                            if isinstance(entity, ExtractedEntity):
+                                entity.properties["source_section"] = section_type
+                                all_entities.append(entity)
+                    
+                    logger.debug(f"Extracted {len(result)} entity types from {section_type} section")
+                    
+                except Exception as e:
+                    logger.warning(f"Section extraction failed for {section_type}: {e}")
+            else:
+                # Fall back to general extraction
+                result = await self.extract_from_paper(
+                    title=section.get("title", ""),
+                    abstract=text[:2000],
+                    paper_id=paper_id,
+                )
+                
+                for entity_type, entity_list in result.items():
+                    for entity in entity_list:
+                        if isinstance(entity, ExtractedEntity):
+                            entity.properties["source_section"] = section_type
+                            all_entities.append(entity)
+        
+        # Deduplicate entities by name
+        seen_names = set()
+        unique_entities = []
+        for entity in all_entities:
+            if entity.name not in seen_names:
+                seen_names.add(entity.name)
+                unique_entities.append(entity)
+        
+        logger.info(f"Section-aware extraction: {len(unique_entities)} unique entities from {len(sections)} sections")
+        
+        return unique_entities
 
 
 # ============================================================================

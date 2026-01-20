@@ -107,6 +107,8 @@ nav:
     - Overview: api/overview.md
   - Architecture:
     - Overview: architecture/overview.md
+  - Development:
+    - v0.3.0 Refactoring Plan: development/v0.3.0-refactoring-plan.md
   - Contributing: https://github.com/HosungYou/ScholaRAG_Graph/blob/main/CONTRIBUTING.md
 
 extra:
