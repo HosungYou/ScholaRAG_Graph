@@ -124,12 +124,42 @@ const enforceHttps = (url: string): string => {
 
 ### New Action Items from Review
 
-| ID | Priority | Description |
-|----|----------|-------------|
-| SEC-011 | 🔴 High | Rate Limiter X-Forwarded-For Spoofing |
-| ARCH-001 | 🔴 High | DB 연결 실패 시 일관된 동작 |
-| ARCH-002 | 🟡 Medium | GraphStore God Object 리팩토링 |
-| PERF-008 | 🟡 Medium | 임베딩 업데이트 배치 처리 |
-| SEC-012 | 🟡 Medium | Auth 설정 불일치 처리 |
-| TEST-004 | 🟢 Low | Frontend 테스트 추가 |
-| FUNC-005 | 🟢 Low | Per-Project/User API 할당량 |
+| ID | Priority | Description | Status |
+|----|----------|-------------|--------|
+| SEC-011 | 🔴 High | Rate Limiter X-Forwarded-For Spoofing | ✅ Fixed |
+| ARCH-001 | 🔴 High | DB 연결 실패 시 일관된 동작 | ✅ Fixed |
+| ARCH-002 | 🟡 Medium | GraphStore God Object 리팩토링 | ⬜ Pending |
+| PERF-008 | 🟡 Medium | 임베딩 업데이트 배치 처리 | ⬜ Pending |
+| SEC-012 | 🟡 Medium | Auth 설정 불일치 처리 | ⬜ Pending |
+| TEST-004 | 🟢 Low | Frontend 테스트 추가 | ⬜ Pending |
+| FUNC-005 | 🟢 Low | Per-Project/User API 할당량 | ⬜ Pending |
+
+---
+
+## Follow-up Fixes (Same Session)
+
+### SEC-011: Rate Limiter X-Forwarded-For Spoofing Fix
+
+**Problem**: Rate limiter trusted `X-Forwarded-For` header unconditionally, allowing IP spoofing.
+
+**Solution**:
+- Added `trusted_proxy_mode` setting to `config.py` (`auto`/`always`/`never`)
+- `auto` mode: Trust X-Forwarded-For only in production (behind Render LB)
+- Development uses direct connection IP to prevent spoofing
+
+**Files Changed**:
+- `backend/config.py:81-87` - New setting
+- `backend/middleware/rate_limiter.py:305-356` - Trusted proxy logic
+
+### ARCH-001: DB Connection Failure Handling
+
+**Problem**: When DB connection fails, app continues running but most endpoints return 500 errors.
+
+**Solution**:
+- Fail-fast in production/staging when DB connection fails
+- Added `require_db()` dependency for consistent 503 responses
+- Development allows memory-only mode for testing
+
+**Files Changed**:
+- `backend/main.py:88-114` - Fail-fast logic
+- `backend/database.py:184-207` - New `require_db()` dependency
