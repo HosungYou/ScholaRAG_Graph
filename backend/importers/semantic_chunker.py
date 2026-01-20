@@ -12,7 +12,7 @@ Reference: "Chunking Strategies for RAG" (LangChain best practices)
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Any
 from enum import Enum
 
 logger = logging.getLogger(__name__)
