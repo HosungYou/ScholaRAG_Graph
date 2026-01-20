@@ -17,8 +17,11 @@ import {
   Copy,
   Check,
   Hexagon,
+  Zap,
 } from 'lucide-react';
-import type { StructuralGap, ConceptCluster, GraphEntity } from '@/types';
+import type { StructuralGap, ConceptCluster, GraphEntity, BridgeHypothesis, BridgeGenerationResult } from '@/types';
+import { api } from '@/lib/api';
+import { BridgeHypothesisList } from './BridgeHypothesisCard';
 
 /* ============================================================
    GapPanel - VS Design Diverge Style
@@ -72,6 +75,10 @@ export function GapPanel({
   const [expandedGapId, setExpandedGapId] = useState<string | null>(null);
   const [copiedQuestionId, setCopiedQuestionId] = useState<string | null>(null);
   const [showAllGaps, setShowAllGaps] = useState(false);
+  // Bridge Hypothesis state (Phase 3)
+  const [bridgeResults, setBridgeResults] = useState<Record<string, BridgeGenerationResult>>({});
+  const [generatingBridgeFor, setGeneratingBridgeFor] = useState<string | null>(null);
+  const [showBridgeFor, setShowBridgeFor] = useState<string | null>(null);
 
   // Sort gaps by strength (highest first)
   const sortedGaps = [...gaps].sort((a, b) => b.gap_strength - a.gap_strength);
@@ -134,6 +141,32 @@ export function GapPanel({
   // Format gap strength as percentage
   const formatGapStrength = useCallback((strength: number) => {
     return `${Math.round(strength * 100)}%`;
+  }, []);
+
+  // Generate bridge hypotheses (Phase 3)
+  const handleGenerateBridge = useCallback(async (gapId: string) => {
+    if (generatingBridgeFor) return; // Prevent multiple simultaneous requests
+
+    setGeneratingBridgeFor(gapId);
+    try {
+      const result = await api.generateBridgeHypotheses(gapId);
+      setBridgeResults(prev => ({
+        ...prev,
+        [gapId]: result,
+      }));
+      setShowBridgeFor(gapId);
+    } catch (error) {
+      console.error('Failed to generate bridge hypotheses:', error);
+    } finally {
+      setGeneratingBridgeFor(null);
+    }
+  }, [generatingBridgeFor]);
+
+  // Handle accepting a bridge hypothesis
+  const handleAcceptBridge = useCallback((hypothesis: BridgeHypothesis) => {
+    // TODO: Implement bridge creation logic
+    // This could create new relationships in the graph
+    console.log('Accepting bridge hypothesis:', hypothesis);
   }, []);
 
   return (
@@ -334,9 +367,63 @@ export function GapPanel({
                           </div>
                         )}
 
+                        {/* Generate Bridge Button (Phase 3) */}
+                        <div className="pt-2 border-t border-ink/5 dark:border-paper/5">
+                          <button
+                            onClick={() => handleGenerateBridge(gap.id)}
+                            disabled={generatingBridgeFor === gap.id}
+                            className={`w-full py-2.5 px-4 font-mono text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 ${
+                              generatingBridgeFor === gap.id
+                                ? 'bg-accent-amber/20 text-accent-amber cursor-wait'
+                                : bridgeResults[gap.id]
+                                ? 'bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal border border-accent-teal/30'
+                                : 'bg-accent-amber/10 hover:bg-accent-amber/20 text-accent-amber border border-accent-amber/30'
+                            }`}
+                          >
+                            {generatingBridgeFor === gap.id ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Generating Bridge Ideas...
+                              </>
+                            ) : bridgeResults[gap.id] ? (
+                              <>
+                                <Eye className="w-4 h-4" />
+                                {showBridgeFor === gap.id ? 'Hide' : 'Show'} Bridge Ideas
+                              </>
+                            ) : (
+                              <>
+                                <Zap className="w-4 h-4" />
+                                Generate Bridge Ideas
+                              </>
+                            )}
+                          </button>
+
+                          {/* Toggle show/hide if results exist */}
+                          {bridgeResults[gap.id] && (
+                            <button
+                              onClick={() => setShowBridgeFor(showBridgeFor === gap.id ? null : gap.id)}
+                              className="w-full mt-2 py-1 text-xs text-muted hover:text-ink dark:hover:text-paper transition-colors"
+                            >
+                              {showBridgeFor === gap.id ? 'Hide' : 'Show'} {bridgeResults[gap.id].hypotheses.length} hypotheses
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Bridge Hypotheses Display */}
+                        {showBridgeFor === gap.id && bridgeResults[gap.id] && (
+                          <div className="pt-4 mt-4 border-t border-ink/10 dark:border-paper/10">
+                            <BridgeHypothesisList
+                              hypotheses={bridgeResults[gap.id].hypotheses}
+                              bridgeType={bridgeResults[gap.id].bridge_type as 'theoretical' | 'methodological' | 'empirical'}
+                              keyInsight={bridgeResults[gap.id].key_insight}
+                              onAccept={handleAcceptBridge}
+                            />
+                          </div>
+                        )}
+
                         {/* Research Questions */}
                         {gap.research_questions.length > 0 && (
-                          <div>
+                          <div className="pt-4 mt-4 border-t border-ink/10 dark:border-paper/10">
                             <p className="font-mono text-xs uppercase tracking-wider text-accent-teal mb-2 flex items-center gap-1">
                               <Lightbulb className="w-3 h-3" />
                               AI Research Questions

@@ -316,3 +316,70 @@ export interface TopicViewData {
   nodes: TopicNode[];
   links: TopicLink[];
 }
+
+// ============================================
+// Relationship Evidence Types (Contextual Edge Exploration)
+// ============================================
+
+export interface EvidenceChunk {
+  evidence_id: string;
+  chunk_id: string;
+  text: string;
+  section_type: string;
+  paper_id?: string;
+  paper_title?: string;
+  paper_authors?: string;
+  paper_year?: number;
+  relevance_score: number;
+  context_snippet?: string;
+}
+
+export interface RelationshipEvidence {
+  relationship_id: string;
+  source_name: string;
+  target_name: string;
+  relationship_type: string;
+  evidence_chunks: EvidenceChunk[];
+  total_evidence: number;
+}
+
+// ============================================
+// Bridge Hypothesis Types (AI Bridge Generation)
+// ============================================
+
+export interface BridgeHypothesis {
+  title: string;
+  description: string;
+  methodology: string;
+  connecting_concepts: string[];
+  confidence: number;
+}
+
+export interface BridgeGenerationResult {
+  hypotheses: BridgeHypothesis[];
+  bridge_type: 'theoretical' | 'methodological' | 'empirical';
+  key_insight: string;
+}
+
+// ============================================
+// Diversity Metrics Types
+// ============================================
+
+export interface DiversityMetrics {
+  shannon_entropy: number;
+  modularity: number;
+  bias_score: number;
+  diversity_rating: 'high' | 'medium' | 'low';
+  cluster_sizes: number[];
+}
+
+// ============================================
+// Temporal Graph Types
+// ============================================
+
+export interface TemporalGraphData extends GraphData {
+  yearRange: {
+    min: number;
+    max: number;
+  };
+}
