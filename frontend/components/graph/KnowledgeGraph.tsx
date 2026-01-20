@@ -24,10 +24,12 @@ import { GapPanel } from './GapPanel';
 import { GraphLegend } from './GraphLegend';
 import { StatusBar } from './StatusBar';
 import { EdgeContextModal } from './EdgeContextModal';
+import { TemporalSlider } from './TemporalSlider';
 import { useGraphStore } from '@/hooks/useGraphStore';
+import { useTemporalGraph } from '@/hooks/useTemporalGraph';
 import { applyLayout, updateNodeHighlights, updateEdgeHighlights, LayoutType } from '@/lib/layout';
 import type { GraphEntity, EntityType, StructuralGap } from '@/types';
-import { Circle, Target, RotateCcw, Info, Sparkles, Hexagon } from 'lucide-react';
+import { Circle, Target, RotateCcw, Info, Sparkles, Hexagon, Clock } from 'lucide-react';
 
 interface KnowledgeGraphProps {
   projectId: string;
@@ -88,6 +90,9 @@ function KnowledgeGraphInner({
   const [showLegend, setShowLegend] = useState(true);
   const [showGapPanel, setShowGapPanel] = useState(true);
   const [isGapPanelMinimized, setIsGapPanelMinimized] = useState(false);
+  // Temporal Graph Evolution state (Phase 2: InfraNodus Integration)
+  const [showTemporalSlider, setShowTemporalSlider] = useState(false);
+  const [isTemporalMinimized, setIsTemporalMinimized] = useState(false);
   // Edge Context Modal state (Phase 1: Contextual Edge Exploration)
   const [edgeModalOpen, setEdgeModalOpen] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<{
@@ -115,6 +120,23 @@ function KnowledgeGraphInner({
     clearHighlights,
   } = useGraphStore();
 
+  // Temporal Graph Hook (Phase 2: InfraNodus Integration)
+  const filteredData = getFilteredData();
+  const temporalGraph = useTemporalGraph(
+    filteredData ? { nodes: filteredData.nodes, edges: filteredData.edges } : null
+  );
+
+  // Get temporally filtered data when temporal slider is active
+  const getTemporalFilteredData = useCallback(() => {
+    if (!showTemporalSlider || !filteredData) {
+      return filteredData;
+    }
+    return {
+      nodes: temporalGraph.filteredNodes,
+      edges: temporalGraph.filteredEdges,
+    };
+  }, [showTemporalSlider, filteredData, temporalGraph.filteredNodes, temporalGraph.filteredEdges]);
+
   // Fetch graph data on mount
   useEffect(() => {
     fetchGraphData(projectId);
@@ -123,8 +145,8 @@ function KnowledgeGraphInner({
 
   // Apply layout when graph data changes
   useEffect(() => {
-    const filteredData = getFilteredData();
-    if (!filteredData || filteredData.nodes.length === 0) return;
+    const dataToLayout = getTemporalFilteredData();
+    if (!dataToLayout || dataToLayout.nodes.length === 0) return;
 
     setIsLayouting(true);
 
@@ -134,8 +156,8 @@ function KnowledgeGraphInner({
 
     // Apply layout
     const { nodes: layoutNodes, edges: layoutEdges } = applyLayout(
-      filteredData.nodes,
-      filteredData.edges,
+      dataToLayout.nodes,
+      dataToLayout.edges,
       layoutType,
       { width, height }
     );
@@ -148,7 +170,7 @@ function KnowledgeGraphInner({
       fitView({ padding: 0.15, duration: 500 });
       setIsLayouting(false);
     }, 100);
-  }, [graphData, layoutType, getFilteredData, setNodes, setEdges, fitView]);
+  }, [graphData, layoutType, getTemporalFilteredData, setNodes, setEdges, fitView, temporalGraph.currentYear, showTemporalSlider]);
 
   // Update highlights when they change
   useEffect(() => {
@@ -421,6 +443,15 @@ function KnowledgeGraphInner({
             >
               <Sparkles className="w-4 h-4" />
             </button>
+            <button
+              onClick={() => setShowTemporalSlider(!showTemporalSlider)}
+              className={`p-2 transition-colors ${
+                showTemporalSlider ? 'bg-accent-teal/10 text-accent-teal' : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+              }`}
+              title="Toggle temporal evolution"
+            >
+              <Clock className="w-4 h-4" />
+            </button>
           </div>
         </Panel>
       </ReactFlow>
@@ -462,6 +493,26 @@ function KnowledgeGraphInner({
 
       {/* StatusBar - LLM/Vector/Source Status */}
       <StatusBar projectId={projectId} />
+
+      {/* Temporal Slider - Graph Evolution Control (Phase 2: InfraNodus Integration) */}
+      {showTemporalSlider && (
+        <TemporalSlider
+          currentYear={temporalGraph.currentYear}
+          yearRange={temporalGraph.yearRange}
+          isAnimating={temporalGraph.isAnimating}
+          animationSpeed={temporalGraph.animationSpeed}
+          onYearChange={temporalGraph.setCurrentYear}
+          onToggleAnimation={temporalGraph.toggleAnimation}
+          onSpeedChange={temporalGraph.setAnimationSpeed}
+          onReset={temporalGraph.resetToStart}
+          onSkipToEnd={temporalGraph.resetToEnd}
+          nodesByYear={temporalGraph.nodesByYear}
+          totalVisibleNodes={temporalGraph.totalVisibleNodes}
+          totalVisibleEdges={temporalGraph.totalVisibleEdges}
+          isMinimized={isTemporalMinimized}
+          onToggleMinimize={() => setIsTemporalMinimized(!isTemporalMinimized)}
+        />
+      )}
 
       {/* Edge Context Modal - Contextual Edge Exploration (Phase 1) */}
       <EdgeContextModal

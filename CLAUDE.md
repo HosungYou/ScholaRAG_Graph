@@ -406,7 +406,17 @@ POST /api/chat                 # Chat (6-Agent)
 GET  /api/graph/{project_id}   # Graph data
 GET  /api/graph/visualization/{project_id}  # Graph visualization
 GET  /api/integrations/zotero/collections  # Zotero collections
+
+# InfraNodus Integration (v0.4.0)
+GET  /api/graph/relationships/{id}/evidence    # Relationship evidence
+GET  /api/graph/temporal/{project_id}          # Temporal graph stats
+POST /api/graph/temporal/{project_id}/migrate  # Trigger temporal migration
+POST /api/graph/gaps/{id}/generate-bridge      # AI bridge hypotheses
+GET  /api/graph/diversity/{project_id}         # Diversity metrics
+GET  /api/graph/compare/{a}/{b}                # Project comparison
 ```
+
+> **Full API Documentation**: See `DOCS/api/infranodus-api.md` for detailed schemas.
 
 ### Health Check
 

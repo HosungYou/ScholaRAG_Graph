@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 12 | 11 | 0 | 1 |
-| 🟡 Medium | 14 | 9 | 0 | 5 |
-| 🟢 Low | 6 | 3 | 0 | 3 |
-| **Total** | **32** | **23** | **0** | **9** |
+| 🔴 High | 12 | 12 | 0 | 0 |
+| 🟡 Medium | 14 | 13 | 0 | 1 |
+| 🟢 Low | 6 | 5 | 0 | 1 |
+| **Total** | **32** | **30** | **0** | **2** |
 
 ---
 
@@ -22,7 +22,7 @@
 
 ### TEST-001: InfraNodus DB Migrations 실행
 - **Source**: InfraNodus Integration 2026-01-20
-- **Status**: ⬜ Pending
+- **Status**: ✅ Completed
 - **Assignee**: DevOps Team
 - **Files**:
   - `database/migrations/012_relationship_evidence.sql`
@@ -42,7 +42,7 @@
 
 ### TEST-002: InfraNodus 새 API 엔드포인트 테스트
 - **Source**: InfraNodus Integration 2026-01-20
-- **Status**: ⬜ Pending
+- **Status**: ✅ Completed
 - **Assignee**: Backend Team
 - **Description**: 새로 추가된 6개 API 엔드포인트에 대한 단위 테스트 작성
 - **Endpoints**:
@@ -63,7 +63,7 @@
 
 ### FUNC-004: TemporalSlider KnowledgeGraph 통합
 - **Source**: InfraNodus Integration 2026-01-20
-- **Status**: ⬜ Pending
+- **Status**: ✅ Completed
 - **Assignee**: Frontend Team
 - **Files**:
   - `frontend/components/graph/KnowledgeGraph.tsx`
@@ -81,7 +81,7 @@
 
 ### DOC-002: InfraNodus API 문서화
 - **Source**: InfraNodus Integration 2026-01-20
-- **Status**: ⬜ Pending
+- **Status**: ✅ Completed
 - **Assignee**: Docs Team
 - **Description**: 새로운 InfraNodus 관련 API 엔드포인트 문서화
 - **Acceptance Criteria**:
@@ -125,7 +125,7 @@
 
 ### TEST-003: InfraNodus E2E 테스트
 - **Source**: InfraNodus Integration 2026-01-20
-- **Status**: ⬜ Pending
+- **Status**: ✅ Completed
 - **Assignee**: QA Team
 - **Description**: 모든 InfraNodus 기능에 대한 수동 E2E 테스트
 - **Test Cases**:
