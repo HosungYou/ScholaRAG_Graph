@@ -26,6 +26,34 @@ from routers.projects import check_project_access
 logger = logging.getLogger(__name__)
 
 
+# ============================================
+# Relationship Evidence Models (Phase 1: Contextual Edge Exploration)
+# ============================================
+
+class EvidenceChunkResponse(BaseModel):
+    """Single evidence chunk supporting a relationship."""
+    evidence_id: str
+    chunk_id: str
+    text: str
+    section_type: str
+    paper_id: Optional[str] = None
+    paper_title: Optional[str] = None
+    paper_authors: Optional[str] = None
+    paper_year: Optional[int] = None
+    relevance_score: float = 0.5
+    context_snippet: Optional[str] = None
+
+
+class RelationshipEvidenceResponse(BaseModel):
+    """Response containing all evidence for a relationship."""
+    relationship_id: str
+    source_name: str
+    target_name: str
+    relationship_type: str
+    evidence_chunks: List[EvidenceChunkResponse]
+    total_evidence: int
+
+
 def _parse_json_field(value) -> dict:
     """Parse a JSON field that might be a string or already a dict."""
     if value is None:
@@ -1219,6 +1247,118 @@ async def get_gap_detail(
         raise HTTPException(status_code=500, detail="Failed to get gap detail")
 
 
+# ============================================
+# Bridge Hypothesis Generation API (Phase 3)
+# ============================================
+
+class BridgeHypothesisResponse(BaseModel):
+    """Single bridge hypothesis."""
+    title: str
+    description: str
+    methodology: str
+    connecting_concepts: List[str]
+    confidence: float
+
+
+class BridgeGenerationResponse(BaseModel):
+    """Response for bridge hypothesis generation."""
+    hypotheses: List[BridgeHypothesisResponse]
+    bridge_type: str  # "theoretical", "methodological", "empirical"
+    key_insight: str
+    gap_id: str
+
+
+@router.post("/gaps/{gap_id}/generate-bridge", response_model=BridgeGenerationResponse)
+async def generate_bridge_hypotheses(
+    gap_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Generate AI-powered bridge hypotheses to connect two concept clusters.
+
+    This is the core "Generate Bridge Idea" feature - uses LLM to propose
+    novel research hypotheses that could bridge the structural gap.
+
+    Returns:
+        - hypotheses: List of 3-5 specific, testable research hypotheses
+        - bridge_type: "theoretical", "methodological", or "empirical"
+        - key_insight: One-sentence summary of the opportunity
+
+    Requires auth in production.
+    """
+    try:
+        # Get gap details
+        row = await database.fetchrow(
+            """
+            SELECT id, cluster_a_id, cluster_b_id,
+                   cluster_a_names, cluster_b_names,
+                   gap_strength, project_id
+            FROM structural_gaps
+            WHERE id = $1
+            """,
+            str(gap_id),
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Gap not found")
+
+        project_id = UUID(str(row["project_id"]))
+
+        # Verify project access
+        await verify_project_access(database, project_id, current_user, "access")
+
+        # Get LLM provider
+        from llm.base import get_llm_provider
+
+        llm = get_llm_provider()
+
+        # Initialize gap detector with LLM
+        from graph.gap_detector import GapDetector, StructuralGap as GapModel
+
+        gap_detector = GapDetector(llm_provider=llm)
+
+        # Create gap model
+        gap_model = GapModel(
+            id=str(gap_id),
+            cluster_a_id=row["cluster_a_id"],
+            cluster_b_id=row["cluster_b_id"],
+            gap_strength=row["gap_strength"],
+        )
+
+        # Generate hypotheses
+        result = await gap_detector.generate_bridge_hypotheses(
+            gap_model,
+            row["cluster_a_names"] or [],
+            row["cluster_b_names"] or [],
+        )
+
+        # Convert to response model
+        hypotheses = [
+            BridgeHypothesisResponse(
+                title=h["title"],
+                description=h["description"],
+                methodology=h["methodology"],
+                connecting_concepts=h["connecting_concepts"],
+                confidence=h["confidence"],
+            )
+            for h in result.get("hypotheses", [])
+        ]
+
+        return BridgeGenerationResponse(
+            hypotheses=hypotheses,
+            bridge_type=result.get("bridge_type", "theoretical"),
+            key_insight=result.get("key_insight", "Connection opportunity detected."),
+            gap_id=str(gap_id),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate bridge hypotheses: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate bridge hypotheses")
+
+
 @router.post("/gaps/{gap_id}/questions")
 async def generate_gap_questions(
     gap_id: UUID,
@@ -1447,6 +1587,126 @@ class GraphMetricsResponse(BaseModel):
     node_count: int
     edge_count: int
     cluster_count: int
+
+
+# ============================================
+# Diversity Analysis API (Phase 4)
+# ============================================
+
+class DiversityMetricsResponse(BaseModel):
+    """Response for diversity analysis."""
+    shannon_entropy: float
+    normalized_entropy: float
+    modularity: float
+    bias_score: float
+    diversity_rating: str  # "high", "medium", "low"
+    cluster_sizes: List[int]
+    dominant_cluster_ratio: float
+    gini_coefficient: float
+
+
+@router.get("/diversity/{project_id}", response_model=DiversityMetricsResponse)
+async def get_diversity_metrics(
+    project_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Get diversity metrics for a project's knowledge graph.
+
+    Analyzes how diverse/balanced the concept clusters are:
+    - shannon_entropy: Evenness of cluster distribution (higher = more diverse)
+    - modularity: How well-defined clusters are (-0.5 to 1.0)
+    - bias_score: If one cluster dominates (0-1, lower = better)
+    - diversity_rating: "high", "medium", or "low"
+    - gini_coefficient: Inequality measure (0 = equal, 1 = unequal)
+
+    Requires auth in production.
+    """
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
+    try:
+        from graph.diversity_analyzer import diversity_analyzer
+
+        # Get nodes
+        node_rows = await database.fetch(
+            """
+            SELECT id, entity_type::text, name, properties
+            FROM entities
+            WHERE project_id = $1
+            AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
+            """,
+            str(project_id),
+        )
+
+        # Get edges
+        edge_rows = await database.fetch(
+            """
+            SELECT id, source_id, target_id
+            FROM relationships
+            WHERE project_id = $1
+            """,
+            str(project_id),
+        )
+
+        # Get clusters
+        cluster_rows = await database.fetch(
+            """
+            SELECT cluster_id, concepts, size
+            FROM concept_clusters
+            WHERE project_id = $1
+            ORDER BY cluster_id
+            """,
+            str(project_id),
+        )
+
+        if not node_rows:
+            return DiversityMetricsResponse(
+                shannon_entropy=0.0,
+                normalized_entropy=0.0,
+                modularity=0.0,
+                bias_score=1.0,
+                diversity_rating="low",
+                cluster_sizes=[],
+                dominant_cluster_ratio=1.0,
+                gini_coefficient=1.0,
+            )
+
+        # Convert to format for analyzer
+        nodes = [{"id": str(row["id"])} for row in node_rows]
+        edges = [
+            {"source": str(row["source_id"]), "target": str(row["target_id"])}
+            for row in edge_rows
+        ]
+        clusters = [
+            {"node_ids": row["concepts"] or [], "size": row["size"]}
+            for row in cluster_rows
+        ]
+
+        # If no clusters defined, create a single cluster with all nodes
+        if not clusters:
+            clusters = [{"node_ids": [n["id"] for n in nodes]}]
+
+        # Compute metrics
+        metrics = diversity_analyzer.analyze_from_data(nodes, edges, clusters)
+
+        return DiversityMetricsResponse(
+            shannon_entropy=metrics.shannon_entropy,
+            normalized_entropy=metrics.normalized_entropy,
+            modularity=metrics.modularity,
+            bias_score=metrics.bias_score,
+            diversity_rating=metrics.diversity_rating,
+            cluster_sizes=metrics.cluster_sizes,
+            dominant_cluster_ratio=metrics.dominant_cluster_ratio,
+            gini_coefficient=metrics.gini_coefficient,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to compute diversity metrics: {e}")
+        raise HTTPException(status_code=500, detail="Failed to compute diversity metrics")
 
 
 @router.get("/metrics/{project_id}", response_model=GraphMetricsResponse)
@@ -1804,6 +2064,603 @@ async def recompute_clusters(
     except Exception as e:
         logger.error(f"Failed to recompute clusters: {e}")
         raise HTTPException(status_code=500, detail="Failed to recompute clusters")
+
+
+# ============================================
+# Temporal Graph API (Phase 2: Graph Evolution)
+# ============================================
+
+class TemporalStatsResponse(BaseModel):
+    """Temporal statistics for a project."""
+    min_year: Optional[int] = None
+    max_year: Optional[int] = None
+    year_count: int = 0
+    entities_with_year: int = 0
+    total_entities: int = 0
+
+
+class TemporalGraphResponse(BaseModel):
+    """Graph data with temporal filtering and year range."""
+    nodes: List[NodeResponse]
+    edges: List[EdgeResponse]
+    year_range: dict  # {min: int, max: int}
+    temporal_stats: TemporalStatsResponse
+
+
+@router.get("/temporal/{project_id}", response_model=TemporalGraphResponse)
+async def get_temporal_graph(
+    project_id: UUID,
+    year_start: Optional[int] = Query(None, description="Filter entities from this year"),
+    year_end: Optional[int] = Query(None, description="Filter entities up to this year"),
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Get graph data filtered by year range for temporal evolution visualization.
+
+    This enables the "time slider" feature - animate how the knowledge graph
+    evolved over years as research progressed.
+
+    Returns nodes/edges visible up to year_end, with opacity hints for
+    nodes that appeared earlier vs recently.
+
+    Requires auth in production.
+    """
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "access")
+
+    try:
+        # Get temporal statistics
+        stats_row = await database.fetchrow(
+            """
+            SELECT
+                MIN(first_seen_year) as min_year,
+                MAX(COALESCE(last_seen_year, first_seen_year)) as max_year,
+                COUNT(DISTINCT first_seen_year) as year_count,
+                COUNT(*) FILTER (WHERE first_seen_year IS NOT NULL) as entities_with_year,
+                COUNT(*) as total_entities
+            FROM entities
+            WHERE project_id = $1
+            """,
+            str(project_id),
+        )
+
+        temporal_stats = TemporalStatsResponse(
+            min_year=stats_row["min_year"],
+            max_year=stats_row["max_year"],
+            year_count=stats_row["year_count"] or 0,
+            entities_with_year=stats_row["entities_with_year"] or 0,
+            total_entities=stats_row["total_entities"] or 0,
+        )
+
+        # If no temporal data, fall back to year from properties
+        if temporal_stats.min_year is None:
+            # Try to get years from properties
+            props_stats = await database.fetchrow(
+                """
+                SELECT
+                    MIN((properties->>'year')::INTEGER) as min_year,
+                    MAX((properties->>'year')::INTEGER) as max_year
+                FROM entities
+                WHERE project_id = $1
+                AND properties->>'year' IS NOT NULL
+                """,
+                str(project_id),
+            )
+            if props_stats and props_stats["min_year"]:
+                temporal_stats.min_year = props_stats["min_year"]
+                temporal_stats.max_year = props_stats["max_year"]
+
+        # Build year filter conditions
+        year_filter = ""
+        params = [str(project_id)]
+
+        if year_start is not None and year_end is not None:
+            year_filter = """
+                AND (
+                    first_seen_year IS NULL
+                    OR (first_seen_year >= $2 AND first_seen_year <= $3)
+                    OR (first_seen_year <= $3 AND (last_seen_year IS NULL OR last_seen_year >= $2))
+                )
+            """
+            params.extend([year_start, year_end])
+        elif year_end is not None:
+            year_filter = """
+                AND (first_seen_year IS NULL OR first_seen_year <= $2)
+            """
+            params.append(year_end)
+        elif year_start is not None:
+            year_filter = """
+                AND (first_seen_year IS NULL OR first_seen_year >= $2)
+            """
+            params.append(year_start)
+
+        # Get filtered nodes
+        nodes_query = f"""
+            SELECT id, entity_type::text, name, properties,
+                   first_seen_year, last_seen_year, source_year
+            FROM entities
+            WHERE project_id = $1 {year_filter}
+            ORDER BY
+                CASE entity_type::text
+                    WHEN 'Paper' THEN 1
+                    WHEN 'Concept' THEN 2
+                    WHEN 'Author' THEN 3
+                    ELSE 4
+                END,
+                first_seen_year NULLS LAST,
+                created_at DESC
+            LIMIT 500
+        """
+        node_rows = await database.fetch(nodes_query, *params)
+
+        # Add temporal properties to nodes
+        nodes = []
+        for row in node_rows:
+            props = _parse_json_field(row["properties"])
+            # Add temporal info to properties
+            props["first_seen_year"] = row["first_seen_year"]
+            props["last_seen_year"] = row["last_seen_year"]
+            props["source_year"] = row["source_year"]
+
+            nodes.append(
+                NodeResponse(
+                    id=str(row["id"]),
+                    entity_type=row["entity_type"],
+                    name=row["name"],
+                    properties=props,
+                )
+            )
+
+        # Get edges connecting visible nodes
+        node_ids = [str(row["id"]) for row in node_rows]
+
+        if node_ids:
+            edges_query = """
+                SELECT id, source_id, target_id, relationship_type::text,
+                       properties, weight, first_seen_year
+                FROM relationships
+                WHERE project_id = $1
+                AND source_id = ANY($2::uuid[])
+                AND target_id = ANY($2::uuid[])
+            """
+            edge_rows = await database.fetch(
+                edges_query,
+                str(project_id),
+                node_ids,
+            )
+
+            edges = []
+            for row in edge_rows:
+                props = _parse_json_field(row["properties"])
+                props["first_seen_year"] = row["first_seen_year"]
+
+                edges.append(
+                    EdgeResponse(
+                        id=str(row["id"]),
+                        source=str(row["source_id"]),
+                        target=str(row["target_id"]),
+                        relationship_type=row["relationship_type"],
+                        properties=props,
+                        weight=row["weight"] or 1.0,
+                    )
+                )
+        else:
+            edges = []
+
+        return TemporalGraphResponse(
+            nodes=nodes,
+            edges=edges,
+            year_range={
+                "min": temporal_stats.min_year or 2000,
+                "max": temporal_stats.max_year or 2025,
+            },
+            temporal_stats=temporal_stats,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get temporal graph: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get temporal graph data")
+
+
+@router.post("/temporal/{project_id}/migrate")
+async def migrate_temporal_data(
+    project_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Migrate/backfill temporal data for existing entities in a project.
+
+    This populates first_seen_year, last_seen_year from paper metadata.
+    Run this after importing papers to enable temporal visualization.
+
+    Requires auth in production.
+    """
+    # Verify project access
+    await verify_project_access(database, project_id, current_user, "modify")
+
+    try:
+        # Run the migration function
+        result = await database.fetchrow(
+            "SELECT * FROM migrate_entity_temporal_data($1)",
+            str(project_id),
+        )
+
+        return {
+            "status": "success",
+            "entities_updated": result["entities_updated"] if result else 0,
+            "relationships_updated": result["relationships_updated"] if result else 0,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to migrate temporal data: {e}")
+        # If function doesn't exist, return a helpful message
+        if "function migrate_entity_temporal_data" in str(e):
+            raise HTTPException(
+                status_code=500,
+                detail="Temporal migration function not found. Please run database migration 013_entity_temporal.sql first."
+            )
+        raise HTTPException(status_code=500, detail="Failed to migrate temporal data")
+
+
+# ============================================
+# Relationship Evidence API (Phase 1: Contextual Edge Exploration)
+# ============================================
+
+@router.get("/relationships/{relationship_id}/evidence", response_model=RelationshipEvidenceResponse)
+async def get_relationship_evidence(
+    relationship_id: str,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Get evidence chunks that support a specific relationship.
+
+    This enables "contextual edge exploration" - clicking an edge shows
+    the source text passages that justify the relationship.
+
+    Requires auth in production.
+    """
+    try:
+        # Get the relationship details
+        relationship = await database.fetchrow(
+            """
+            SELECT r.id, r.source_id, r.target_id, r.relationship_type::text, r.project_id,
+                   src.name as source_name, tgt.name as target_name
+            FROM relationships r
+            JOIN entities src ON r.source_id = src.id
+            JOIN entities tgt ON r.target_id = tgt.id
+            WHERE r.id = $1
+            """,
+            relationship_id,
+        )
+
+        if not relationship:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        project_id = UUID(str(relationship["project_id"]))
+
+        # Verify project access
+        await verify_project_access(database, project_id, current_user, "access")
+
+        # Try to get evidence from relationship_evidence table
+        evidence_rows = await database.fetch(
+            """
+            SELECT
+                re.id as evidence_id,
+                re.chunk_id,
+                sc.text,
+                sc.section_type,
+                pm.id as paper_id,
+                pm.title as paper_title,
+                pm.authors as paper_authors,
+                pm.publication_year as paper_year,
+                re.relevance_score,
+                re.context_snippet
+            FROM relationship_evidence re
+            JOIN semantic_chunks sc ON re.chunk_id = sc.id
+            JOIN paper_metadata pm ON sc.paper_id = pm.id
+            WHERE re.relationship_id = $1
+            ORDER BY re.relevance_score DESC
+            LIMIT 10
+            """,
+            relationship_id,
+        )
+
+        # If no evidence in dedicated table, try to find evidence from
+        # semantic chunks that mention both entities
+        if not evidence_rows:
+            source_name = relationship["source_name"]
+            target_name = relationship["target_name"]
+
+            # Search for chunks containing both entity names
+            evidence_rows = await database.fetch(
+                """
+                SELECT
+                    sc.id as evidence_id,
+                    sc.id as chunk_id,
+                    sc.text,
+                    sc.section_type,
+                    pm.id as paper_id,
+                    pm.title as paper_title,
+                    pm.authors as paper_authors,
+                    pm.publication_year as paper_year,
+                    0.5 as relevance_score,
+                    NULL as context_snippet
+                FROM semantic_chunks sc
+                JOIN paper_metadata pm ON sc.paper_id = pm.id
+                WHERE sc.project_id = $1
+                AND sc.text ILIKE $2
+                AND sc.text ILIKE $3
+                ORDER BY sc.created_at DESC
+                LIMIT 5
+                """,
+                str(project_id),
+                f"%{source_name}%",
+                f"%{target_name}%",
+            )
+
+        evidence_chunks = [
+            EvidenceChunkResponse(
+                evidence_id=str(row["evidence_id"]),
+                chunk_id=str(row["chunk_id"]),
+                text=row["text"][:2000] if row["text"] else "",  # Limit text length
+                section_type=row["section_type"] or "unknown",
+                paper_id=str(row["paper_id"]) if row["paper_id"] else None,
+                paper_title=row["paper_title"],
+                paper_authors=row["paper_authors"],
+                paper_year=row["paper_year"],
+                relevance_score=float(row["relevance_score"]) if row["relevance_score"] else 0.5,
+                context_snippet=row["context_snippet"],
+            )
+            for row in evidence_rows
+        ]
+
+        return RelationshipEvidenceResponse(
+            relationship_id=relationship_id,
+            source_name=relationship["source_name"],
+            target_name=relationship["target_name"],
+            relationship_type=relationship["relationship_type"],
+            evidence_chunks=evidence_chunks,
+            total_evidence=len(evidence_chunks),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get relationship evidence: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get relationship evidence")
+
+
+# ============================================
+# Graph Comparison API (Phase 5)
+# ============================================
+
+class ProjectComparisonNode(BaseModel):
+    """Node with comparison metadata."""
+    id: str
+    name: str
+    entity_type: str
+    in_project_a: bool
+    in_project_b: bool
+    is_common: bool
+
+
+class ProjectComparisonEdge(BaseModel):
+    """Edge with comparison metadata."""
+    id: str
+    source: str
+    target: str
+    relationship_type: str
+    in_project_a: bool
+    in_project_b: bool
+    is_common: bool
+
+
+class GraphComparisonResponse(BaseModel):
+    """Response for graph comparison."""
+    project_a_id: str
+    project_a_name: str
+    project_b_id: str
+    project_b_name: str
+    # Statistics
+    common_entities: int
+    unique_to_a: int
+    unique_to_b: int
+    common_entity_names: List[str]
+    # Comparison breakdown
+    jaccard_similarity: float
+    overlap_coefficient: float
+    # Full data for visualization
+    nodes: List[ProjectComparisonNode]
+    edges: List[ProjectComparisonEdge]
+
+
+@router.get("/compare/{project_a_id}/{project_b_id}", response_model=GraphComparisonResponse)
+async def compare_graphs(
+    project_a_id: UUID,
+    project_b_id: UUID,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Compare two project knowledge graphs.
+
+    Shows:
+    - Common entities (intersection)
+    - Unique to each project (difference)
+    - Similarity metrics (Jaccard, overlap coefficient)
+
+    Requires auth in production.
+    """
+    # Verify access to both projects
+    await verify_project_access(database, project_a_id, current_user, "access")
+    await verify_project_access(database, project_b_id, current_user, "access")
+
+    try:
+        # Get project names
+        project_a = await database.fetchrow(
+            "SELECT id, name FROM projects WHERE id = $1",
+            str(project_a_id),
+        )
+        project_b = await database.fetchrow(
+            "SELECT id, name FROM projects WHERE id = $1",
+            str(project_b_id),
+        )
+
+        if not project_a or not project_b:
+            raise HTTPException(status_code=404, detail="One or both projects not found")
+
+        # Get entities from both projects
+        entities_a = await database.fetch(
+            """
+            SELECT id, name, entity_type::text
+            FROM entities
+            WHERE project_id = $1
+            AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
+            """,
+            str(project_a_id),
+        )
+
+        entities_b = await database.fetch(
+            """
+            SELECT id, name, entity_type::text
+            FROM entities
+            WHERE project_id = $1
+            AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
+            """,
+            str(project_b_id),
+        )
+
+        # Build name-based lookup for comparison (case-insensitive)
+        names_a = {row["name"].lower(): row for row in entities_a}
+        names_b = {row["name"].lower(): row for row in entities_b}
+
+        # Find common and unique entities
+        common_names = set(names_a.keys()) & set(names_b.keys())
+        unique_a_names = set(names_a.keys()) - common_names
+        unique_b_names = set(names_b.keys()) - common_names
+
+        # Calculate similarity metrics
+        total_unique = len(set(names_a.keys()) | set(names_b.keys()))
+        jaccard_similarity = len(common_names) / total_unique if total_unique > 0 else 0
+
+        min_size = min(len(names_a), len(names_b))
+        overlap_coefficient = len(common_names) / min_size if min_size > 0 else 0
+
+        # Build comparison nodes
+        nodes = []
+
+        # Common entities
+        for name in common_names:
+            entity = names_a[name]
+            nodes.append(ProjectComparisonNode(
+                id=f"common_{name}",
+                name=entity["name"],
+                entity_type=entity["entity_type"],
+                in_project_a=True,
+                in_project_b=True,
+                is_common=True,
+            ))
+
+        # Unique to A
+        for name in unique_a_names:
+            entity = names_a[name]
+            nodes.append(ProjectComparisonNode(
+                id=f"a_{str(entity['id'])}",
+                name=entity["name"],
+                entity_type=entity["entity_type"],
+                in_project_a=True,
+                in_project_b=False,
+                is_common=False,
+            ))
+
+        # Unique to B
+        for name in unique_b_names:
+            entity = names_b[name]
+            nodes.append(ProjectComparisonNode(
+                id=f"b_{str(entity['id'])}",
+                name=entity["name"],
+                entity_type=entity["entity_type"],
+                in_project_a=False,
+                in_project_b=True,
+                is_common=False,
+            ))
+
+        # Get edges from both projects
+        edges_a = await database.fetch(
+            """
+            SELECT r.id, src.name as source_name, tgt.name as target_name, r.relationship_type::text
+            FROM relationships r
+            JOIN entities src ON r.source_id = src.id
+            JOIN entities tgt ON r.target_id = tgt.id
+            WHERE r.project_id = $1
+            """,
+            str(project_a_id),
+        )
+
+        edges_b = await database.fetch(
+            """
+            SELECT r.id, src.name as source_name, tgt.name as target_name, r.relationship_type::text
+            FROM relationships r
+            JOIN entities src ON r.source_id = src.id
+            JOIN entities tgt ON r.target_id = tgt.id
+            WHERE r.project_id = $1
+            """,
+            str(project_b_id),
+        )
+
+        # Build edge comparison (by source-target name pairs)
+        edge_key_a = {(r["source_name"].lower(), r["target_name"].lower(), r["relationship_type"]): r for r in edges_a}
+        edge_key_b = {(r["source_name"].lower(), r["target_name"].lower(), r["relationship_type"]): r for r in edges_b}
+
+        common_edge_keys = set(edge_key_a.keys()) & set(edge_key_b.keys())
+
+        edges = []
+        seen_edges = set()
+
+        # Common edges
+        for key in common_edge_keys:
+            edge = edge_key_a[key]
+            edge_id = f"common_{key[0]}_{key[1]}"
+            if edge_id not in seen_edges:
+                edges.append(ProjectComparisonEdge(
+                    id=edge_id,
+                    source=f"common_{key[0]}",
+                    target=f"common_{key[1]}",
+                    relationship_type=edge["relationship_type"],
+                    in_project_a=True,
+                    in_project_b=True,
+                    is_common=True,
+                ))
+                seen_edges.add(edge_id)
+
+        # Get common entity names for display
+        common_entity_names = sorted([names_a[n]["name"] for n in list(common_names)[:20]])
+
+        return GraphComparisonResponse(
+            project_a_id=str(project_a_id),
+            project_a_name=project_a["name"],
+            project_b_id=str(project_b_id),
+            project_b_name=project_b["name"],
+            common_entities=len(common_names),
+            unique_to_a=len(unique_a_names),
+            unique_to_b=len(unique_b_names),
+            common_entity_names=common_entity_names,
+            jaccard_similarity=round(jaccard_similarity, 4),
+            overlap_coefficient=round(overlap_coefficient, 4),
+            nodes=nodes,
+            edges=edges,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to compare graphs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to compare graphs")
 
 
 @router.post("/rebuild/{project_id}")

@@ -15,6 +15,7 @@ import ReactFlow, {
   Panel,
   useReactFlow,
   ReactFlowProvider,
+  EdgeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -22,6 +23,7 @@ import { CircularNode } from './CircularNode';
 import { GapPanel } from './GapPanel';
 import { GraphLegend } from './GraphLegend';
 import { StatusBar } from './StatusBar';
+import { EdgeContextModal } from './EdgeContextModal';
 import { useGraphStore } from '@/hooks/useGraphStore';
 import { applyLayout, updateNodeHighlights, updateEdgeHighlights, LayoutType } from '@/lib/layout';
 import type { GraphEntity, EntityType, StructuralGap } from '@/types';
@@ -86,6 +88,14 @@ function KnowledgeGraphInner({
   const [showLegend, setShowLegend] = useState(true);
   const [showGapPanel, setShowGapPanel] = useState(true);
   const [isGapPanelMinimized, setIsGapPanelMinimized] = useState(false);
+  // Edge Context Modal state (Phase 1: Contextual Edge Exploration)
+  const [edgeModalOpen, setEdgeModalOpen] = useState(false);
+  const [selectedEdge, setSelectedEdge] = useState<{
+    relationshipId: string;
+    sourceName?: string;
+    targetName?: string;
+    relationshipType?: string;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { fitView } = useReactFlow();
 
@@ -221,6 +231,31 @@ function KnowledgeGraphInner({
     await fetchGapAnalysis(projectId);
   }, [projectId, fetchGapAnalysis]);
 
+  // Handle edge click - Contextual Edge Exploration (Phase 1)
+  const handleEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      // Get source and target node names for context
+      const filteredData = getFilteredData();
+      const sourceNode = filteredData?.nodes.find(n => n.id === edge.source);
+      const targetNode = filteredData?.nodes.find(n => n.id === edge.target);
+
+      setSelectedEdge({
+        relationshipId: edge.id,
+        sourceName: sourceNode?.name,
+        targetName: targetNode?.name,
+        relationshipType: edge.data?.relationshipType || edge.type,
+      });
+      setEdgeModalOpen(true);
+    },
+    [getFilteredData]
+  );
+
+  // Handle close edge modal
+  const handleCloseEdgeModal = useCallback(() => {
+    setEdgeModalOpen(false);
+    setSelectedEdge(null);
+  }, []);
+
   // MiniMap node color based on cluster
   const miniMapNodeColor = useCallback((node: Node) => {
     const clusterId = node.data?.clusterId;
@@ -292,6 +327,7 @@ function KnowledgeGraphInner({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
+        onEdgeClick={handleEdgeClick}
         nodeTypes={NODE_TYPES}
         connectionMode={ConnectionMode.Loose}
         fitView
@@ -426,6 +462,16 @@ function KnowledgeGraphInner({
 
       {/* StatusBar - LLM/Vector/Source Status */}
       <StatusBar projectId={projectId} />
+
+      {/* Edge Context Modal - Contextual Edge Exploration (Phase 1) */}
+      <EdgeContextModal
+        isOpen={edgeModalOpen}
+        onClose={handleCloseEdgeModal}
+        relationshipId={selectedEdge?.relationshipId || null}
+        sourceName={selectedEdge?.sourceName}
+        targetName={selectedEdge?.targetName}
+        relationshipType={selectedEdge?.relationshipType}
+      />
     </div>
   );
 }

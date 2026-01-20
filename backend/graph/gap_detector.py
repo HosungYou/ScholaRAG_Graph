@@ -571,6 +571,143 @@ class GapDetector:
 
         return potential_edges
 
+    async def generate_bridge_hypotheses(
+        self,
+        gap: StructuralGap,
+        cluster_a_names: list[str],
+        cluster_b_names: list[str],
+    ) -> dict:
+        """
+        Generate AI-powered bridge hypotheses to connect two clusters.
+
+        This is the core "Bridge Idea Generator" feature from InfraNodus.
+        Uses LLM to propose novel research hypotheses that could bridge
+        the structural gap between concept clusters.
+
+        Args:
+            gap: The structural gap to bridge
+            cluster_a_names: Concept names from cluster A
+            cluster_b_names: Concept names from cluster B
+
+        Returns:
+            {
+                "hypotheses": [
+                    {
+                        "title": str,
+                        "description": str,
+                        "methodology": str,
+                        "connecting_concepts": [str],
+                        "confidence": float
+                    }
+                ],
+                "bridge_type": "theoretical" | "methodological" | "empirical",
+                "key_insight": str
+            }
+        """
+        # Default response if no LLM
+        default_response = {
+            "hypotheses": [
+                {
+                    "title": f"Exploring connections between {cluster_a_names[0] if cluster_a_names else 'Cluster A'} and {cluster_b_names[0] if cluster_b_names else 'Cluster B'}",
+                    "description": "This gap represents an opportunity to investigate how these concept areas might inform each other.",
+                    "methodology": "Literature review and conceptual analysis",
+                    "connecting_concepts": cluster_a_names[:2] + cluster_b_names[:2],
+                    "confidence": 0.5,
+                }
+            ],
+            "bridge_type": "theoretical",
+            "key_insight": "These clusters may share underlying principles worth investigating.",
+        }
+
+        if not self.llm:
+            return default_response
+
+        prompt = f"""You are a research methodology expert analyzing a knowledge graph of academic literature.
+
+## GAP ANALYSIS
+A structural gap has been detected between two clusters of concepts in the research literature:
+
+**Cluster A ({len(cluster_a_names)} concepts)**: {', '.join(cluster_a_names[:10])}
+**Cluster B ({len(cluster_b_names)} concepts)**: {', '.join(cluster_b_names[:10])}
+**Gap Score**: {gap.gap_strength:.2f} (lower = larger gap, meaning less current research connecting these areas)
+
+## TASK
+Generate 3 specific, testable research hypotheses that BRIDGE these two concept clusters.
+These should propose novel connections that haven't been explored in the literature.
+
+For each hypothesis, provide:
+1. **Title**: A concise, descriptive title (1 line)
+2. **Description**: 2-3 sentences explaining the hypothesis and why it matters
+3. **Methodology**: Suggested research approach to test this hypothesis
+4. **Connecting concepts**: List 2-4 concepts from BOTH clusters that this hypothesis connects
+5. **Confidence**: Score 0.0-1.0 indicating feasibility (higher = more feasible)
+
+Also determine:
+- **Bridge type**: Is this primarily "theoretical" (conceptual connection), "methodological" (methods can transfer), or "empirical" (data/findings connect)?
+- **Key insight**: One sentence summarizing the main opportunity
+
+Return your response in the following JSON format:
+{{
+  "hypotheses": [
+    {{
+      "title": "...",
+      "description": "...",
+      "methodology": "...",
+      "connecting_concepts": ["concept1", "concept2"],
+      "confidence": 0.7
+    }}
+  ],
+  "bridge_type": "theoretical",
+  "key_insight": "..."
+}}
+
+Return ONLY valid JSON, no other text.
+"""
+
+        try:
+            response = await self.llm.generate(prompt)
+
+            # Parse JSON response
+            import json
+
+            # Try to extract JSON from response
+            response_text = response.strip()
+
+            # Handle markdown code blocks
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                response_text = "\n".join(lines[1:-1])
+
+            result = json.loads(response_text)
+
+            # Validate structure
+            if "hypotheses" not in result:
+                result["hypotheses"] = default_response["hypotheses"]
+            if "bridge_type" not in result:
+                result["bridge_type"] = "theoretical"
+            if "key_insight" not in result:
+                result["key_insight"] = "Connection opportunity detected between these research areas."
+
+            # Validate hypotheses structure
+            validated_hypotheses = []
+            for hyp in result.get("hypotheses", [])[:5]:  # Max 5 hypotheses
+                validated_hyp = {
+                    "title": hyp.get("title", "Untitled Hypothesis"),
+                    "description": hyp.get("description", "No description provided."),
+                    "methodology": hyp.get("methodology", "Further investigation needed."),
+                    "connecting_concepts": hyp.get("connecting_concepts", [])[:6],  # Max 6 concepts
+                    "confidence": min(1.0, max(0.0, float(hyp.get("confidence", 0.5)))),
+                }
+                validated_hypotheses.append(validated_hyp)
+
+            result["hypotheses"] = validated_hypotheses
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to generate bridge hypotheses: {e}")
+            return default_response
+
     async def generate_research_questions(
         self,
         gap: StructuralGap,

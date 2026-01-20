@@ -2,7 +2,7 @@
 
 > 이 문서는 코드 리뷰, 기능 구현, 버그 수정 등에서 발견된 액션 아이템을 추적합니다.
 >
-> **마지막 업데이트**: 2026-01-20 (BUG-014: Rate Limiter 429 CORS 헤더 누락)
+> **마지막 업데이트**: 2026-01-20 (InfraNodus Integration Phase 1-5)
 > **관리자**: Claude Code
 
 ---
@@ -11,20 +11,87 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 11 | 11 | 0 | 0 |
-| 🟡 Medium | 11 | 9 | 0 | 2 |
-| 🟢 Low | 5 | 3 | 0 | 2 |
-| **Total** | **27** | **23** | **0** | **4** |
+| 🔴 High | 12 | 11 | 0 | 1 |
+| 🟡 Medium | 14 | 9 | 0 | 5 |
+| 🟢 Low | 6 | 3 | 0 | 3 |
+| **Total** | **32** | **23** | **0** | **9** |
 
 ---
 
 ## 🔴 High Priority (Immediate Action Required)
 
-*현재 High Priority 항목 없음 - 모두 완료됨*
+### TEST-001: InfraNodus DB Migrations 실행
+- **Source**: InfraNodus Integration 2026-01-20
+- **Status**: ⬜ Pending
+- **Assignee**: DevOps Team
+- **Files**:
+  - `database/migrations/012_relationship_evidence.sql`
+  - `database/migrations/013_entity_temporal.sql`
+- **Description**: 새로운 InfraNodus 기능을 위한 DB 마이그레이션 실행 필요
+- **Acceptance Criteria**:
+  - [ ] Supabase에서 012_relationship_evidence.sql 실행
+  - [ ] Supabase에서 013_entity_temporal.sql 실행
+  - [ ] `migrate_entity_temporal_data()` 함수 실행하여 기존 데이터 백필
+  - [ ] 테이블 및 인덱스 생성 확인
+- **Created**: 2026-01-20
+- **Related**: Session `2026-01-20_infranodus-integration.md`
 
 ---
 
 ## 🟡 Medium Priority (Short-term)
+
+### TEST-002: InfraNodus 새 API 엔드포인트 테스트
+- **Source**: InfraNodus Integration 2026-01-20
+- **Status**: ⬜ Pending
+- **Assignee**: Backend Team
+- **Description**: 새로 추가된 6개 API 엔드포인트에 대한 단위 테스트 작성
+- **Endpoints**:
+  - `GET /api/graph/relationships/{id}/evidence`
+  - `GET /api/graph/temporal/{project_id}`
+  - `POST /api/graph/temporal/{project_id}/migrate`
+  - `POST /api/graph/gaps/{id}/generate-bridge`
+  - `GET /api/graph/diversity/{project_id}`
+  - `GET /api/graph/compare/{a}/{b}`
+- **Acceptance Criteria**:
+  - [ ] 각 엔드포인트별 테스트 케이스 작성
+  - [ ] 인증 및 권한 테스트 포함
+  - [ ] 에러 케이스 테스트 포함
+- **Created**: 2026-01-20
+- **Related**: Session `2026-01-20_infranodus-integration.md`
+
+---
+
+### FUNC-004: TemporalSlider KnowledgeGraph 통합
+- **Source**: InfraNodus Integration 2026-01-20
+- **Status**: ⬜ Pending
+- **Assignee**: Frontend Team
+- **Files**:
+  - `frontend/components/graph/KnowledgeGraph.tsx`
+  - `frontend/components/graph/TemporalSlider.tsx`
+- **Description**: TemporalSlider 컴포넌트를 KnowledgeGraph 메인 뷰에 통합
+- **Acceptance Criteria**:
+  - [ ] KnowledgeGraph.tsx에 TemporalSlider 렌더링
+  - [ ] useTemporalGraph 훅 연동
+  - [ ] 연도별 노드 필터링 동작 확인
+  - [ ] 애니메이션 재생/정지 기능 테스트
+- **Created**: 2026-01-20
+- **Related**: Session `2026-01-20_infranodus-integration.md`
+
+---
+
+### DOC-002: InfraNodus API 문서화
+- **Source**: InfraNodus Integration 2026-01-20
+- **Status**: ⬜ Pending
+- **Assignee**: Docs Team
+- **Description**: 새로운 InfraNodus 관련 API 엔드포인트 문서화
+- **Acceptance Criteria**:
+  - [ ] API 엔드포인트별 요청/응답 스키마 문서화
+  - [ ] 사용 예제 추가
+  - [ ] CLAUDE.md API 섹션 업데이트
+- **Created**: 2026-01-20
+- **Related**: Session `2026-01-20_infranodus-integration.md`
+
+---
 
 ### PERF-006: 청크 임베딩 배치 업데이트
 - **Source**: Code Review (Codex) 2026-01-20
@@ -55,6 +122,22 @@
 ---
 
 ## 🟢 Low Priority (Long-term)
+
+### TEST-003: InfraNodus E2E 테스트
+- **Source**: InfraNodus Integration 2026-01-20
+- **Status**: ⬜ Pending
+- **Assignee**: QA Team
+- **Description**: 모든 InfraNodus 기능에 대한 수동 E2E 테스트
+- **Test Cases**:
+  - [ ] Edge 클릭 → EdgeContextModal 열림 → 원문 표시 확인
+  - [ ] TemporalSlider 연도 조절 → 노드 필터링 확인
+  - [ ] GapPanel "Generate Bridge" 클릭 → 가설 생성 확인
+  - [ ] InsightHUD 다양성 게이지 표시 확인
+  - [ ] /projects/compare 페이지 → 프로젝트 비교 동작 확인
+- **Created**: 2026-01-20
+- **Related**: Session `2026-01-20_infranodus-integration.md`
+
+---
 
 ### DOC-001: 배포 가이드에 Starter 플랜 권장사항 추가
 - **Source**: Render Starter Optimization 2026-01-19

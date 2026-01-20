@@ -17,6 +17,7 @@ import type {
   EntityType,
   GapAnalysisResult,
   StructuralGap,
+  RelationshipEvidence,
 } from '@/types';
 import { getSession } from './supabase';
 
@@ -516,6 +517,124 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ cluster_count: clusterCount }),
     });
+  }
+
+  // ============================================
+  // Relationship Evidence (Contextual Edge Exploration)
+  // ============================================
+
+  /**
+   * Fetch evidence chunks that support a specific relationship.
+   * Used for contextual edge exploration - clicking an edge shows source text.
+   */
+  async fetchRelationshipEvidence(relationshipId: string): Promise<RelationshipEvidence> {
+    return this.request<RelationshipEvidence>(
+      `/api/graph/relationships/${relationshipId}/evidence`
+    );
+  }
+
+  // ============================================
+  // Temporal Graph (Graph Evolution)
+  // ============================================
+
+  /**
+   * Fetch graph data filtered by year range for temporal visualization.
+   */
+  async getTemporalGraph(
+    projectId: string,
+    yearStart?: number,
+    yearEnd?: number
+  ): Promise<GraphData & { yearRange: { min: number; max: number } }> {
+    const params = new URLSearchParams({ project_id: projectId });
+    if (yearStart) params.set('year_start', yearStart.toString());
+    if (yearEnd) params.set('year_end', yearEnd.toString());
+    return this.request(`/api/graph/temporal?${params}`);
+  }
+
+  // ============================================
+  // Bridge Hypothesis Generation
+  // ============================================
+
+  /**
+   * Generate bridge hypotheses for a structural gap using AI.
+   */
+  async generateBridgeHypotheses(gapId: string): Promise<{
+    hypotheses: Array<{
+      title: string;
+      description: string;
+      methodology: string;
+      connecting_concepts: string[];
+      confidence: number;
+    }>;
+    bridge_type: 'theoretical' | 'methodological' | 'empirical';
+    key_insight: string;
+  }> {
+    return this.request(`/api/graph/gaps/${gapId}/generate-bridge`, {
+      method: 'POST',
+    });
+  }
+
+  // ============================================
+  // Diversity Analysis
+  // ============================================
+
+  /**
+   * Get diversity metrics for a project's knowledge graph.
+   */
+  async getDiversityMetrics(projectId: string): Promise<{
+    shannon_entropy: number;
+    normalized_entropy: number;
+    modularity: number;
+    bias_score: number;
+    diversity_rating: 'high' | 'medium' | 'low';
+    cluster_sizes: number[];
+    dominant_cluster_ratio: number;
+    gini_coefficient: number;
+  }> {
+    return this.request(`/api/graph/diversity/${projectId}`);
+  }
+
+  // ============================================
+  // Graph Comparison (Phase 5)
+  // ============================================
+
+  /**
+   * Compare two project knowledge graphs.
+   * Shows common entities, unique entities, and similarity metrics.
+   */
+  async compareGraphs(
+    projectAId: string,
+    projectBId: string
+  ): Promise<{
+    project_a_id: string;
+    project_a_name: string;
+    project_b_id: string;
+    project_b_name: string;
+    common_entities: number;
+    unique_to_a: number;
+    unique_to_b: number;
+    common_entity_names: string[];
+    jaccard_similarity: number;
+    overlap_coefficient: number;
+    nodes: Array<{
+      id: string;
+      name: string;
+      entity_type: string;
+      in_project_a: boolean;
+      in_project_b: boolean;
+      is_common: boolean;
+    }>;
+    edges: Array<{
+      id: string;
+      source: string;
+      target: string;
+      relationship_type: string;
+      in_project_a: boolean;
+      in_project_b: boolean;
+      is_common: boolean;
+    }>;
+  }> {
+    return this.request(`/api/graph/compare/${projectAId}/${projectBId}`);
   }
 }
 

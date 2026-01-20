@@ -14,6 +14,17 @@ interface GraphMetrics {
   cluster_count: number;
 }
 
+interface DiversityMetrics {
+  shannon_entropy: number;
+  normalized_entropy: number;
+  modularity: number;
+  bias_score: number;
+  diversity_rating: 'high' | 'medium' | 'low';
+  cluster_sizes: number[];
+  dominant_cluster_ratio: number;
+  gini_coefficient: number;
+}
+
 interface MetricBarProps {
   label: string;
   value: number;
@@ -43,6 +54,77 @@ function MetricBar({ label, value, color, tooltip }: MetricBarProps) {
   );
 }
 
+// Circular Diversity Gauge Component (Phase 4)
+interface DiversityGaugeProps {
+  rating: 'high' | 'medium' | 'low';
+  entropy: number;
+  biasScore: number;
+}
+
+function DiversityGauge({ rating, entropy, biasScore }: DiversityGaugeProps) {
+  // Determine colors based on rating
+  const colors = {
+    high: { primary: '#10B981', bg: '#10B981/20', label: 'High Diversity' },
+    medium: { primary: '#F59E0B', bg: '#F59E0B/20', label: 'Medium Diversity' },
+    low: { primary: '#EF4444', bg: '#EF4444/20', label: 'Low Diversity' },
+  };
+
+  const { primary, label } = colors[rating];
+
+  // Calculate arc for gauge (based on entropy 0-1)
+  const circumference = 2 * Math.PI * 28; // radius = 28
+  const strokeDasharray = `${entropy * circumference * 0.75} ${circumference}`;
+
+  return (
+    <div className="flex flex-col items-center py-2">
+      <div className="relative w-20 h-20">
+        {/* Background arc */}
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+          <circle
+            cx="32"
+            cy="32"
+            r="28"
+            fill="none"
+            stroke="rgba(255,255,255,0.1)"
+            strokeWidth="4"
+            strokeDasharray={`${0.75 * circumference} ${circumference}`}
+            strokeLinecap="round"
+          />
+          <circle
+            cx="32"
+            cy="32"
+            r="28"
+            fill="none"
+            stroke={primary}
+            strokeWidth="4"
+            strokeDasharray={strokeDasharray}
+            strokeLinecap="round"
+            className="transition-all duration-1000"
+          />
+        </svg>
+
+        {/* Center content */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-lg font-bold" style={{ color: primary }}>
+            {Math.round(entropy * 100)}%
+          </span>
+        </div>
+      </div>
+
+      <span className="text-xs font-mono mt-1" style={{ color: primary }}>
+        {label}
+      </span>
+
+      {/* Bias indicator */}
+      {biasScore > 0.5 && (
+        <div className="mt-2 px-2 py-1 bg-accent-red/10 text-accent-red text-xs font-mono rounded">
+          Bias Detected
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface InsightHUDProps {
   projectId: string;
   className?: string;
@@ -50,9 +132,11 @@ interface InsightHUDProps {
 
 export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
   const [metrics, setMetrics] = useState<GraphMetrics | null>(null);
+  const [diversityMetrics, setDiversityMetrics] = useState<DiversityMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showDiversityPanel, setShowDiversityPanel] = useState(false);
 
   useEffect(() => {
     async function fetchMetrics() {
@@ -62,8 +146,14 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
       setError(null);
 
       try {
-        const data = await api.getGraphMetrics(projectId);
-        setMetrics(data);
+        // Fetch both metrics in parallel
+        const [graphData, diversityData] = await Promise.all([
+          api.getGraphMetrics(projectId),
+          api.getDiversityMetrics(projectId).catch(() => null), // Graceful fallback
+        ]);
+
+        setMetrics(graphData);
+        setDiversityMetrics(diversityData);
       } catch (err) {
         console.error('Failed to fetch graph metrics:', err);
         setError(err instanceof Error ? err.message : 'Failed to load metrics');
@@ -131,6 +221,60 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
         {/* Content */}
         {!isCollapsed && (
           <div className="px-3 pb-3">
+            {/* Diversity Gauge (Phase 4) */}
+            {diversityMetrics && (
+              <div className="mb-4 pb-3 border-b border-white/10">
+                <button
+                  className="w-full"
+                  onClick={() => setShowDiversityPanel(!showDiversityPanel)}
+                >
+                  <DiversityGauge
+                    rating={diversityMetrics.diversity_rating as 'high' | 'medium' | 'low'}
+                    entropy={diversityMetrics.normalized_entropy}
+                    biasScore={diversityMetrics.bias_score}
+                  />
+                </button>
+
+                {/* Expanded diversity details */}
+                {showDiversityPanel && (
+                  <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Shannon Entropy</span>
+                      <span className="text-white font-mono">{diversityMetrics.shannon_entropy.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Gini Coefficient</span>
+                      <span className="text-white font-mono">{diversityMetrics.gini_coefficient.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Dominant Cluster</span>
+                      <span className="text-white font-mono">{Math.round(diversityMetrics.dominant_cluster_ratio * 100)}%</span>
+                    </div>
+                    {/* Cluster size distribution */}
+                    {diversityMetrics.cluster_sizes.length > 0 && (
+                      <div className="mt-2">
+                        <span className="text-xs text-muted block mb-1">Cluster Sizes</span>
+                        <div className="flex gap-1 h-4">
+                          {diversityMetrics.cluster_sizes.map((size, i) => {
+                            const maxSize = Math.max(...diversityMetrics.cluster_sizes);
+                            const height = maxSize > 0 ? (size / maxSize) * 100 : 0;
+                            return (
+                              <div
+                                key={i}
+                                className="flex-1 bg-accent-teal/50 rounded-t"
+                                style={{ height: `${height}%` }}
+                                title={`Cluster ${i + 1}: ${size} concepts`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Quality Metrics */}
             <div className="mb-4">
               <MetricBar
