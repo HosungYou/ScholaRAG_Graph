@@ -26,18 +26,39 @@ import { getSession } from './supabase';
 // 2. In production without env var: hardcode Render backend URL (avoids empty URL issues)
 // 3. In development: use localhost:8000
 // NOTE: Updated 2026-01-20 - Docker service (scholarag-graph-docker) replaced Python service
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (
-  typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? 'https://scholarag-graph-docker.onrender.com' // Production: Render Docker backend
-    : 'http://localhost:8000' // Development: direct to local backend
-);
+// FIX: 2026-01-20 - Force HTTPS to prevent Mixed Content errors in production
+const getRawApiUrl = () => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return 'https://scholarag-graph-docker.onrender.com'; // Production: Render Docker backend
+  }
+  return 'http://localhost:8000'; // Development: direct to local backend
+};
+
+// Force HTTPS in production to prevent Mixed Content errors
+// This handles cases where NEXT_PUBLIC_API_URL is accidentally set to HTTP
+const enforceHttps = (url: string): string => {
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    // In HTTPS context, force API URL to use HTTPS
+    return url.replace(/^http:\/\//, 'https://');
+  }
+  return url;
+};
+
+const API_URL = enforceHttps(getRawApiUrl());
 
 // Debug logging for API configuration (only in browser)
 if (typeof window !== 'undefined') {
+  const rawUrl = getRawApiUrl();
   console.log('[API] Configuration:', {
     baseUrl: API_URL,
+    rawUrl: rawUrl,
+    httpsEnforced: rawUrl !== API_URL,
     hasEnvVar: !!process.env.NEXT_PUBLIC_API_URL,
     hostname: window.location.hostname,
+    protocol: window.location.protocol,
   });
 }
 
