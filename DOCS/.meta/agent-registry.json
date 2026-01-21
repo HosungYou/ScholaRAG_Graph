@@ -1,10 +1,52 @@
 {
-  "version": "1.7.0",
-  "last_updated": "2026-01-21T04:00:00Z",
+  "version": "1.8.0",
+  "last_updated": "2026-01-21T06:00:00Z",
   "project": "ScholaRAG_Graph",
   "repository": "https://github.com/HosungYou/ScholaRAG_Graph",
 
   "sessions": [
+    {
+      "id": "2026-01-21_codex-review-proxy-headers-fix",
+      "date": "2026-01-21T05:30:00Z",
+      "agents": ["Opus 4.5", "Codex gpt-5.2-codex"],
+      "type": "root-cause-analysis",
+      "feature": "proxy-headers-fix",
+      "duration_minutes": 45,
+      "skills_used": ["/review (code-reviewer)", "superpowers:systematic-debugging"],
+      "files_read": 15,
+      "files_created": 1,
+      "files_modified": 4,
+      "lines_added": 81,
+      "lines_removed": 8,
+      "artifacts": [
+        "Dockerfile",
+        "frontend/lib/api.ts",
+        "frontend/components/graph/StatusBar.tsx",
+        "DOCS/project-management/action-items.md",
+        "DOCS/.meta/sessions/2026-01-21_codex-review-proxy-headers-fix.md"
+      ],
+      "decisions": [
+        "Use Codex CLI for comprehensive codebase analysis",
+        "Add --proxy-headers to Uvicorn for TLS termination awareness",
+        "Trailing slash in API endpoints to avoid redirects",
+        "Centralize API_URL export to prevent enforceHttps bypass"
+      ],
+      "outcome": "completed",
+      "follow_up_required": true,
+      "follow_up_tasks": [
+        "Render Docker service manual redeploy",
+        "Verify Mixed Content error resolved"
+      ],
+      "bugs_fixed": [
+        "BUG-019: Uvicorn proxy headers not enabled (TRUE root cause)"
+      ],
+      "commits": ["169dfb8", "e09c7d6"],
+      "codex_tokens_used": 76167,
+      "methodology": "codex-review-based",
+      "root_cause_discovery": "Uvicorn not trusting X-Forwarded-Proto from Render load balancer",
+      "related_issues": ["BUG-015", "BUG-016", "BUG-017", "BUG-018"],
+      "key_insight": "Frontend fixes cannot solve backend redirect scheme issues"
+    },
     {
       "id": "2026-01-21_brainstorming-vercel-url-fix",
       "date": "2026-01-21T03:30:00Z",
@@ -356,23 +398,23 @@
   ],
 
   "action_items": {
-    "total": 45,
+    "total": 47,
     "by_priority": {
-      "high": 18,
+      "high": 20,
       "medium": 18,
       "low": 9
     },
     "by_status": {
       "pending": 2,
       "in_progress": 0,
-      "completed": 43
+      "completed": 45
     },
     "recently_completed": [
+      "BUG-019: Uvicorn proxy headers not enabled (TRUE root cause)",
+      "BUG-018: vercel.json deprecated Render service URL",
       "BUG-015: system.py get_connection() AttributeError",
       "BUG-016: SSR enforceHttps not working",
-      "BUG-017: quota_middleware.py ImportError",
-      "ARCH-002: GraphStore God Object Refactoring",
-      "TEST-004: Frontend Test Infrastructure"
+      "BUG-017: quota_middleware.py ImportError"
     ],
     "pending_large_tasks": [
       "INFRA-005: Infrastructure as Code",
@@ -383,19 +425,20 @@
 
   "agent_stats": {
     "Opus 4.5": {
-      "total_sessions": 7,
-      "total_hours": 9.75,
-      "decisions_made": 18,
+      "total_sessions": 9,
+      "total_hours": 11.0,
+      "decisions_made": 22,
       "primary_role": "Architecture & Complex Design",
-      "features_designed": ["documentation-restructure", "zotero-hybrid-import", "infranodus-visualization", "infranodus-integration", "production-stability", "action-items-completion", "deployment-fix"],
-      "reviews_conducted": 2,
-      "bugs_fixed": 6,
+      "features_designed": ["documentation-restructure", "zotero-hybrid-import", "infranodus-visualization", "infranodus-integration", "production-stability", "action-items-completion", "deployment-fix", "vercel-url-fix", "proxy-headers-fix"],
+      "reviews_conducted": 3,
+      "bugs_fixed": 8,
       "security_fixes": 2,
       "performance_fixes": 3,
       "architecture_fixes": 2,
       "test_infrastructure": 1,
       "quota_systems": 1,
-      "parallel_debugging_sessions": 1
+      "parallel_debugging_sessions": 2,
+      "codex_collaborations": 2
     },
     "Sonnet 4.5": {
       "total_sessions": 1,
@@ -412,12 +455,13 @@
       "areas_explored": ["github-structure", "local-filesystem"]
     },
     "Codex gpt-5.2-codex": {
-      "total_sessions": 2,
-      "total_hours": 1.0,
+      "total_sessions": 3,
+      "total_hours": 1.75,
       "decisions_made": 0,
       "primary_role": "Code Analysis & Review",
-      "reviews_conducted": 2,
-      "action_items_generated": 16
+      "reviews_conducted": 3,
+      "action_items_generated": 17,
+      "root_cause_discoveries": 1
     }
   },
 
