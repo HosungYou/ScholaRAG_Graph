@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 13 | 13 | 0 | 0 |
+| 🔴 High | 14 | 14 | 0 | 0 |
 | 🟡 Medium | 7 | 7 | 0 | 0 |
 | 🟢 Low | 3 | 3 | 0 | 0 |
-| **Total** | **23** | **23** | **0** | **0** |
+| **Total** | **24** | **24** | **0** | **0** |
 
 ---
 
@@ -37,6 +37,28 @@
 ---
 
 ## 📝 Completed Items Archive
+
+### BUG-039: DB 연결 실패 시 Job 데이터 손실
+- **Source**: 중단된 Import 미표시 원인 분석 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/jobs/job_store.py` - 재시도 로직 추가
+- **Description**: DB 연결 타임아웃 시 job이 메모리에만 저장되어 서버 재시작 시 데이터 손실
+- **Root Cause**:
+  - `WARNING:jobs.job_store:Failed to get job from DB: TimeoutError`
+  - DB 연결 실패 시 메모리 폴백으로 저장
+  - 서버 재시작 시 메모리 데이터 손실
+- **Solution Applied**:
+  - [x] `_db_execute_with_retry()` 헬퍼 함수 추가
+  - [x] Exponential backoff (3회 재시도: 0.5s → 1s → 2s)
+  - [x] `create_job()`, `update_job()` 에 재시도 로직 적용
+  - [x] 재시도 실패 시에만 메모리 폴백
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: Render 재배포 필요
+
+---
 
 ### BUG-038: Cohere Embedding 에러 메시지 누락 및 타임아웃
 - **Source**: 사용자 로그 분석 2026-01-21 (Import 86%에서 멈춤)
