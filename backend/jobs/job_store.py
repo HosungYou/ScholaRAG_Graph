@@ -2,8 +2,12 @@
 Job Store - Persistent background job tracking.
 
 Stores job status in PostgreSQL for reliability and recovery.
+
+BUG-039: Added retry logic for DB operations to prevent data loss
+during temporary connection issues.
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field, asdict
@@ -13,6 +17,10 @@ from typing import Any, Optional
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
+
+# BUG-039: Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY_BASE = 0.5  # seconds
 
 
 class JobStatus(str, Enum):
@@ -111,6 +119,30 @@ class JobStore:
         self.db = db_connection
         self._memory_store: dict[str, Job] = {}
 
+    async def _db_execute_with_retry(self, operation_name: str, query: str, *args) -> bool:
+        """
+        BUG-039: Execute DB query with retry logic.
+
+        Returns True if successful, False if all retries failed.
+        """
+        for attempt in range(MAX_RETRIES):
+            try:
+                await self.db.execute(query, *args)
+                return True
+            except Exception as e:
+                error_type = type(e).__name__
+                if attempt < MAX_RETRIES - 1:
+                    delay = RETRY_DELAY_BASE * (2 ** attempt)  # Exponential backoff
+                    logger.warning(
+                        f"DB {operation_name} failed ({error_type}), "
+                        f"retry {attempt + 1}/{MAX_RETRIES} in {delay}s"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"DB {operation_name} failed after {MAX_RETRIES} retries: {error_type}")
+                    return False
+        return False
+
     async def init_table(self) -> None:
         """Create jobs table if it doesn't exist."""
         if self.db:
@@ -125,7 +157,7 @@ class JobStore:
         job_type: str,
         metadata: dict = None,
     ) -> Job:
-        """Create a new job."""
+        """Create a new job with BUG-039 retry logic."""
         job = Job(
             id=str(uuid4()),
             job_type=job_type,
@@ -133,23 +165,25 @@ class JobStore:
         )
 
         if self.db:
-            try:
-                await self.db.execute(
-                    """
-                    INSERT INTO jobs (id, job_type, status, progress, message, metadata, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                    """,
-                    job.id,
-                    job.job_type,
-                    job.status.value,
-                    job.progress,
-                    job.message,
-                    json.dumps(job.metadata),
-                    job.created_at,
-                    job.updated_at,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to persist job to DB: {type(e).__name__}")
+            # BUG-039: Use retry logic for DB persistence
+            success = await self._db_execute_with_retry(
+                "create_job",
+                """
+                INSERT INTO jobs (id, job_type, status, progress, message, metadata, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """,
+                job.id,
+                job.job_type,
+                job.status.value,
+                job.progress,
+                job.message,
+                json.dumps(job.metadata),
+                job.created_at,
+                job.updated_at,
+            )
+            if not success:
+                # Only fall back to memory if all retries failed
+                logger.warning(f"Job {job.id} stored in memory only (DB unavailable)")
                 self._memory_store[job.id] = job
         else:
             self._memory_store[job.id] = job
@@ -239,30 +273,30 @@ class JobStore:
 
         job.updated_at = datetime.now()
 
-        # Persist
+        # Persist with BUG-039 retry logic
         if self.db:
-            try:
-                await self.db.execute(
-                    """
-                    UPDATE jobs
-                    SET status = $2, progress = $3, message = $4, result = $5,
-                        error = $6, updated_at = $7, started_at = $8, completed_at = $9,
-                        metadata = $10
-                    WHERE id = $1
-                    """,
-                    job_id,
-                    job.status.value,
-                    job.progress,
-                    job.message,
-                    json.dumps(job.result) if job.result else None,
-                    job.error,
-                    job.updated_at,
-                    job.started_at,
-                    job.completed_at,
-                    json.dumps(job.metadata),
-                )
-            except Exception as e:
-                logger.warning(f"Failed to update job in DB: {type(e).__name__}")
+            success = await self._db_execute_with_retry(
+                "update_job",
+                """
+                UPDATE jobs
+                SET status = $2, progress = $3, message = $4, result = $5,
+                    error = $6, updated_at = $7, started_at = $8, completed_at = $9,
+                    metadata = $10
+                WHERE id = $1
+                """,
+                job_id,
+                job.status.value,
+                job.progress,
+                job.message,
+                json.dumps(job.result) if job.result else None,
+                job.error,
+                job.updated_at,
+                job.started_at,
+                job.completed_at,
+                json.dumps(job.metadata),
+            )
+            if not success:
+                logger.warning(f"Job {job_id} update stored in memory only")
                 self._memory_store[job_id] = job
         else:
             self._memory_store[job_id] = job
