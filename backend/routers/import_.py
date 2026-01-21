@@ -555,12 +555,31 @@ def _sanitize_error_message(error: str) -> str:
 
 @router.get("/status/{job_id}", response_model=ImportJobResponse)
 async def get_import_status(job_id: str):
-    """Get the status of an import job from persistent store."""
-    # Try JobStore first
-    job_store = await get_job_store()
-    job = await job_store.get_job(job_id)
+    """Get the status of an import job.
 
-    if job:
+    BUG-027-D FIX: Compare timestamps between JobStore (DB) and in-memory storage,
+    returning whichever has the most recent update. This prevents stale DB data
+    from being returned when DB updates fail silently.
+    """
+    job_store = await get_job_store()
+    db_job = await job_store.get_job(job_id)
+    legacy_job = _import_jobs.get(job_id)
+
+    # BUG-027-D: Determine which source has more recent data
+    use_legacy = False
+    if legacy_job and db_job:
+        legacy_updated = legacy_job.get("updated_at")
+        db_updated = db_job.updated_at
+        if legacy_updated and db_updated and legacy_updated > db_updated:
+            use_legacy = True
+            logger.debug(f"[Status {job_id}] Using in-memory (newer): {legacy_updated} > {db_updated}")
+    elif legacy_job and not db_job:
+        use_legacy = True
+
+    if use_legacy and legacy_job:
+        return ImportJobResponse(**legacy_job)
+
+    if db_job:
         # Convert JobStore job to ImportJobResponse
         status_map = {
             JobStatus.PENDING: ImportStatus.PENDING,
@@ -571,27 +590,26 @@ async def get_import_status(job_id: str):
         }
         # Extract result data for frontend compatibility
         result_data = None
-        if job.result:
+        if db_job.result:
             result_data = {
-                "project_id": job.result.get("project_id"),
-                "nodes_created": job.result.get("nodes_created", 0),
-                "edges_created": job.result.get("edges_created", 0),
+                "project_id": db_job.result.get("project_id"),
+                "nodes_created": db_job.result.get("nodes_created", 0),
+                "edges_created": db_job.result.get("edges_created", 0),
             }
 
         return ImportJobResponse(
-            job_id=job.id,
-            status=status_map.get(job.status, ImportStatus.PENDING),
-            progress=job.progress,
-            message=job.message,
-            project_id=job.result.get("project_id") if job.result else None,
-            stats=job.result.get("stats") if job.result else None,
+            job_id=db_job.id,
+            status=status_map.get(db_job.status, ImportStatus.PENDING),
+            progress=db_job.progress,
+            message=db_job.message,
+            project_id=db_job.result.get("project_id") if db_job.result else None,
+            stats=db_job.result.get("stats") if db_job.result else None,
             result=result_data,
-            created_at=job.created_at,
-            updated_at=job.updated_at,
+            created_at=db_job.created_at,
+            updated_at=db_job.updated_at,
         )
 
-    # Fallback to legacy in-memory storage
-    legacy_job = _import_jobs.get(job_id)
+    # Fallback to legacy in-memory storage (if not already checked)
     if legacy_job:
         return ImportJobResponse(**legacy_job)
 
@@ -792,13 +810,18 @@ async def _run_pdf_import(
         try:
             import asyncio
             loop = asyncio.get_running_loop()
-            loop.create_task(
+            task = loop.create_task(
                 job_store.update_job(
                     job_id=job_id,
                     progress=progress,
                     message=message,
                 )
             )
+            # BUG-027-C FIX: Add error callback to surface silent failures
+            def _handle_jobstore_error(t):
+                if t.exception():
+                    logger.error(f"[PDF Import {job_id}] JobStore update failed: {t.exception()}")
+            task.add_done_callback(_handle_jobstore_error)
         except RuntimeError:
             logger.warning(f"[PDF Import {job_id}] Could not update JobStore: no running event loop")
 
@@ -1022,13 +1045,18 @@ async def _run_multiple_pdf_import(
         try:
             import asyncio
             loop = asyncio.get_running_loop()
-            loop.create_task(
+            task = loop.create_task(
                 job_store.update_job(
                     job_id=job_id,
                     progress=progress,
                     message=message,
                 )
             )
+            # BUG-027-C FIX: Add error callback to surface silent failures
+            def _handle_jobstore_error(t):
+                if t.exception():
+                    logger.error(f"[Multi-PDF Import {job_id}] JobStore update failed: {t.exception()}")
+            task.add_done_callback(_handle_jobstore_error)
         except RuntimeError:
             logger.warning(f"[Multi-PDF Import {job_id}] Could not update JobStore: no running event loop")
 
@@ -1425,13 +1453,18 @@ async def _run_zotero_import(
         try:
             import asyncio
             loop = asyncio.get_running_loop()
-            loop.create_task(
+            task = loop.create_task(
                 job_store.update_job(
                     job_id=job_id,
                     progress=progress.progress,
                     message=progress.message,
                 )
             )
+            # BUG-027-C FIX: Add error callback to surface silent failures
+            def _handle_jobstore_error(t):
+                if t.exception():
+                    logger.error(f"[Zotero Import {job_id}] JobStore update failed: {t.exception()}")
+            task.add_done_callback(_handle_jobstore_error)
         except RuntimeError:
             # No running loop (shouldn't happen in async context)
             logger.warning(f"[Zotero Import {job_id}] Could not update JobStore: no running event loop")
