@@ -505,6 +505,21 @@ async def _get_project_stats_batch(database, project_ids: List[str]) -> dict[str
             project_ids,
         )
 
+        # BUG-029 FIX: Query paper_metadata table for paper counts
+        # Papers are stored in paper_metadata (ADR-001), not in entities table
+        paper_counts = await database.fetch(
+            """
+            SELECT project_id::text, COUNT(*) as count
+            FROM paper_metadata
+            WHERE project_id = ANY($1::uuid[])
+            GROUP BY project_id
+            """,
+            project_ids,
+        )
+
+        # Build paper lookup: {project_id: count}
+        paper_lookup = {row["project_id"]: row["count"] for row in paper_counts}
+
         # Build counts lookup: {project_id: {entity_type: count}}
         entity_lookup: dict[str, dict[str, int]] = {pid: {} for pid in project_ids}
         for row in entity_counts:
@@ -523,7 +538,8 @@ async def _get_project_stats_batch(database, project_ids: List[str]) -> dict[str
             result[pid] = ProjectStats(
                 total_nodes=total_nodes,
                 total_edges=rel_lookup.get(pid, 0),
-                total_papers=counts.get("Paper", 0),
+                # BUG-029 FIX: Use paper_metadata table count (ADR-001: Papers are metadata, not entities)
+                total_papers=paper_lookup.get(pid, 0),
                 total_authors=counts.get("Author", 0),
                 total_concepts=counts.get("Concept", 0),
                 total_methods=counts.get("Method", 0),

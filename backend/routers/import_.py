@@ -702,7 +702,16 @@ async def list_import_jobs(
         except ValueError:
             pass
 
-    jobs = await job_store.list_jobs(job_type="import", status=status_filter, limit=limit)
+    # BUG-030 FIX: Include all import-related job types, not just "import"
+    # Job types: "import", "pdf_import", "pdf_import_multiple", "zotero_import"
+    all_jobs = []
+    import_job_types = ["import", "pdf_import", "pdf_import_multiple", "zotero_import"]
+    for job_type in import_job_types:
+        type_jobs = await job_store.list_jobs(job_type=job_type, status=status_filter, limit=limit)
+        all_jobs.extend(type_jobs)
+
+    # Sort by created_at descending and limit
+    jobs = sorted(all_jobs, key=lambda j: j.created_at, reverse=True)[:limit]
 
     # BUG-036 FIX: Include INTERRUPTED status in mapping
     status_map = {
