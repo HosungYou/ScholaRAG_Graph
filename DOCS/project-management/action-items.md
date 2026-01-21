@@ -2,7 +2,7 @@
 
 > 이 문서는 코드 리뷰, 기능 구현, 버그 수정 등에서 발견된 액션 아이템을 추적합니다.
 >
-> **마지막 업데이트**: 2026-01-21 (BUG-018 vercel.json URL 수정)
+> **마지막 업데이트**: 2026-01-21 (BUG-019 Uvicorn proxy headers 추가 - 진짜 근본 원인!)
 > **관리자**: Claude Code
 
 ---
@@ -11,14 +11,79 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 19 | 19 | 0 | 0 |
+| 🔴 High | 20 | 20 | 0 | 0 |
 | 🟡 Medium | 18 | 17 | 0 | 1 |
 | 🟢 Low | 9 | 8 | 0 | 1 |
-| **Total** | **46** | **44** | **0** | **2** |
+| **Total** | **47** | **45** | **0** | **2** |
 
 ---
 
 ## 🔴 High Priority (Immediate Action Required)
+
+### BUG-019: Uvicorn Proxy Headers 미지원 (Mixed Content 진짜 근본 원인)
+- **Source**: Codex gpt-5.2-codex Root Cause Analysis 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: DevOps / Backend Team
+- **Files**:
+  - `Dockerfile` - Uvicorn CMD 수정
+  - `frontend/lib/api.ts` - trailing slash 추가
+  - `frontend/components/graph/StatusBar.tsx` - 중앙화된 API_URL 사용
+- **Description**: BUG-015~018 수정 후에도 Mixed Content 에러 지속. Codex 리뷰를 통해 **진짜 근본 원인** 발견: Uvicorn이 Render의 X-Forwarded-Proto 헤더를 무시하여 리다이렉트 URL이 HTTP로 생성됨.
+- **Root Cause Analysis**:
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    요청 흐름 (문제)                              │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  1. 프론트엔드: GET /api/projects (trailing slash 없음)         │
+  │  2. Render Load Balancer: HTTPS → HTTP (내부 TLS 종료)          │
+  │  3. FastAPI: "/api/projects" → "/api/projects/" 리다이렉트      │
+  │  4. 문제: Uvicorn이 X-Forwarded-Proto를 무시!                   │
+  │  5. 결과: Location: http://... (HTTP로 리다이렉트)              │
+  │  6. 브라우저: Mixed Content 에러!                               │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+- **Why Previous Fixes Failed**:
+  | 수정 | 왜 실패했나 |
+  |------|------------|
+  | BUG-015 | system.py 커넥션 - URL/프록시와 무관 |
+  | BUG-016 | enforceHttps - 클라이언트만 수정, **백엔드 리다이렉트는 여전히 HTTP** |
+  | BUG-017 | ImportError - URL과 무관 |
+  | BUG-018 | vercel.json - 상대 경로용, **절대 URL 사용 시 적용 안됨** |
+- **Resolution**:
+  1. **Dockerfile** (핵심 수정):
+     ```dockerfile
+     # 이전
+     CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}
+
+     # 수정 후
+     CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000} --proxy-headers --forwarded-allow-ips="*"
+     ```
+  2. **frontend/lib/api.ts** (방어적 수정):
+     ```typescript
+     // /api/projects → /api/projects/ (리다이렉트 회피)
+     async getProjects(): Promise<Project[]> {
+       return this.request<Project[]>('/api/projects/');
+     }
+     ```
+  3. **frontend/components/graph/StatusBar.tsx**:
+     ```typescript
+     // 로컬 API_URL 정의 제거, 중앙화된 export 사용
+     import { API_URL } from '@/lib/api';
+     ```
+- **Acceptance Criteria**:
+  - [x] Dockerfile에 --proxy-headers 추가
+  - [x] api.ts에 trailing slash 추가
+  - [x] StatusBar.tsx가 중앙화된 API_URL 사용
+  - [x] Render Docker 서비스 재배포
+  - [ ] Mixed Content 에러 완전 해결 확인
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Verified By**: Codex gpt-5.2-codex
+- **Commit**: `169dfb8`
+- **Related**: BUG-015, BUG-016, BUG-017, BUG-018
+- **Key Insight**: 프론트엔드만 수정해서는 해결 불가. 백엔드가 프록시 환경을 인식해야 함.
+
+---
 
 ### BUG-018: vercel.json 폐기된 Render 서비스 URL (Mixed Content 근본 원인)
 - **Source**: Parallel Agent Brainstorming 2026-01-21
