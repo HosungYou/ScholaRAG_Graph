@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 9 | 9 | 0 | 0 |
-| 🟡 Medium | 5 | 5 | 0 | 0 |
+| 🔴 High | 10 | 10 | 0 | 0 |
+| 🟡 Medium | 6 | 6 | 0 | 0 |
 | 🟢 Low | 3 | 3 | 0 | 0 |
-| **Total** | **17** | **17** | **0** | **0** |
+| **Total** | **19** | **19** | **0** | **0** |
 
 ---
 
@@ -37,6 +37,45 @@
 ---
 
 ## 📝 Completed Items Archive
+
+### BUG-035: Resume Checkpoint project_id 누락
+- **Source**: 사용자 리포트 2026-01-21 (Resume 400 Bad Request)
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/routers/import_.py` - checkpoint project_id 업데이트 로직 추가
+- **Description**: Resume 시도 시 "Cannot resume: Checkpoint is missing project_id" 에러 발생
+- **Root Cause**:
+  - checkpoint는 import 진행 중 매번 저장됨
+  - 하지만 project_id는 import 완료 후에야 설정됨
+  - 첫 번째 checkpoint에 project_id가 None으로 저장됨
+- **Solution Applied**:
+  - [x] import 완료 후 checkpoint를 명시적으로 업데이트하여 project_id 설정
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: Render 재배포 필요
+
+---
+
+### PERF-010: 추가 메모리 최적화 (512MB 재초과)
+- **Source**: PERF-009 적용 후에도 메모리 초과 발생 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/llm/cohere_embeddings.py` - batch_size 20 → 5
+  - `backend/llm/openai_embeddings.py` - batch_size 20 → 5
+  - `backend/graph/embedding/embedding_pipeline.py` - batch_size 20 → 5
+  - `backend/graph/graph_store.py` - batch_size 20 → 5
+  - `backend/config.py` - llm_cache_max_size 100 → 50
+- **Description**: PERF-009 (batch_size=20) 적용 후에도 여전히 메모리 초과 발생
+- **Solution Applied**:
+  - [x] 모든 embedding batch_size를 5로 추가 감소
+  - [x] LLM 캐시 max_size를 50으로 추가 감소
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: 문제 지속 시 Render 인스턴스 업그레이드 필요 ($15/월 for 1GB RAM)
+
+---
 
 ### PERF-009: Render 512MB 메모리 제한 최적화
 - **Source**: Render Memory Exceeded Alert 2026-01-21
