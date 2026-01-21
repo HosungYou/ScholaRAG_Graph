@@ -1,6 +1,6 @@
 {
-  "version": "1.3.0",
-  "last_updated": "2026-01-20T23:40:00Z",
+  "version": "1.4.0",
+  "last_updated": "2026-01-21T04:00:00Z",
   "project": "ScholaRAG_Graph",
   "repository": "https://github.com/HosungYou/ScholaRAG_Graph",
 
@@ -9,38 +9,63 @@
       "id": "2026-01-20_mixed-content-cors-fix",
       "date": "2026-01-20T23:30:00Z",
       "agents": ["Opus 4.5", "Codex gpt-5.2-codex"],
-      "type": "bugfix-and-review",
+      "type": "bugfix-security-performance",
       "feature": "production-stability",
-      "duration_minutes": 30,
-      "files_read": 8,
+      "duration_minutes": 60,
+      "files_read": 15,
       "files_created": 1,
-      "files_modified": 3,
-      "lines_added": 26,
-      "lines_removed": 5,
+      "files_modified": 6,
+      "lines_added": 150,
+      "lines_removed": 30,
       "artifacts": [
         "frontend/lib/api.ts",
+        "backend/config.py",
+        "backend/middleware/rate_limiter.py",
+        "backend/database.py",
+        "backend/main.py",
+        "backend/graph/graph_store.py",
         "DOCS/.meta/sessions/2026-01-20_mixed-content-cors-fix.md",
         "DOCS/project-management/action-items.md"
       ],
       "decisions": [
-        "Force HTTPS in API client when page is served over HTTPS"
+        "Force HTTPS in API client when page is served over HTTPS",
+        "Trusted proxy mode for rate limiter (auto/always/never)",
+        "Fail-fast pattern for DB and auth configuration in production",
+        "Batch updates with executemany for embedding operations"
       ],
       "outcome": "completed",
       "follow_up_required": true,
       "follow_up_tasks": [
-        "SEC-011: Rate Limiter X-Forwarded-For Spoofing",
-        "ARCH-001: DB 연결 실패 시 일관된 동작"
+        "ARCH-002: GraphStore God Object Refactoring (large task)",
+        "TEST-004: Frontend tests (large task)",
+        "FUNC-005: Per-Project/User API quota (large task)"
       ],
-      "bugs_fixed": ["BUG-015: Mixed Content & CORS Error"],
+      "bugs_fixed": [
+        "BUG-004: Mixed Content Error",
+        "BUG-005: CORS Error for Vercel Preview"
+      ],
+      "security_fixes": [
+        "SEC-011: Rate Limiter X-Forwarded-For Spoofing",
+        "SEC-012: Auth Configuration Mismatch Handling"
+      ],
+      "architecture_fixes": [
+        "ARCH-001: DB Connection Failure Handling"
+      ],
+      "performance_fixes": [
+        "PERF-008: Entity Embedding Batch Updates",
+        "PERF-006: Chunk Embedding Batch Updates"
+      ],
       "scores": {
         "code_quality": 7,
         "architecture": 7,
-        "security": 6,
-        "performance": 6,
+        "security": 7,
+        "performance": 7,
         "maintainability": 7
       },
       "new_action_items": 7,
-      "deployment_verified": true
+      "action_items_completed": 6,
+      "deployment_verified": true,
+      "commits": ["22217b5", "3b0b563", "3dddd7f", "4f10976"]
     },
     {
       "id": "2026-01-20_infranodus-integration",
@@ -209,22 +234,38 @@
       "low": 8
     },
     "by_status": {
-      "pending": 9,
+      "pending": 4,
       "in_progress": 0,
-      "completed": 31
+      "completed": 36
     },
+    "recently_completed": [
+      "SEC-011: Rate Limiter X-Forwarded-For Spoofing",
+      "ARCH-001: DB Connection Failure Handling",
+      "SEC-012: Auth Configuration Mismatch Handling",
+      "PERF-008: Entity Embedding Batch Updates",
+      "PERF-006: Chunk Embedding Batch Updates"
+    ],
+    "pending_large_tasks": [
+      "ARCH-002: GraphStore God Object Refactoring",
+      "TEST-004: Frontend tests",
+      "FUNC-005: Per-Project/User API quota",
+      "PERF-004: 503 error monitoring"
+    ],
     "tracking_file": "DOCS/project-management/action-items.md"
   },
 
   "agent_stats": {
     "Opus 4.5": {
       "total_sessions": 5,
-      "total_hours": 6.5,
-      "decisions_made": 7,
+      "total_hours": 7.0,
+      "decisions_made": 11,
       "primary_role": "Architecture & Complex Design",
       "features_designed": ["documentation-restructure", "zotero-hybrid-import", "infranodus-visualization", "infranodus-integration", "production-stability"],
       "reviews_conducted": 2,
-      "bugs_fixed": 1
+      "bugs_fixed": 3,
+      "security_fixes": 2,
+      "performance_fixes": 2,
+      "architecture_fixes": 1
     },
     "Sonnet 4.5": {
       "total_sessions": 1,

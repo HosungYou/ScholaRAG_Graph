@@ -1,10 +1,10 @@
-# Session Log: Mixed Content & CORS Error Fix
+# Session Log: Mixed Content & CORS Error Fix + Security/Performance Improvements
 
 > **Session ID**: 2026-01-20_mixed-content-cors-fix
 > **Date**: 2026-01-20
 > **Agent**: Claude Code (Opus 4.5)
-> **Type**: Bug Fix
-> **Duration**: ~15 minutes
+> **Type**: Bug Fix + Security + Performance
+> **Duration**: ~60 minutes (multiple sessions)
 
 ---
 
@@ -73,16 +73,6 @@ const enforceHttps = (url: string): string => {
 
 ---
 
-## Session Statistics
-
-- Files Modified: 1
-- Lines Added: 26
-- Lines Removed: 5
-- Commits: 1
-- Debugging Methodology: Systematic Debugging (4-phase approach)
-
----
-
 ## Recommendations
 
 1. **Vercel 환경변수 점검**: `NEXT_PUBLIC_API_URL`이 HTTP로 설정되어 있다면 HTTPS로 수정 필요
@@ -128,11 +118,11 @@ const enforceHttps = (url: string): string => {
 |----|----------|-------------|--------|
 | SEC-011 | 🔴 High | Rate Limiter X-Forwarded-For Spoofing | ✅ Fixed |
 | ARCH-001 | 🔴 High | DB 연결 실패 시 일관된 동작 | ✅ Fixed |
-| ARCH-002 | 🟡 Medium | GraphStore God Object 리팩토링 | ⬜ Pending |
-| PERF-008 | 🟡 Medium | 임베딩 업데이트 배치 처리 | ⬜ Pending |
-| SEC-012 | 🟡 Medium | Auth 설정 불일치 처리 | ⬜ Pending |
-| TEST-004 | 🟢 Low | Frontend 테스트 추가 | ⬜ Pending |
-| FUNC-005 | 🟢 Low | Per-Project/User API 할당량 | ⬜ Pending |
+| ARCH-002 | 🟡 Medium | GraphStore God Object 리팩토링 | ⬜ Pending (large task) |
+| PERF-008 | 🟡 Medium | 임베딩 업데이트 배치 처리 | ✅ Fixed |
+| SEC-012 | 🟡 Medium | Auth 설정 불일치 처리 | ✅ Fixed |
+| TEST-004 | 🟢 Low | Frontend 테스트 추가 | ⬜ Pending (large task) |
+| FUNC-005 | 🟢 Low | Per-Project/User API 할당량 | ⬜ Pending (large task) |
 
 ---
 
@@ -163,3 +153,83 @@ const enforceHttps = (url: string): string => {
 **Files Changed**:
 - `backend/main.py:88-114` - Fail-fast logic
 - `backend/database.py:184-207` - New `require_db()` dependency
+
+### SEC-012: Auth Configuration Mismatch Handling
+
+**Problem**: If `require_auth=true` but Supabase is not configured, app starts but all authenticated endpoints fail with 500 errors.
+
+**Solution**:
+- Production/staging: fail-fast if require_auth=true but Supabase not configured
+- Development: warn but auto-disable auth to allow local testing
+- Clear error messages explaining how to fix configuration
+
+**Files Changed**:
+- `backend/main.py:81-107` - Auth configuration validation
+
+**Code**:
+```python
+# SEC-012: Validate auth configuration consistency
+supabase_configured = bool(settings.supabase_url and settings.supabase_anon_key)
+
+if supabase_configured:
+    supabase_client.initialize(settings.supabase_url, settings.supabase_anon_key)
+    logger.info("   Supabase Auth: configured")
+else:
+    if settings.require_auth:
+        if settings.environment in ("production", "staging"):
+            logger.critical(
+                "FATAL: require_auth=true but Supabase is not configured. "
+                "Set SUPABASE_URL and SUPABASE_ANON_KEY, or set REQUIRE_AUTH=false."
+            )
+            raise RuntimeError(...)
+```
+
+### PERF-008 / PERF-006: Batch Embedding Updates
+
+**Problem**: Entity and chunk embeddings were updated one-by-one, causing N+1 query problem with hundreds of database round-trips.
+
+**Solution**:
+- Use `executemany()` for batch updates instead of individual `execute()` calls
+- Fallback to individual updates if batch operation fails
+- Applied to both entity embeddings and chunk embeddings
+
+**Files Changed**:
+- `backend/graph/graph_store.py:623-662` - Entity embedding batch update
+- `backend/graph/graph_store.py:1329-1357` - Chunk embedding batch update
+
+**Code**:
+```python
+# PERF-008: Batch update entities with embeddings using executemany
+batch_data = []
+for entity_id, embedding in zip(entity_ids, embeddings):
+    embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+    batch_data.append((embedding_str, entity_id))
+
+try:
+    await self.db.executemany(
+        """UPDATE entities SET embedding = $1::vector, updated_at = NOW() WHERE id = $2""",
+        batch_data,
+    )
+    updated_count = len(batch_data)
+except Exception as e:
+    logger.error(f"Batch embedding update failed: {e}")
+    # Fallback to individual updates on batch failure
+    ...
+```
+
+**Performance Impact**:
+- Before: N database round-trips (one per entity/chunk)
+- After: 1 database round-trip (batch) + fallback if needed
+- Expected improvement: ~10-50x faster for large imports
+
+---
+
+## Updated Session Statistics
+
+- Files Modified: 6
+- Lines Added: ~150
+- Lines Removed: ~30
+- Commits: 4 (`22217b5`, `3b0b563`, `3dddd7f`, `4f10976`)
+- Action Items Completed: 6 (BUG-004, BUG-005, SEC-011, ARCH-001, SEC-012, PERF-008)
+- Action Items Pending: 3 (ARCH-002, TEST-004, FUNC-005)
+- Debugging Methodology: Systematic Debugging (4-phase approach)
