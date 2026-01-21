@@ -275,6 +275,17 @@ class ApiClient {
   }
 
   /**
+   * Get list of import jobs, optionally filtered by status.
+   * Use status='interrupted' to get jobs that can be resumed.
+   */
+  async getImportJobs(status?: 'running' | 'completed' | 'failed' | 'interrupted', limit: number = 50): Promise<ImportJob[]> {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    params.set('limit', limit.toString());
+    return this.request<ImportJob[]>(`/api/import/jobs?${params}`);
+  }
+
+  /**
    * Upload a single PDF file to create a Knowledge Graph.
    * Does not require a ScholaRAG project structure.
    */

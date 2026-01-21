@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { Network, Plus, ArrowRight, FileText, Users, Hexagon } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Network, Plus, ArrowRight, FileText, Users, Hexagon, AlertTriangle, Play, RefreshCw, Clock, CheckCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Header, Footer } from '@/components/layout';
 import {
@@ -11,7 +12,7 @@ import {
   ProjectListSkeleton,
   ErrorBoundary,
 } from '@/components/ui';
-import type { Project } from '@/types';
+import type { Project, ImportJob } from '@/types';
 
 /* ============================================================
    ScholaRAG Graph - Projects Page
@@ -27,10 +28,16 @@ import type { Project } from '@/types';
 
 function ProjectRow({ project, index }: { project: Project; index: number }) {
   const projectNumber = String(index + 1).padStart(2, '0');
-  const dateStr = new Date(project.created_at).toLocaleDateString('en-US', {
+  const createdDate = new Date(project.created_at);
+  const dateStr = createdDate.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+  });
+  const timeStr = createdDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   });
 
   return (
@@ -77,9 +84,10 @@ function ProjectRow({ project, index }: { project: Project; index: number }) {
         )}
       </div>
 
-      {/* Date */}
-      <div className="hidden sm:block text-right w-28">
-        <span className="font-mono text-sm text-muted">{dateStr}</span>
+      {/* Date & Time */}
+      <div className="hidden sm:block text-right w-32">
+        <div className="font-mono text-sm text-muted">{dateStr}</div>
+        <div className="font-mono text-xs text-muted/60">{timeStr}</div>
       </div>
 
       {/* Arrow */}
@@ -117,6 +125,120 @@ function EmptyState() {
   );
 }
 
+/**
+ * Interrupted Imports Section
+ * Shows import jobs that were interrupted (e.g., by server restart)
+ * and allows users to resume them.
+ */
+function InterruptedImportsSection() {
+  const queryClient = useQueryClient();
+  const [resumingJobId, setResumingJobId] = useState<string | null>(null);
+
+  const { data: interruptedJobs, isLoading } = useQuery({
+    queryKey: ['interruptedJobs'],
+    queryFn: () => api.getImportJobs('interrupted', 10),
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: (jobId: string) => api.resumeImport(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['interruptedJobs'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (error) => {
+      console.error('Failed to resume import:', error);
+      alert(`Resume 실패: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    },
+    onSettled: () => {
+      setResumingJobId(null);
+    },
+  });
+
+  const handleResume = async (jobId: string) => {
+    setResumingJobId(jobId);
+    resumeMutation.mutate(jobId);
+  };
+
+  if (isLoading || !interruptedJobs || interruptedJobs.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-8 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+      <div className="flex items-center gap-2 mb-4">
+        <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+        <h3 className="font-display text-lg text-amber-800 dark:text-amber-200">
+          중단된 Import ({interruptedJobs.length}개)
+        </h3>
+      </div>
+
+      <div className="space-y-3">
+        {interruptedJobs.map((job) => {
+          const createdDate = new Date(job.created_at);
+          const dateStr = createdDate.toLocaleDateString('ko-KR', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          });
+          const timeStr = createdDate.toLocaleTimeString('ko-KR', {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          const progress = Math.round((job.progress || 0) * 100);
+          const isResuming = resumingJobId === job.job_id;
+
+          return (
+            <div
+              key={job.job_id}
+              className="flex items-center gap-4 p-3 bg-white dark:bg-ink/50 rounded border border-amber-100 dark:border-amber-900"
+            >
+              {/* Status Icon */}
+              <div className="flex-shrink-0">
+                <Clock className="w-5 h-5 text-amber-500" />
+              </div>
+
+              {/* Job Info */}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-ink dark:text-paper truncate">
+                  {job.metadata?.project_name || 'Import Job'}
+                </div>
+                <div className="text-sm text-muted">
+                  {dateStr} {timeStr} • 진행률 {progress}%
+                  {job.message && ` • ${job.message}`}
+                </div>
+              </div>
+
+              {/* Resume Button */}
+              <button
+                onClick={() => handleResume(job.job_id)}
+                disabled={isResuming}
+                className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg transition-colors"
+              >
+                {isResuming ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>재개 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />
+                    <span>Resume</span>
+                  </>
+                )}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">
+        서버 재시작으로 중단된 Import입니다. Resume 버튼을 클릭하면 중단된 지점부터 다시 시작합니다.
+      </p>
+    </div>
+  );
+}
+
 function ProjectsContent() {
   const { data: projects, isLoading, error, refetch } = useQuery({
     queryKey: ['projects'],
@@ -150,7 +272,7 @@ function ProjectsContent() {
         <div className="flex-1">Project</div>
         <div className="w-16 text-right">Papers</div>
         <div className="w-16 text-right">Authors</div>
-        <div className="w-28 text-right">Created</div>
+        <div className="w-32 text-right">Created</div>
         <div className="w-8"></div>
       </div>
 
@@ -197,6 +319,7 @@ export default function ProjectsPage() {
         </div>
 
         <ErrorBoundary>
+          <InterruptedImportsSection />
           <ProjectsContent />
         </ErrorBoundary>
       </main>
