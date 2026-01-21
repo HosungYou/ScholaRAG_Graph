@@ -71,6 +71,9 @@ class CohereEmbeddingProvider:
             # Cohere API allows up to 96, but we use 5 to stay under memory limit
             batch_size = 5
             all_embeddings = []
+            # BUG-038: Track slow API calls
+            slow_call_count = 0
+            max_slow_calls = 3  # If 3+ calls take >10s, something is wrong
 
             for i in range(0, len(texts), batch_size):
                 batch = texts[i:i + batch_size]
@@ -90,24 +93,46 @@ class CohereEmbeddingProvider:
                 if "v4" in model_to_use:
                     embed_kwargs["output_dimension"] = self.dimension
 
-                response = await self.client.embed(**embed_kwargs)
+                # BUG-038: Add timeout to prevent blocking during rate limits
+                import time
+                start_time = time.time()
+                try:
+                    response = await asyncio.wait_for(
+                        self.client.embed(**embed_kwargs),
+                        timeout=30.0  # 30 second timeout per batch
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"Cohere API timeout after 30s for batch {i//batch_size + 1}")
+                    raise RuntimeError(f"Cohere API timeout (batch {i//batch_size + 1})")
+
+                elapsed = time.time() - start_time
+                if elapsed > 10.0:
+                    slow_call_count += 1
+                    logger.warning(f"Cohere API slow: {elapsed:.1f}s for batch {i//batch_size + 1}")
+                    if slow_call_count >= max_slow_calls:
+                        logger.error(f"Too many slow Cohere API calls ({slow_call_count}), stopping")
+                        raise RuntimeError(f"Cohere API rate limited or unavailable ({slow_call_count} slow calls)")
 
                 # V2 API returns embeddings via response.embeddings.float
                 all_embeddings.extend(response.embeddings.float)
 
                 # Small delay between batches to avoid rate limits
                 if i + batch_size < len(texts):
-                    await asyncio.sleep(0.1)
+                    # BUG-038: Increase delay if API is slow
+                    delay = 0.5 if slow_call_count > 0 else 0.1
+                    await asyncio.sleep(delay)
 
             logger.info(f"Generated {len(all_embeddings)} embeddings using Cohere {model_to_use}")
             return all_embeddings
 
         except Exception as e:
-            error_msg = str(e)
+            # BUG-038: Better error logging - capture exception type and message
+            error_type = type(e).__name__
+            error_msg = str(e) if str(e) else "(no message)"
             # Sanitize API key from error messages
             if self.api_key and len(self.api_key) > 10:
                 error_msg = error_msg.replace(self.api_key, "[REDACTED]")
-            logger.error(f"Cohere embedding error: {error_msg}")
+            logger.error(f"Cohere embedding error ({error_type}): {error_msg}")
             raise
 
     async def get_embedding(self, text: str, input_type: str = "search_document") -> List[float]:

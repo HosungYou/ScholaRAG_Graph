@@ -195,7 +195,10 @@ class EmbeddingPipeline:
             return updated_count
 
         except Exception as e:
-            logger.error(f"Failed to create embeddings: {e}")
+            # BUG-038: Better error logging - capture exception type
+            error_type = type(e).__name__
+            error_msg = str(e) if str(e) else "(no message)"
+            logger.error(f"Failed to create embeddings ({error_type}): {error_msg}")
             return 0
 
     # =========================================================================
@@ -312,7 +315,10 @@ class EmbeddingPipeline:
                             logger.error(f"Failed to update embedding for chunk {chunk_id}: {inner_e}")
 
             except Exception as e:
-                logger.error(f"Failed to create chunk embeddings: {e}")
+                # BUG-038: Better error logging - capture exception type
+                error_type = type(e).__name__
+                error_msg = str(e) if str(e) else "(no message)"
+                logger.error(f"Failed to create chunk embeddings ({error_type}): {error_msg}")
 
         logger.info(f"Created {embeddings_created} chunk embeddings (specter={use_specter})")
         return embeddings_created
