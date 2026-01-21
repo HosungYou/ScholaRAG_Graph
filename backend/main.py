@@ -14,10 +14,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database import db, init_db, close_db
 from cache import init_llm_cache, get_llm_cache
-from routers import auth, chat, graph, import_, integrations, prisma, projects, teams, system
+from routers import auth, chat, graph, import_, integrations, prisma, projects, teams, system, quota
 from auth.supabase_client import supabase_client
 from auth.middleware import AuthMiddleware
 from middleware.rate_limiter import RateLimiterMiddleware, init_rate_limit_store
+from middleware.quota_service import init_quota_service
+from middleware.quota_middleware import QuotaTrackingMiddleware
+from middleware.error_tracking import ErrorTrackingMiddleware, init_error_tracker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -77,6 +80,16 @@ async def lifespan(app: FastAPI):
         redis_url=settings.redis_url if settings.redis_url else None,
     )
     logger.info(f"   Rate Limiter: {'Redis' if settings.redis_rate_limit_enabled and settings.redis_url else 'in-memory'}")
+
+    # Initialize API quota service
+    # Quota service tracks per-user/project API usage for external services
+    init_quota_service(db=None, cache_ttl=60)  # DB will be connected later
+    logger.info("   API Quota Service: initialized (in-memory cache)")
+
+    # Initialize error tracking service (PERF-004)
+    # Tracks HTTP errors for monitoring and alerting
+    init_error_tracker(max_recent_errors=100)
+    logger.info("   Error Tracker: initialized (in-memory, 100 recent errors)")
 
     # Initialize Supabase Auth
     # SEC-012: Validate auth configuration consistency
@@ -189,6 +202,18 @@ logger.info(f"Rate Limiting: {'enabled' if _rate_limit_enabled else 'disabled (d
 # See auth/policies.py for route-level policy configuration
 app.add_middleware(AuthMiddleware)
 
+# API Quota tracking middleware
+# Tracks usage for /api/integrations/* endpoints
+_quota_tracking_enabled = settings.environment != "development"
+app.add_middleware(QuotaTrackingMiddleware, enabled=_quota_tracking_enabled)
+logger.info(f"Quota Tracking: {'enabled' if _quota_tracking_enabled else 'disabled (development mode)'}")
+
+# Error tracking middleware (PERF-004)
+# Tracks HTTP errors for monitoring and alerting
+# Always enabled to track errors in all environments
+app.add_middleware(ErrorTrackingMiddleware, enabled=True)
+logger.info("Error Tracking: enabled")
+
 # Include routers
 app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
 app.include_router(graph.router, prefix="/api/graph", tags=["Graph"])
@@ -198,6 +223,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(teams.router, prefix="/api/teams", tags=["Teams"])
 app.include_router(prisma.router, prefix="/api/prisma", tags=["PRISMA"])
 app.include_router(integrations.router, tags=["Integrations"])
+app.include_router(quota.router, tags=["Quota"])
 app.include_router(system.router, tags=["System"])
 
 

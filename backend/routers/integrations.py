@@ -5,11 +5,18 @@ Provides endpoints for:
 - Semantic Scholar: Paper search, metadata enrichment, citation graphs
 - OpenAlex: Open academic knowledge base
 - Zotero: Reference management synchronization
+
+All endpoints include per-user/project API quota management.
+Quota headers are included in all responses:
+- X-Quota-Limit: Daily limit for this API
+- X-Quota-Used: Current usage count
+- X-Quota-Remaining: Remaining calls allowed
+- X-Quota-Reset: ISO timestamp when quota resets
 """
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from config import get_settings, Settings
@@ -18,6 +25,8 @@ from auth.models import User
 from integrations.semantic_scholar import SemanticScholarClient, SemanticScholarPaper
 from integrations.openalex import OpenAlexClient, OpenAlexWork
 from integrations.zotero import ZoteroClient, ZoteroItem, ZoteroCollection
+from middleware.quota_middleware import QuotaDependency, add_quota_headers
+from middleware.quota_service import QuotaStatus
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -145,13 +154,17 @@ class OpenAlexWorkResponse(BaseModel):
 @router.post("/semantic-scholar/search", response_model=List[SemanticScholarPaperResponse])
 async def search_semantic_scholar(
     request: PaperSearchRequest,
+    response: Response,
     settings: Settings = Depends(get_settings),
     current_user: Optional[User] = Depends(require_auth_if_configured),
+    quota: QuotaStatus = Depends(QuotaDependency(api_type="semantic_scholar")),
 ):
     """
     Search papers using Semantic Scholar API.
 
     Returns papers matching the query with metadata, citations, and optionally embeddings.
+
+    **Quota**: This endpoint counts against your `semantic_scholar` daily quota.
     """
     async with SemanticScholarClient() as client:
         year_range = None
@@ -168,6 +181,9 @@ async def search_semantic_scholar(
             open_access_only=request.open_access_only,
             include_embedding=request.include_embedding,
         )
+
+        # Add quota headers to response
+        add_quota_headers(response, quota)
 
         return [SemanticScholarPaperResponse.from_paper(p) for p in papers]
 
@@ -286,13 +302,17 @@ async def get_recommendations(
 @router.post("/openalex/search", response_model=List[OpenAlexWorkResponse])
 async def search_openalex(
     request: PaperSearchRequest,
+    response: Response,
     settings: Settings = Depends(get_settings),
     current_user: Optional[User] = Depends(require_auth_if_configured),
+    quota: QuotaStatus = Depends(QuotaDependency(api_type="openalex")),
 ):
     """
     Search works using OpenAlex API.
 
     OpenAlex provides broader coverage including more international and open access works.
+
+    **Quota**: This endpoint counts against your `openalex` daily quota.
     """
     async with OpenAlexClient() as client:
         filter_params = {}
@@ -312,6 +332,9 @@ async def search_openalex(
             max_results=request.limit,
             filter_params=filter_params if filter_params else None,
         )
+
+        # Add quota headers to response
+        add_quota_headers(response, quota)
 
         return [OpenAlexWorkResponse.from_work(w) for w in works]
 
