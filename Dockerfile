@@ -2,7 +2,7 @@
 # Multi-stage build for optimized image size
 
 # ===== Stage 1: Builder =====
-FROM python:3.11-slim as builder
+FROM python:3.14-slim as builder
 
 # Set build arguments
 ARG DEBIAN_FRONTEND=noninteractive
@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     fi
 
 # ===== Stage 2: Runtime =====
-FROM python:3.11-slim as runtime
+FROM python:3.14-slim as runtime
 
 # Labels
 LABEL maintainer="Hosung You"
