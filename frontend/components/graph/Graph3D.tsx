@@ -98,6 +98,8 @@ export interface Graph3DProps {
   onNodeClick?: (node: GraphEntity) => void;
   onNodeHover?: (node: GraphEntity | null) => void;
   onBackgroundClick?: () => void;
+  // UI-011: Edge click handler for Relationship Evidence
+  onEdgeClick?: (edge: GraphEdge) => void;
   showParticles?: boolean;
   particleSpeed?: number;
   // Ghost Edge props (InfraNodus-style)
@@ -128,6 +130,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   onNodeClick,
   onNodeHover,
   onBackgroundClick,
+  onEdgeClick,  // UI-011: Edge click handler for Relationship Evidence
   showParticles = false,  // Disabled by default - particles have no academic meaning in knowledge graphs
   particleSpeed = 0.005,
   showGhostEdges = false,
@@ -399,29 +402,33 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       group.add(ring);
     }
 
-    // Add persistent text label for top 20% centrality nodes
-    const nodeCentrality = node.centrality || 0;
-    const shouldShowLabel = nodeCentrality >= labelCentralityThreshold && node.name;
+    // UI-009 FIX: InfraNodus-style labels
+    // Show labels based on node SIZE (which reflects centrality), not centrality threshold
+    // This ensures labels show even when centralityMetrics is empty or IDs don't match
+    const nodeSizeThreshold = 4;  // Show labels for nodes larger than this
+    const shouldShowLabel = nodeSize >= nodeSizeThreshold && node.name;
 
     if (shouldShowLabel) {
       // Truncate long names
-      const displayName = node.name.length > 20
-        ? node.name.substring(0, 17) + '...'
+      const maxLabelLength = 15;
+      const displayName = node.name.length > maxLabelLength
+        ? node.name.substring(0, maxLabelLength - 2) + '..'
         : node.name;
 
-      // UI-006 FIX: Scale font size by centrality (range: 10px - 22px)
-      // Higher centrality = larger font for visual hierarchy
+      // Scale font size by node size (InfraNodus style: bigger nodes = bigger labels)
       const minFontSize = 10;
-      const maxFontSize = 22;
-      const centralityNormalized = Math.min(1, nodeCentrality / 0.5); // Cap at 0.5 centrality
-      const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * centralityNormalized);
+      const maxFontSize = 24;
+      const sizeNormalized = Math.min(1, (nodeSize - nodeSizeThreshold) / 10);
+      const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * sizeNormalized);
 
-      const labelColor = node.isHighlighted ? '#FFD700' : '#FFFFFF';
+      // InfraNodus style: Label color matches cluster color
+      // Highlighted nodes get gold, otherwise use node's cluster color
+      const labelColor = node.isHighlighted ? '#FFD700' : (node.color || '#FFFFFF');
       const labelSprite = createTextSprite(displayName, labelColor, fontSize);
 
       if (labelSprite) {
         // Position label above the node - scale position with font size
-        const labelOffset = nodeSize + 6 + (fontSize - minFontSize) * 0.3;
+        const labelOffset = nodeSize + 4 + (fontSize - minFontSize) * 0.2;
         labelSprite.position.set(0, labelOffset, 0);
         group.add(labelSprite);
       }
@@ -548,8 +555,12 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       lastClickRef.current.nodeId === node.id &&
       now - lastClickRef.current.timestamp < DOUBLE_CLICK_THRESHOLD
     ) {
-      // Double-click detected - focus camera on node
+      // Double-click detected - focus camera on node AND unpin it
       focusCameraOnNode(node);
+      // UI-010: Unpin node on double-click (allows user to release pinned nodes)
+      node.fx = undefined;
+      node.fy = undefined;
+      node.fz = undefined;
       lastClickRef.current = null; // Reset after double-click
       return;
     }
@@ -590,6 +601,18 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   const handleBackgroundClick = useCallback(() => {
     onBackgroundClick?.();
   }, [onBackgroundClick]);
+
+  // UI-011: Edge click handler for Relationship Evidence modal
+  const handleEdgeClick = useCallback((linkData: unknown) => {
+    const link = linkData as ForceGraphLink;
+    if (!onEdgeClick || link.isGhost) return; // Don't trigger for ghost edges
+
+    // Find the original edge
+    const originalEdge = edges.find(e => e.id === link.id);
+    if (originalEdge) {
+      onEdgeClick(originalEdge);
+    }
+  }, [edges, onEdgeClick]);
 
   // Expose ref methods
   useImperativeHandle(ref, () => ({
@@ -745,6 +768,24 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         onNodeRightClick={handleNodeRightClick}  // Right-click also focuses camera on node
         onNodeHover={handleNodeHover}
         onBackgroundClick={handleBackgroundClick}
+        // UI-011: Edge click handler for Relationship Evidence modal
+        onLinkClick={handleEdgeClick}
+        // UI-010 FIX: Drag handlers to prevent jitter/oscillation during node dragging
+        // Problem: Nodes vibrate rapidly when dragged because force simulation keeps applying forces
+        // Solution: Pin node position during drag (fx, fy, fz) to prevent force interference
+        onNodeDrag={(node) => {
+          // Pin node to current position while dragging - prevents force simulation interference
+          node.fx = node.x;
+          node.fy = node.y;
+          node.fz = node.z;
+        }}
+        onNodeDragEnd={(node) => {
+          // Keep node pinned after drag ends to prevent snap-back
+          // User can double-click to unpin (handled in handleNodeClick)
+          node.fx = node.x;
+          node.fy = node.y;
+          node.fz = node.z;
+        }}
         // UI-005 FIX: Force simulation parameters (optimized to REDUCE jitter/oscillation)
         // Problem: Nodes vibrate rapidly, rubber-banding effect, struggling to settle
         // Solution: HIGH damping + FAST cooling = quick stabilization without jitter

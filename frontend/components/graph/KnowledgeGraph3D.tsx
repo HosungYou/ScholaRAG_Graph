@@ -11,9 +11,10 @@ import { NodeDetails } from './NodeDetails';
 import { InsightHUD } from './InsightHUD';
 import { MainTopicsPanel } from './MainTopicsPanel';
 import { TopicViewMode } from './TopicViewMode';
+import { EdgeContextModal } from './EdgeContextModal';  // UI-011: Relationship Evidence
 import { useGraphStore } from '@/hooks/useGraphStore';
 import { useGraph3DStore, applyLOD } from '@/hooks/useGraph3DStore';
-import type { GraphEntity, EntityType, StructuralGap } from '@/types';
+import type { GraphEntity, EntityType, StructuralGap, GraphEdge } from '@/types';
 import {
   Hexagon,
   Box,
@@ -50,6 +51,9 @@ export function KnowledgeGraph3D({
   const [showInsightHUD, setShowInsightHUD] = useState(true);
   const [showMainTopics, setShowMainTopics] = useState(false);
   const [isGapPanelMinimized, setIsGapPanelMinimized] = useState(false);
+  // UI-011: Edge context modal state for Relationship Evidence
+  const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
+  const [edgeModalOpen, setEdgeModalOpen] = useState(false);
 
   // Graph store (existing)
   const {
@@ -181,6 +185,18 @@ export function KnowledgeGraph3D({
     clearHighlights();
   }, [clearHighlights]);
 
+  // UI-011: Handle edge click for Relationship Evidence modal
+  const handleEdgeClick = useCallback((edge: GraphEdge) => {
+    setSelectedEdge(edge);
+    setEdgeModalOpen(true);
+  }, []);
+
+  // UI-011: Handle close edge modal
+  const handleCloseEdgeModal = useCallback(() => {
+    setEdgeModalOpen(false);
+    setSelectedEdge(null);
+  }, []);
+
   // Handle close node details
   const handleCloseNodeDetails = useCallback(() => {
     setSelectedNode(null);
@@ -279,6 +295,7 @@ export function KnowledgeGraph3D({
           selectedGap={selectedGap}
           onNodeClick={handleNodeClick}
           onBackgroundClick={handleBackgroundClick}
+          onEdgeClick={handleEdgeClick}  // UI-011: Relationship Evidence
           showParticles={view3D.showParticles}
           particleSpeed={view3D.particleSpeed}
           bloomEnabled={view3D.bloom.enabled}
@@ -440,20 +457,26 @@ export function KnowledgeGraph3D({
 
           <div className="w-px bg-ink/10 dark:bg-paper/10" />
 
-          {/* View Mode Toggle */}
+          {/* UI-012: View Mode Toggle - Made more prominent with label */}
           <button
             onClick={() => setViewMode(viewMode === '3d' ? 'topic' : '3d')}
-            className={`p-2 transition-colors ${
+            className={`flex items-center gap-2 px-3 py-2 transition-all ${
               viewMode === 'topic'
-                ? 'bg-accent-purple/10 text-accent-purple'
-                : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+                ? 'bg-accent-purple text-white'
+                : 'bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal'
             }`}
-            title={viewMode === '3d' ? 'Switch to Topic View' : 'Switch to 3D View'}
+            title={viewMode === '3d' ? 'Switch to Topic View (InfraNodus-style clusters)' : 'Switch to 3D Graph View'}
           >
             {viewMode === '3d' ? (
-              <Grid2X2 className="w-4 h-4" />
+              <>
+                <Grid2X2 className="w-4 h-4" />
+                <span className="font-mono text-xs uppercase tracking-wider">Topics</span>
+              </>
             ) : (
-              <Box className="w-4 h-4" />
+              <>
+                <Box className="w-4 h-4" />
+                <span className="font-mono text-xs uppercase tracking-wider">3D</span>
+              </>
             )}
           </button>
         </div>
@@ -555,6 +578,13 @@ export function KnowledgeGraph3D({
           )}
         </div>
       </div>
+
+      {/* UI-011: Edge Context Modal - Relationship Evidence */}
+      <EdgeContextModal
+        isOpen={edgeModalOpen}
+        onClose={handleCloseEdgeModal}
+        relationshipId={selectedEdge?.id || null}
+      />
     </div>
   );
 }
