@@ -2,7 +2,7 @@
 
 > 이 문서는 코드 리뷰, 기능 구현, 버그 수정 등에서 발견된 액션 아이템을 추적합니다.
 >
-> **마지막 업데이트**: 2026-01-21 (Root Cause Analysis)
+> **마지막 업데이트**: 2026-01-21 (Parallel Agent Debugging)
 > **관리자**: Claude Code
 
 ---
@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 16 | 16 | 0 | 0 |
+| 🔴 High | 18 | 18 | 0 | 0 |
 | 🟡 Medium | 18 | 17 | 0 | 1 |
 | 🟢 Low | 9 | 8 | 0 | 1 |
-| **Total** | **43** | **41** | **0** | **2** |
+| **Total** | **45** | **43** | **0** | **2** |
 
 ---
 
@@ -49,12 +49,86 @@
   ```
 - **Acceptance Criteria**:
   - [x] `system.py`의 `get_connection()` 호출을 올바른 메서드로 교체
-  - [ ] 로컬에서 `/api/system/status` 엔드포인트 테스트
-  - [ ] Render 재배포 후 500 에러 해결 확인
+  - [x] 로컬에서 `/api/system/status` 엔드포인트 테스트
+  - [x] Render 재배포 후 500 에러 해결 확인
 - **Created**: 2026-01-21
 - **Completed**: 2026-01-21
 - **Verified By**: Claude Code
-- **Related**: Session `2026-01-21_root-cause-analysis-recurring-errors.md`
+- **Commits**: `b95c051`, `feaa756`
+- **Related**: Session `2026-01-21_root-cause-analysis-recurring-errors.md`, `2026-01-21_parallel-agent-debugging-deployment-fix.md`
+
+---
+
+### BUG-016: SSR에서 enforceHttps 작동 안함 (Mixed Content)
+- **Source**: Parallel Agent Debugging 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: Frontend Team
+- **Files**:
+  - `frontend/lib/api.ts` - `enforceHttps()` 함수 수정
+- **Description**: `enforceHttps` 함수가 `window.location.protocol`을 체크하는데, Next.js SSR 환경에서는 `window`가 undefined라서 HTTP URL이 그대로 통과됨. HTTPS 페이지에서 HTTP API 요청 시 Mixed Content 에러 발생.
+- **Root Cause**:
+  ```typescript
+  // 이전 코드 (버그)
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return url.replace(/^http:\/\//, 'https://');
+  }
+  // SSR에서 window === undefined → HTTPS 강제 안됨!
+  ```
+- **Resolution**:
+  ```typescript
+  // 수정된 코드: 프로덕션 도메인은 항상 HTTPS 강제 (SSR에서도 작동)
+  if (url.includes('onrender.com') || url.includes('vercel.app') || url.includes('render.com')) {
+    return url.replace(/^http:\/\//, 'https://');
+  }
+  ```
+- **Acceptance Criteria**:
+  - [x] 프로덕션 도메인에서 HTTPS 강제 적용
+  - [x] SSR 환경에서도 정상 작동
+  - [x] Mixed Content 에러 해결
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Verified By**: Claude Code
+- **Commit**: `4611214`
+- **Related**: Session `2026-01-21_parallel-agent-debugging-deployment-fix.md`
+
+---
+
+### BUG-017: quota_middleware.py ImportError (배포 차단)
+- **Source**: Parallel Agent Debugging 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/middleware/quota_middleware.py:29` - import 문 수정
+- **Description**: 존재하지 않는 함수 `get_current_user_optional`을 import하여 앱 시작 실패. BUG-015 수정 배포를 차단하는 원인이 됨.
+- **Root Cause**:
+  ```python
+  # 이전 코드 (버그)
+  from auth.dependencies import get_current_user_optional  # ❌ 존재하지 않음!
+
+  # auth.dependencies.py에 있는 실제 함수명:
+  # - get_optional_user  ✅
+  # - get_current_user
+  ```
+- **Render 로그 증거**:
+  ```
+  ImportError: cannot import name 'get_current_user_optional' from 'auth.dependencies'
+  File "/app/middleware/quota_middleware.py", line 29
+  ```
+- **Resolution**:
+  ```python
+  # 수정된 코드
+  from auth.dependencies import get_optional_user  # ✅ 올바른 함수명
+  ```
+- **Acceptance Criteria**:
+  - [x] 올바른 함수명으로 import 수정
+  - [x] `QuotaDependency` 클래스에서 올바른 함수 사용
+  - [x] 중복 로컬 함수 제거
+  - [x] Render 배포 성공
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Verified By**: Claude Code
+- **Commit**: `feaa756`
+- **Related**: Session `2026-01-21_parallel-agent-debugging-deployment-fix.md`, BUG-015
 
 ---
 
