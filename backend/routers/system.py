@@ -92,75 +92,76 @@ async def get_system_status(
     - Vector database status (total entities, indexed count, status)
     - Data source information (type, import date, paper count)
     """
-    database = await db.get_connection()
-
+    # BUG-015 Fix: Use db.acquire() context manager instead of non-existent get_connection()
+    # See: DOCS/.meta/sessions/2026-01-21_root-cause-analysis-recurring-errors.md
     try:
-        # 1. Check LLM connection
-        llm_status = await check_llm_connection()
+        async with db.acquire() as conn:
+            # 1. Check LLM connection
+            llm_status = await check_llm_connection()
 
-        # 2. Get vector status
-        # Count total entities
-        total_entities = await database.fetchval(
-            "SELECT COUNT(*) FROM entities WHERE project_id = $1",
-            project_id
-        ) or 0
-
-        # Count entities with embeddings (if embeddings table exists)
-        try:
-            indexed_count = await database.fetchval(
-                """
-                SELECT COUNT(DISTINCT e.id)
-                FROM entities e
-                WHERE e.project_id = $1
-                AND e.embedding IS NOT NULL
-                """,
+            # 2. Get vector status
+            # Count total entities
+            total_entities = await conn.fetchval(
+                "SELECT COUNT(*) FROM entities WHERE project_id = $1",
                 project_id
             ) or 0
-        except Exception:
-            # Fallback if embedding column doesn't exist
-            indexed_count = total_entities
 
-        # Determine vector status
-        if total_entities == 0:
-            vector_status = 'pending'
-        elif indexed_count >= total_entities:
-            vector_status = 'ready'
-        else:
-            vector_status = 'pending'
+            # Count entities with embeddings (if embeddings table exists)
+            try:
+                indexed_count = await conn.fetchval(
+                    """
+                    SELECT COUNT(DISTINCT e.id)
+                    FROM entities e
+                    WHERE e.project_id = $1
+                    AND e.embedding IS NOT NULL
+                    """,
+                    project_id
+                ) or 0
+            except Exception:
+                # Fallback if embedding column doesn't exist
+                indexed_count = total_entities
 
-        vectors = VectorStatus(
-            total=total_entities,
-            indexed=indexed_count,
-            status=vector_status
-        )
+            # Determine vector status
+            if total_entities == 0:
+                vector_status = 'pending'
+            elif indexed_count >= total_entities:
+                vector_status = 'ready'
+            else:
+                vector_status = 'pending'
 
-        # 3. Get data source info
-        project = await database.fetchrow(
-            """
-            SELECT
-                import_source,
-                last_synced_at,
-                (SELECT COUNT(*) FROM paper_metadata WHERE project_id = $1) as paper_count
-            FROM projects
-            WHERE id = $1
-            """,
-            project_id
-        )
-
-        if project:
-            data_source = DataSourceStatus(
-                type=project.get('import_source'),
-                importedAt=project['last_synced_at'].isoformat() if project.get('last_synced_at') else None,
-                paperCount=project.get('paper_count', 0) or 0
+            vectors = VectorStatus(
+                total=total_entities,
+                indexed=indexed_count,
+                status=vector_status
             )
-        else:
-            data_source = DataSourceStatus()
 
-        return SystemStatusResponse(
-            llm=llm_status,
-            vectors=vectors,
-            dataSource=data_source
-        )
+            # 3. Get data source info
+            project = await conn.fetchrow(
+                """
+                SELECT
+                    import_source,
+                    last_synced_at,
+                    (SELECT COUNT(*) FROM paper_metadata WHERE project_id = $1) as paper_count
+                FROM projects
+                WHERE id = $1
+                """,
+                project_id
+            )
+
+            if project:
+                data_source = DataSourceStatus(
+                    type=project.get('import_source'),
+                    importedAt=project['last_synced_at'].isoformat() if project.get('last_synced_at') else None,
+                    paperCount=project.get('paper_count', 0) or 0
+                )
+            else:
+                data_source = DataSourceStatus()
+
+            return SystemStatusResponse(
+                llm=llm_status,
+                vectors=vectors,
+                dataSource=data_source
+            )
 
     except Exception as e:
         logger.error(f"Error getting system status: {e}")

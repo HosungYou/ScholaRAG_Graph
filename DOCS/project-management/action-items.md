@@ -2,7 +2,7 @@
 
 > 이 문서는 코드 리뷰, 기능 구현, 버그 수정 등에서 발견된 액션 아이템을 추적합니다.
 >
-> **마지막 업데이트**: 2026-01-20 (Codex Review)
+> **마지막 업데이트**: 2026-01-21 (Root Cause Analysis)
 > **관리자**: Claude Code
 
 ---
@@ -11,16 +11,50 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 15 | 15 | 0 | 0 |
-| 🟡 Medium | 17 | 17 | 0 | 0 |
-| 🟢 Low | 8 | 8 | 0 | 0 |
-| **Total** | **40** | **40** | **0** | **0** |
+| 🔴 High | 16 | 16 | 0 | 0 |
+| 🟡 Medium | 18 | 17 | 0 | 1 |
+| 🟢 Low | 9 | 8 | 0 | 1 |
+| **Total** | **43** | **41** | **0** | **2** |
 
 ---
 
 ## 🔴 High Priority (Immediate Action Required)
 
-*All High Priority items have been completed! 🎉*
+### BUG-015: system.py get_connection() AttributeError 수정
+- **Source**: Root Cause Analysis 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/routers/system.py:95` - 버그 위치
+  - `backend/database.py` - Database 클래스 인터페이스
+- **Description**: `db.get_connection()` 메서드가 존재하지 않아 `/api/system/status` 엔드포인트에서 500 에러 발생. 이 에러가 CORS 에러로 마스킹되어 반복적인 CORS 수정 시도로 이어짐.
+- **Root Cause**:
+  ```python
+  # 이전 코드 (버그)
+  database = await db.get_connection()  # ❌ AttributeError!
+
+  # Database 클래스에는 get_connection() 메서드가 없음
+  # 사용 가능한 메서드: acquire(), fetch(), fetchval(), fetchrow()
+  ```
+- **Render 로그 증거**:
+  ```
+  AttributeError: 'Database' object has no attribute 'get_connection'
+  File "/app/routers/system.py", line 92, in get_system_status
+  ```
+- **Resolution**:
+  ```python
+  # 수정된 코드: acquire() context manager 사용
+  async with db.acquire() as conn:
+      result = await conn.fetchval(query, project_id)
+  ```
+- **Acceptance Criteria**:
+  - [x] `system.py`의 `get_connection()` 호출을 올바른 메서드로 교체
+  - [ ] 로컬에서 `/api/system/status` 엔드포인트 테스트
+  - [ ] Render 재배포 후 500 에러 해결 확인
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Verified By**: Claude Code
+- **Related**: Session `2026-01-21_root-cause-analysis-recurring-errors.md`
 
 ---
 
@@ -163,6 +197,29 @@
 
 ---
 
+### INFRA-005: Infrastructure as Code 도입
+- **Source**: Root Cause Analysis 2026-01-21
+- **Status**: ⏳ Pending
+- **Assignee**: DevOps Team
+- **Files**:
+  - `render.yaml` (신규)
+  - `vercel.json` (업데이트)
+- **Description**: 환경 변수를 코드로 관리하여 Configuration Drift 방지. 코드 기본값과 플랫폼 환경 변수 간 불일치로 인한 반복적 CORS/API URL 수정 문제 해결.
+- **Background**:
+  최근 커밋 히스토리에서 동일 유형 문제 반복 수정:
+  - `1ca4f4b` - CORS origins 추가
+  - `ac11672` - Vercel Preview URL regex
+  - `882f14a` - Rate limiter CORS 헤더
+  - `22217b5` - HTTPS 강제 변환
+- **Acceptance Criteria**:
+  - [ ] `render.yaml` 생성 (서비스 설정 + 환경 변수)
+  - [ ] `vercel.json`에 환경 변수 참조 추가
+  - [ ] CI/CD에서 환경 변수 일치 검증 자동화
+- **Created**: 2026-01-21
+- **Related**: Session `2026-01-21_root-cause-analysis-recurring-errors.md`
+
+---
+
 ### PERF-006: 청크 임베딩 배치 업데이트
 - **Source**: Code Review (Codex) 2026-01-20
 - **Status**: ✅ Completed
@@ -286,6 +343,27 @@
   - [ ] /projects/compare 페이지 → 프로젝트 비교 동작 확인
 - **Created**: 2026-01-20
 - **Related**: Session `2026-01-20_infranodus-integration.md`
+
+---
+
+### DOC-003: 에러 디버깅 가이드 작성
+- **Source**: Root Cause Analysis 2026-01-21
+- **Status**: ⏳ Pending
+- **Assignee**: Docs Team
+- **Files**:
+  - `DOCS/troubleshooting/error-debugging-guide.md` (신규)
+- **Description**: CORS 에러가 실제로는 백엔드 500 에러를 마스킹할 수 있다는 점 문서화. 개발자가 프로덕션 에러를 효율적으로 디버깅할 수 있도록 가이드 제공.
+- **Key Topics**:
+  1. CORS 에러 마스킹 현상 설명
+  2. Render 로그 확인 방법
+  3. `/api/system/metrics/errors` 활용법
+  4. 에러 유형별 체크리스트
+- **Acceptance Criteria**:
+  - [ ] CORS vs 실제 백엔드 에러 구분 방법 문서화
+  - [ ] Render Dashboard 로그 확인 가이드
+  - [ ] 일반적인 500 에러 원인 및 해결 방법
+- **Created**: 2026-01-21
+- **Related**: Session `2026-01-21_root-cause-analysis-recurring-errors.md`, BUG-015
 
 ---
 
