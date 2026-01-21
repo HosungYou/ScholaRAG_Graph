@@ -27,8 +27,9 @@ class Settings(BaseSettings):
     groq_timeout: float = 60.0  # Timeout in seconds for Groq API calls
 
     # Default LLM Configuration
-    default_llm_provider: Literal["anthropic", "openai", "google", "groq"] = "anthropic"
-    default_llm_model: str = "claude-3-5-haiku-20241022"
+    # Changed default to groq (free tier, fastest inference)
+    default_llm_provider: Literal["anthropic", "openai", "google", "groq"] = "groq"
+    default_llm_model: str = "llama-3.3-70b-versatile"
 
     # Embedding Configuration
     embedding_model: str = "embed-english-v3.0"  # Cohere model

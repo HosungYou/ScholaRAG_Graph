@@ -745,14 +745,16 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         onNodeRightClick={handleNodeRightClick}  // Right-click also focuses camera on node
         onNodeHover={handleNodeHover}
         onBackgroundClick={handleBackgroundClick}
-        // UI-005 FIX: Force simulation parameters (optimized for FAST stabilization)
-        // d3AlphaDecay: Higher = faster cooldown (default 0.0228, was 0.05 causing long drift)
-        // d3VelocityDecay: Lower = less friction (default 0.4, was 0.7 causing sticky motion)
-        // d3AlphaMin: Stop simulation when alpha reaches this value (prevents infinite micro-adjustments)
-        cooldownTicks={50}
-        d3AlphaDecay={0.02}
-        d3VelocityDecay={0.4}
-        d3AlphaMin={0.001}
+        // UI-005 FIX: Force simulation parameters (optimized to REDUCE jitter/oscillation)
+        // Problem: Nodes vibrate rapidly, rubber-banding effect, struggling to settle
+        // Solution: HIGH damping + FAST cooling = quick stabilization without jitter
+        // d3AlphaDecay: Higher = faster cooldown (0.1 = stops 4x faster than default 0.0228)
+        // d3VelocityDecay: Higher = more friction/damping (0.85 = strong damping to kill oscillation)
+        // d3AlphaMin: Higher = simulation stops earlier (0.01 vs 0.001)
+        cooldownTicks={100}
+        d3AlphaDecay={0.1}
+        d3VelocityDecay={0.85}
+        d3AlphaMin={0.01}
         // Performance optimizations
         warmupTicks={30}
         onEngineStop={() => console.log('Force simulation stabilized')}

@@ -53,20 +53,26 @@ class SystemStatusResponse(BaseModel):
 async def check_llm_connection() -> LLMStatus:
     """
     Check if LLM provider is configured and accessible.
+    Supports: anthropic, openai, google, groq
     """
-    provider = getattr(settings, 'DEFAULT_LLM_PROVIDER', 'anthropic')
-    model = getattr(settings, 'DEFAULT_LLM_MODEL', 'claude-3-5-haiku-20241022')
+    # FIX: Use environment variable directly for reliable detection
+    import os
+    provider = os.getenv('DEFAULT_LLM_PROVIDER', getattr(settings, 'DEFAULT_LLM_PROVIDER', 'groq'))
+    model = os.getenv('DEFAULT_LLM_MODEL', getattr(settings, 'DEFAULT_LLM_MODEL', 'llama-3.3-70b-versatile'))
 
-    # Check if API key is configured
+    # Check if API key is configured based on provider
     connected = False
     if provider == 'anthropic':
-        api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
+        api_key = os.getenv('ANTHROPIC_API_KEY', getattr(settings, 'ANTHROPIC_API_KEY', None))
         connected = bool(api_key and len(api_key) > 10)
     elif provider == 'openai':
-        api_key = getattr(settings, 'OPENAI_API_KEY', None)
+        api_key = os.getenv('OPENAI_API_KEY', getattr(settings, 'OPENAI_API_KEY', None))
         connected = bool(api_key and len(api_key) > 10)
     elif provider == 'google':
-        api_key = getattr(settings, 'GOOGLE_API_KEY', None)
+        api_key = os.getenv('GOOGLE_API_KEY', getattr(settings, 'GOOGLE_API_KEY', None))
+        connected = bool(api_key and len(api_key) > 10)
+    elif provider == 'groq':
+        api_key = os.getenv('GROQ_API_KEY', getattr(settings, 'GROQ_API_KEY', None))
         connected = bool(api_key and len(api_key) > 10)
     else:
         # Assume connected for other providers if configured
