@@ -73,6 +73,9 @@ class ImportProgress:
     concepts_extracted: int = 0
     relationships_created: int = 0
     errors: List[str] = field(default_factory=list)
+    # BUG-028 Extension: Track current paper for checkpoint support
+    current_paper_id: Optional[str] = None
+    current_paper_index: int = 0
 
 
 @dataclass
@@ -679,6 +682,8 @@ class ZoteroRDFImporter:
         project_name: Optional[str] = None,
         research_question: Optional[str] = None,
         extract_concepts: bool = True,
+        skip_paper_ids: Optional[set] = None,
+        existing_project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Import a Zotero export folder and build knowledge graph.
@@ -688,6 +693,8 @@ class ZoteroRDFImporter:
             project_name: Name for the project (optional)
             research_question: Research question for context (optional)
             extract_concepts: Whether to use LLM for concept extraction
+            skip_paper_ids: BUG-028 Extension - Set of paper IDs to skip (for resume)
+            existing_project_id: BUG-028 Extension - Use existing project instead of creating new
 
         Returns:
             Import result with project_id, statistics, errors
@@ -716,29 +723,35 @@ class ZoteroRDFImporter:
         self._update_progress("scanning", 0.15, "PDF 파일 스캔 중...")
         pdf_map = self._find_pdf_files(rdf_parent, items)
 
-        # Create project
-        self._update_progress("creating_project", 0.2, "프로젝트 생성 중...")
-
-        if not project_name:
-            project_name = f"Zotero Import {datetime.now().strftime('%Y-%m-%d')}"
-
-        if not research_question:
-            research_question = f"Zotero library analysis: {len(items)} papers"
-
-        project_id = None
-        if self.graph_store:
-            project_id = await self.graph_store.create_project(
-                name=project_name,
-                description=research_question,
-                config={
-                    "source": "zotero_rdf",
-                    "items_count": len(items),
-                    "pdfs_count": len(pdf_map),
-                    "import_date": datetime.now().isoformat(),
-                },
-            )
+        # Create or use existing project
+        # BUG-028 Extension: Support resume with existing project
+        if existing_project_id:
+            self._update_progress("creating_project", 0.2, "기존 프로젝트에 재개 중...")
+            project_id = existing_project_id
+            logger.info(f"Resuming import to existing project: {project_id}")
         else:
-            project_id = str(uuid4())
+            self._update_progress("creating_project", 0.2, "프로젝트 생성 중...")
+
+            if not project_name:
+                project_name = f"Zotero Import {datetime.now().strftime('%Y-%m-%d')}"
+
+            if not research_question:
+                research_question = f"Zotero library analysis: {len(items)} papers"
+
+            project_id = None
+            if self.graph_store:
+                project_id = await self.graph_store.create_project(
+                    name=project_name,
+                    description=research_question,
+                    config={
+                        "source": "zotero_rdf",
+                        "items_count": len(items),
+                        "pdfs_count": len(pdf_map),
+                        "import_date": datetime.now().isoformat(),
+                    },
+                )
+            else:
+                project_id = str(uuid4())
 
         # Process items
         self._update_progress("importing", 0.25, "논문 데이터 처리 중...")
@@ -756,9 +769,23 @@ class ZoteroRDFImporter:
             "warnings": validation.get("warnings", []),
         }
 
+        # BUG-028 Extension: Initialize skip set
+        skip_ids = skip_paper_ids or set()
+        skipped_count = 0
+
         # Import each item
         for i, item in enumerate(items):
+            # BUG-028 Extension: Skip already processed papers (for resume)
+            if item.item_key in skip_ids:
+                skipped_count += 1
+                logger.debug(f"Skipping already processed paper: {item.item_key}")
+                continue
+
             try:
+                # BUG-028 Extension: Update progress with current paper info for checkpoint
+                self.progress.current_paper_id = item.item_key
+                self.progress.current_paper_index = i
+
                 progress_pct = 0.25 + (0.65 * (i / len(items)))
                 self._update_progress(
                     "importing",
@@ -1175,6 +1202,8 @@ class ZoteroRDFImporter:
         files: List[tuple],  # List of (filename, content) tuples
         project_name: Optional[str] = None,
         research_question: Optional[str] = None,
+        skip_paper_ids: Optional[set] = None,
+        existing_project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Import from uploaded files (for web interface).
@@ -1183,6 +1212,8 @@ class ZoteroRDFImporter:
             files: List of (filename, bytes) tuples from upload
             project_name: Optional project name
             research_question: Optional research question
+            skip_paper_ids: BUG-028 Extension - Set of paper IDs to skip (for resume)
+            existing_project_id: BUG-028 Extension - Use existing project instead of creating new
 
         Returns:
             Import result
@@ -1223,10 +1254,13 @@ class ZoteroRDFImporter:
                 }
 
             # Import from temp directory
+            # BUG-028 Extension: Pass resume parameters
             result = await self.import_folder(
                 folder_path=temp_dir,
                 project_name=project_name,
                 research_question=research_question,
+                skip_paper_ids=skip_paper_ids,
+                existing_project_id=existing_project_id,
             )
 
             return result

@@ -205,8 +205,13 @@ class JobStore:
         message: str = None,
         result: dict = None,
         error: str = None,
+        metadata: dict = None,
     ) -> Optional[Job]:
-        """Update job status and progress."""
+        """Update job status, progress, and metadata.
+
+        BUG-028 Extension: Added metadata parameter to support checkpoint saving.
+        When metadata is provided, it merges with existing metadata (not replace).
+        """
         job = await self.get_job(job_id)
         if not job:
             return None
@@ -228,6 +233,10 @@ class JobStore:
         if error is not None:
             job.error = error
 
+        # BUG-028 Extension: Merge metadata for checkpoint support
+        if metadata is not None:
+            job.metadata = {**job.metadata, **metadata}
+
         job.updated_at = datetime.now()
 
         # Persist
@@ -237,7 +246,8 @@ class JobStore:
                     """
                     UPDATE jobs
                     SET status = $2, progress = $3, message = $4, result = $5,
-                        error = $6, updated_at = $7, started_at = $8, completed_at = $9
+                        error = $6, updated_at = $7, started_at = $8, completed_at = $9,
+                        metadata = $10
                     WHERE id = $1
                     """,
                     job_id,
@@ -249,6 +259,7 @@ class JobStore:
                     job.updated_at,
                     job.started_at,
                     job.completed_at,
+                    json.dumps(job.metadata),
                 )
             except Exception as e:
                 logger.warning(f"Failed to update job in DB: {type(e).__name__}")

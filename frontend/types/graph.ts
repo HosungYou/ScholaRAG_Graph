@@ -172,6 +172,16 @@ export interface ImportValidationResult {
   warnings: string[];
 }
 
+// BUG-028 Extension: Checkpoint for resume support
+export interface ImportCheckpoint {
+  processed_paper_ids: string[];
+  total_papers: number;
+  last_processed_index: number;
+  project_id?: string;
+  stage?: string;
+  updated_at?: string;
+}
+
 export interface ImportJob {
   job_id: string;
   // BUG-028: Added 'interrupted' status for jobs killed by server restart
@@ -186,6 +196,25 @@ export interface ImportJob {
     nodes_created: number;
     edges_created: number;
   };
+  // BUG-028 Extension: Checkpoint for resume support
+  checkpoint?: ImportCheckpoint;
+}
+
+// BUG-028 Extension: Resume info response
+export interface ImportResumeInfo {
+  job_id: string;
+  status: string;
+  can_resume: boolean;
+  checkpoint?: {
+    processed_count: number;
+    total_papers: number;
+    last_processed_index: number;
+    project_id?: string;
+    stage?: string;
+    updated_at?: string;
+  };
+  error?: string;
+  message?: string;
 }
 
 // Search

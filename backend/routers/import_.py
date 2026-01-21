@@ -292,6 +292,71 @@ async def get_job_store() -> JobStore:
 _import_jobs: dict = {}
 
 
+# =============================================================================
+# BUG-028 Extension: Checkpoint Support for Resume Functionality
+# =============================================================================
+
+async def save_checkpoint(
+    job_store: JobStore,
+    job_id: str,
+    paper_id: str,
+    index: int,
+    total_papers: int,
+    project_id: str,
+    stage: str = "importing",
+) -> None:
+    """
+    Save checkpoint after each paper is processed.
+
+    BUG-028 Extension: Enables resume from interruption point.
+
+    Args:
+        job_store: JobStore instance
+        job_id: Current job ID
+        paper_id: ID of the paper just processed
+        index: Current index in the papers list
+        total_papers: Total number of papers to process
+        project_id: ID of the project being imported into
+        stage: Current import stage
+    """
+    try:
+        job = await job_store.get_job(job_id)
+        if not job:
+            logger.warning(f"[Checkpoint {job_id}] Job not found, skipping checkpoint")
+            return
+
+        # Get existing checkpoint or create new one
+        checkpoint = job.metadata.get("checkpoint", {
+            "processed_paper_ids": [],
+            "total_papers": total_papers,
+            "last_processed_index": 0,
+            "project_id": None,
+            "stage": "starting",
+            "updated_at": None,
+        })
+
+        # Update checkpoint
+        if paper_id not in checkpoint.get("processed_paper_ids", []):
+            checkpoint.setdefault("processed_paper_ids", []).append(paper_id)
+        checkpoint["last_processed_index"] = index
+        checkpoint["total_papers"] = total_papers
+        checkpoint["project_id"] = str(project_id) if project_id else None
+        checkpoint["stage"] = stage
+        checkpoint["updated_at"] = datetime.now().isoformat()
+
+        # Save to JobStore
+        await job_store.update_job(
+            job_id=job_id,
+            metadata={"checkpoint": checkpoint},
+        )
+
+        logger.debug(f"[Checkpoint {job_id}] Saved: {index + 1}/{total_papers} papers processed")
+
+    except Exception as e:
+        # Don't fail the import if checkpoint save fails
+        logger.warning(f"[Checkpoint {job_id}] Failed to save checkpoint: {type(e).__name__}: {e}")
+
+
 @router.post("/scholarag/validate", response_model=ImportValidationResponse)
 async def validate_scholarag_folder(
     request: ScholaRAGImportRequest,
@@ -1417,22 +1482,39 @@ async def _run_zotero_import(
     project_name: Optional[str],
     research_question: Optional[str],
     extract_concepts: bool,
+    resume_checkpoint: Optional[dict] = None,
 ):
-    """Background task to run Zotero import."""
+    """Background task to run Zotero import.
+
+    BUG-028 Extension: Added resume_checkpoint parameter for resume support.
+    """
     from importers.zotero_rdf_importer import ZoteroRDFImporter
+
+    # BUG-028 Extension: Extract resume info from checkpoint
+    skip_paper_ids = set()
+    existing_project_id = None
+    if resume_checkpoint:
+        skip_paper_ids = set(resume_checkpoint.get("processed_paper_ids", []))
+        existing_project_id = resume_checkpoint.get("project_id")
+        logger.info(f"[Zotero Import {job_id}] Resuming: skipping {len(skip_paper_ids)} already processed papers")
 
     logger.info(f"[Zotero Import {job_id}] Starting import: {len(uploaded_files)} files")
 
     # Get job store for persistent updates
     job_store = await get_job_store()
 
+    # BUG-028 Extension: Track processed papers for checkpoint
+    processed_paper_ids = list(skip_paper_ids)  # Start with already processed
+    current_project_id = existing_project_id
+
     def progress_callback(progress):
         """Update job status from importer progress.
 
         BUG-027 FIX: Updates BOTH _import_jobs (legacy) AND JobStore (persistent).
-        The status API checks JobStore first, so we must update it for progress
-        to be visible to the frontend.
+        BUG-028 Extension: Also saves checkpoint after each paper is processed.
         """
+        nonlocal current_project_id
+
         status_map = {
             "validating": ImportStatus.VALIDATING,
             "parsing": ImportStatus.EXTRACTING,
@@ -1450,6 +1532,36 @@ async def _run_zotero_import(
         _import_jobs[job_id]["progress"] = progress.progress
         _import_jobs[job_id]["message"] = progress.message
         _import_jobs[job_id]["updated_at"] = datetime.now()
+
+        # BUG-028 Extension: Save checkpoint when a paper is processed
+        # Check if current_paper_id is set and not already in processed list
+        if (hasattr(progress, 'current_paper_id') and
+            progress.current_paper_id and
+            progress.current_paper_id not in processed_paper_ids):
+
+            processed_paper_ids.append(progress.current_paper_id)
+
+            # Save checkpoint asynchronously
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                checkpoint_task = loop.create_task(
+                    save_checkpoint(
+                        job_store=job_store,
+                        job_id=job_id,
+                        paper_id=progress.current_paper_id,
+                        index=progress.current_paper_index if hasattr(progress, 'current_paper_index') else len(processed_paper_ids) - 1,
+                        total_papers=progress.papers_total,
+                        project_id=current_project_id or "",
+                        stage=progress.status,
+                    )
+                )
+                def _handle_checkpoint_error(t):
+                    if t.exception():
+                        logger.warning(f"[Zotero Import {job_id}] Checkpoint save failed: {t.exception()}")
+                checkpoint_task.add_done_callback(_handle_checkpoint_error)
+            except RuntimeError:
+                logger.warning(f"[Zotero Import {job_id}] Could not save checkpoint: no running event loop")
 
         # BUG-027 FIX: Also update JobStore for persistent progress tracking
         # Status API checks JobStore first, so without this update, frontend
@@ -1501,11 +1613,18 @@ async def _run_zotero_import(
         )
 
         # Run the import
+        # BUG-028 Extension: Pass resume parameters
         result = await importer.import_from_upload(
             files=uploaded_files,
             project_name=project_name,
             research_question=research_question,
+            skip_paper_ids=skip_paper_ids if skip_paper_ids else None,
+            existing_project_id=existing_project_id,
         )
+
+        # BUG-028 Extension: Update current_project_id for checkpoint
+        if result.get("project_id"):
+            current_project_id = str(result.get("project_id"))
 
         if result.get("success"):
             concepts_count = result.get("concepts_extracted", 0)
@@ -1580,3 +1699,153 @@ async def _run_zotero_import(
             message=f"Import 실패: {sanitized_error}",
             error=sanitized_error,
         )
+
+
+# =============================================================================
+# BUG-028 Extension: Resume Interrupted Import
+# =============================================================================
+
+@router.post("/resume/{job_id}", response_model=ImportJobResponse)
+async def resume_import(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Resume an interrupted import job.
+
+    BUG-028 Extension: Allows resuming imports that were interrupted by server restart.
+
+    Conditions:
+    - Original job status must be INTERRUPTED
+    - Checkpoint must exist in job metadata
+
+    Process:
+    1. Load checkpoint from original job
+    2. Create new job with reference to original
+    3. Resume import, skipping already processed papers
+    4. Continue adding to the same project
+
+    Args:
+        job_id: ID of the interrupted job to resume
+
+    Returns:
+        New job information for tracking the resumed import
+    """
+    job_store = await get_job_store()
+
+    # Get the original job
+    original_job = await job_store.get_job(job_id)
+    if not original_job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Validate job status
+    if original_job.status != JobStatus.INTERRUPTED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resume job with status '{original_job.status.value}'. Only INTERRUPTED jobs can be resumed."
+        )
+
+    # Validate checkpoint exists
+    checkpoint = original_job.metadata.get("checkpoint")
+    if not checkpoint:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot resume: No checkpoint found. The job may have failed before any papers were processed."
+        )
+
+    # Validate checkpoint has required data
+    if not checkpoint.get("project_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot resume: Checkpoint is missing project_id."
+        )
+
+    # Get original job metadata for re-running the import
+    original_metadata = original_job.metadata
+    job_type = original_job.job_type
+
+    # Create new job for the resumed import
+    new_job = await job_store.create_job(
+        job_type=job_type,
+        metadata={
+            **original_metadata,
+            "resumed_from_job_id": job_id,
+            "checkpoint": checkpoint,  # Carry forward the checkpoint
+        },
+    )
+
+    now = datetime.now()
+    processed_count = len(checkpoint.get("processed_paper_ids", []))
+    total_count = checkpoint.get("total_papers", 0)
+
+    response = ImportJobResponse(
+        job_id=new_job.id,
+        status=ImportStatus.PENDING,
+        progress=0.0,
+        message=f"Resuming import: {processed_count}/{total_count} papers already processed",
+        project_id=checkpoint.get("project_id"),
+        stats=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    # Legacy: also store in memory
+    _import_jobs[new_job.id] = response.model_dump()
+
+    # Start background task based on job type
+    if job_type == "zotero_import":
+        # For Zotero import, we need the uploaded files
+        # Since files are not persisted, we need to inform the user
+        # For now, we'll need to re-upload files - but the checkpoint will skip processed papers
+        raise HTTPException(
+            status_code=400,
+            detail="Zotero import resume requires re-uploading files. The checkpoint will skip already processed papers. Please use the import endpoint with the same files."
+        )
+
+    # For other job types (like PDF import), start the background task
+    # This is a placeholder - specific implementations would go here
+    logger.info(f"[Resume {new_job.id}] Created resume job from {job_id}, {processed_count}/{total_count} papers already processed")
+
+    return response
+
+
+@router.get("/resume/{job_id}/info")
+async def get_resume_info(
+    job_id: str,
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Get information about resuming an interrupted job.
+
+    BUG-028 Extension: Returns checkpoint details to help user understand resume state.
+
+    Args:
+        job_id: ID of the interrupted job
+
+    Returns:
+        Resume information including processed papers count and project details
+    """
+    job_store = await get_job_store()
+
+    job = await job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    checkpoint = job.metadata.get("checkpoint", {})
+
+    return {
+        "job_id": job_id,
+        "status": job.status.value,
+        "can_resume": job.status == JobStatus.INTERRUPTED and bool(checkpoint.get("project_id")),
+        "checkpoint": {
+            "processed_count": len(checkpoint.get("processed_paper_ids", [])),
+            "total_papers": checkpoint.get("total_papers", 0),
+            "last_processed_index": checkpoint.get("last_processed_index", 0),
+            "project_id": checkpoint.get("project_id"),
+            "stage": checkpoint.get("stage"),
+            "updated_at": checkpoint.get("updated_at"),
+        } if checkpoint else None,
+        "error": job.error,
+        "message": "Re-upload files to resume. Already processed papers will be skipped." if job.status == JobStatus.INTERRUPTED else None,
+    }

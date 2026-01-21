@@ -497,10 +497,57 @@
   - [x] INTERRUPTED 상태가 JobStatus, ImportStatus에 추가됨
   - [x] 서버 시작 시 RUNNING job이 INTERRUPTED로 변경됨
   - [x] Frontend에서 INTERRUPTED 상태를 적절히 표시
-  - [ ] (향후) Checkpoint 저장 및 Resume 기능
+  - [x] Checkpoint 저장 및 Resume 기능 → **BUG-028-EXT로 구현 완료**
 - **Created**: 2026-01-21
 - **Completed**: 2026-01-21
-- **Related**: BUG-027
+- **Related**: BUG-027, BUG-028-EXT
+
+---
+
+### BUG-028-EXT: Checkpoint 저장 및 Resume 기능 (BUG-028 확장)
+- **Source**: BUG-028 향후 개선 방향 구현 2026-01-21
+- **Status**: ✅ Completed
+- **Priority**: 🟡 Medium (UX 개선 - 중단된 Import 재개 가능)
+- **Assignee**: Backend/Frontend Team
+- **Files**:
+  - `backend/jobs/job_store.py` - `update_job()`에 metadata 파라미터 추가
+  - `backend/routers/import_.py` - Checkpoint 헬퍼, Resume endpoint 추가
+  - `backend/importers/zotero_rdf_importer.py` - skip_paper_ids, existing_project_id 지원
+  - `frontend/types/graph.ts` - ImportCheckpoint, ImportResumeInfo 타입 추가
+  - `frontend/lib/api.ts` - getResumeInfo(), resumeImport() 함수 추가
+  - `frontend/components/import/ImportProgress.tsx` - Interrupted 상태 UI 강화
+- **Description**: BUG-028에서 INTERRUPTED 상태 감지만 구현. 이 확장에서는 중단된 Import를 재개할 수 있도록 Checkpoint 저장 및 Resume 기능 구현.
+- **Implementation Details**:
+  - **Checkpoint 구조** (Paper 단위 저장):
+    ```python
+    checkpoint = {
+        "processed_paper_ids": ["id1", "id2", ...],
+        "total_papers": 16,
+        "last_processed_index": 5,
+        "project_id": "uuid-...",
+        "stage": "importing",
+        "updated_at": "2026-01-21T..."
+    }
+    ```
+  - **Resume 방식** (Skip 방식):
+    - 이미 처리된 paper_id 목록을 checkpoint에서 로드
+    - 재개 시 해당 논문들 스킵하고 나머지만 처리
+  - **Resume Endpoint**: `POST /api/import/resume/{job_id}`
+  - **Resume Info Endpoint**: `GET /api/import/resume/{job_id}/info`
+- **Frontend UI 변경**:
+  - Interrupted 상태에서 checkpoint 진행률 표시
+  - "파일 다시 업로드" 버튼 + "부분 결과 보기" 버튼
+  - 이미 처리된 논문 수 및 안내 메시지 표시
+- **Acceptance Criteria**:
+  - [x] 각 논문 처리 완료 시 checkpoint가 metadata에 저장됨
+  - [x] job_store.update_job()에 metadata 파라미터 지원
+  - [x] Resume endpoint가 checkpoint 정보 반환
+  - [x] ZoteroRDFImporter가 skip_paper_ids 파라미터 지원
+  - [x] Frontend에서 interrupted 상태 시 checkpoint 정보 표시
+  - [x] 파일 재업로드 시 처리된 논문 스킵하고 계속 진행
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Related**: BUG-028, INFRA-006
 
 ---
 

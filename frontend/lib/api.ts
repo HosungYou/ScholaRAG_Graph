@@ -13,6 +13,7 @@ import type {
   ChatResponse,
   ImportValidationResult,
   ImportJob,
+  ImportResumeInfo,
   SearchResult,
   EntityType,
   GapAnalysisResult,
@@ -452,6 +453,28 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  // ===========================================
+  // BUG-028 Extension: Resume Interrupted Import
+  // ===========================================
+
+  /**
+   * Get resume information for an interrupted import job.
+   * Returns checkpoint details and whether the job can be resumed.
+   */
+  async getResumeInfo(jobId: string): Promise<ImportResumeInfo> {
+    return this.request<ImportResumeInfo>(`/api/import/resume/${jobId}/info`);
+  }
+
+  /**
+   * Resume an interrupted import job.
+   * Note: For Zotero imports, files must be re-uploaded with the same checkpoint.
+   */
+  async resumeImport(jobId: string): Promise<ImportJob> {
+    return this.request<ImportJob>(`/api/import/resume/${jobId}`, {
+      method: 'POST',
+    });
   }
 
   // Gap Detection
