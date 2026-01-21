@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 12 | 12 | 0 | 0 |
+| 🔴 High | 13 | 13 | 0 | 0 |
 | 🟡 Medium | 7 | 7 | 0 | 0 |
 | 🟢 Low | 3 | 3 | 0 | 0 |
-| **Total** | **22** | **22** | **0** | **0** |
+| **Total** | **23** | **23** | **0** | **0** |
 
 ---
 
@@ -37,6 +37,30 @@
 ---
 
 ## 📝 Completed Items Archive
+
+### BUG-038: Cohere Embedding 에러 메시지 누락 및 타임아웃
+- **Source**: 사용자 로그 분석 2026-01-21 (Import 86%에서 멈춤)
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/llm/cohere_embeddings.py` - 타임아웃 및 느린 호출 감지 추가
+  - `backend/graph/embedding/embedding_pipeline.py` - 에러 로깅 개선
+- **Description**: Cohere API 호출이 점점 느려지다가 에러 발생 (빈 에러 메시지)
+- **Root Cause**:
+  - Cohere API 레이트 리밋 또는 네트워크 문제로 응답 지연 (0.25s → 31s)
+  - 긴 API 호출이 asyncio 이벤트 루프 블로킹 → DB 커넥션 풀 고갈
+  - Exception의 `str()` 반환값이 빈 문자열
+- **Solution Applied**:
+  - [x] Cohere API 호출에 30초 타임아웃 추가
+  - [x] 3회 이상 느린 호출(>10s) 시 조기 종료
+  - [x] 에러 로깅에 예외 타입 포함 (`error_type = type(e).__name__`)
+  - [x] 빈 에러 메시지 처리 (`str(e) if str(e) else "(no message)"`)
+  - [x] 느린 API 호출 시 배치 간 딜레이 증가 (0.1s → 0.5s)
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: Render 재배포 필요, Cohere API 상태 모니터링 권장
+
+---
 
 ### BUG-037: ImportJobResponse metadata 필드 누락
 - **Source**: UI-002 구현 중 발견 2026-01-21
