@@ -22,6 +22,8 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    # BUG-028: Added INTERRUPTED for jobs killed by server restart
+    INTERRUPTED = "interrupted"
 
 
 @dataclass
@@ -333,3 +335,44 @@ class JobStore:
                 logger.warning(f"Failed to cleanup jobs: {type(e).__name__}: {e}")
                 return 0
         return 0
+
+    async def mark_running_as_interrupted(self) -> int:
+        """
+        BUG-028: Mark all RUNNING jobs as INTERRUPTED on server startup.
+
+        When server restarts (e.g., Render auto-deploy), background tasks are killed.
+        This marks orphaned jobs so users can see what happened and retry if needed.
+
+        Returns:
+            Number of jobs marked as interrupted
+        """
+        if self.db:
+            try:
+                # Find and update all RUNNING jobs
+                result = await self.db.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'interrupted',
+                        error = 'Server restarted during job execution. Please retry.',
+                        updated_at = NOW()
+                    WHERE status = 'running'
+                    """
+                )
+                # Parse "UPDATE N" to get count
+                count = int(result.split()[-1]) if result else 0
+                if count > 0:
+                    logger.warning(f"BUG-028: Marked {count} running jobs as interrupted (server restart)")
+                return count
+            except Exception as e:
+                logger.warning(f"Failed to mark running jobs as interrupted: {type(e).__name__}: {e}")
+                return 0
+
+        # Fallback for memory store
+        count = 0
+        for job_id, job in self._memory_store.items():
+            if job.status == JobStatus.RUNNING:
+                job.status = JobStatus.INTERRUPTED
+                job.error = "Server restarted during job execution. Please retry."
+                job.updated_at = datetime.now()
+                count += 1
+        return count

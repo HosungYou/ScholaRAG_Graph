@@ -213,6 +213,8 @@ class ImportStatus(str, Enum):
     BUILDING_GRAPH = "building_graph"
     COMPLETED = "completed"
     FAILED = "failed"
+    # BUG-028: Added INTERRUPTED for jobs killed by server restart
+    INTERRUPTED = "interrupted"
 
 
 # Pydantic Models
@@ -587,6 +589,8 @@ async def get_import_status(job_id: str):
             JobStatus.COMPLETED: ImportStatus.COMPLETED,
             JobStatus.FAILED: ImportStatus.FAILED,
             JobStatus.CANCELLED: ImportStatus.FAILED,
+            # BUG-028: Map INTERRUPTED status for server restart cases
+            JobStatus.INTERRUPTED: ImportStatus.INTERRUPTED,
         }
         # Extract result data for frontend compatibility
         result_data = None

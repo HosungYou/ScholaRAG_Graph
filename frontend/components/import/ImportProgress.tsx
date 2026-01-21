@@ -66,6 +66,11 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
           clearInterval(intervalId);
           setError(status.error || 'Import failed');
           onError?.(status.error || 'Import failed');
+        } else if (status.status === 'interrupted') {
+          // BUG-028: Handle interrupted state (server restart killed the task)
+          clearInterval(intervalId);
+          setError(status.error || 'Import was interrupted due to server restart. Please try again.');
+          onError?.(status.error || 'Import interrupted');
         }
       } catch (err) {
         console.error('Failed to fetch import status:', err);

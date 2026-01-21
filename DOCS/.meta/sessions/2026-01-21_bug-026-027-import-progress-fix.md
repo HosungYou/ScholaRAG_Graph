@@ -304,7 +304,7 @@ async def get_import_status(job_id: str):
 | `644a6fe` | fix(BUG-026): skip OPTIONS preflight in rate limiter |
 | `16531bc` | fix(BUG-027): progress_callback updates JobStore for real-time progress |
 | `12d6ae4` | fix(BUG-027): frontend progress scaling 0.0-1.0 → 0-100% |
-| `pending` | fix(BUG-027-C,D): error callback + status API prefer recent data |
+| `fef83eb` | fix(BUG-027-C,D): error callback + status API prefer recent data |
 
 ---
 
@@ -370,9 +370,163 @@ if legacy_updated > db_updated:
 
 ---
 
+## BUG-028: Import Stuck at 37% (Server Restart)
+
+### User Report
+BUG-027 수정 후 테스트 시, progress가 37%에서 5분 이상 멈춤.
+
+### Root Cause Investigation
+
+**Render 로그 분석 결과**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    실제 원인: Render Auto-Deploy                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  06:46:12 - Import 시작 (16 papers)                             │
+│       ↓                                                         │
+│  06:46:37 - 논문 4/16 처리 중 (progress ≈ 37%)                  │
+│       ↓                                                         │
+│  06:47:19 - ⚠️ Render: "==> Deploying..."                       │
+│       ↓                                                         │
+│  06:47:30 - 새 서버 시작, 이전 프로세스 종료                     │
+│       ↓                                                         │
+│  Background Task 사망 → Progress 업데이트 중단!                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**로그 증거**:
+```
+2026-01-21T06:47:19.763223333Z ==> Setting WEB_CONCURRENCY=1
+2026-01-21T06:47:19.783890211Z ==> Deploying...
+2026-01-21T06:47:40.629979088Z INFO: Started server process [1]
+```
+
+**부차적 문제**: Groq API 429 Rate Limiting
+```
+INFO:httpx:HTTP Request: POST https://api.groq.com/... "HTTP/1.1 429 Too Many Requests"
+INFO:openai._base_client:Retrying request to /chat/completions in 8.000000 seconds
+```
+
+### Resolution
+
+**BUG-028-A: INTERRUPTED 상태 추가**
+
+`backend/jobs/job_store.py`:
+```python
+class JobStatus(str, Enum):
+    # ... existing statuses ...
+    # BUG-028: Added INTERRUPTED for jobs killed by server restart
+    INTERRUPTED = "interrupted"
+```
+
+**BUG-028-B: 서버 시작 시 자동 감지**
+
+`backend/jobs/job_store.py`:
+```python
+async def mark_running_as_interrupted(self) -> int:
+    """
+    BUG-028: Mark all RUNNING jobs as INTERRUPTED on server startup.
+    When server restarts, background tasks are killed.
+    """
+    result = await self.db.execute("""
+        UPDATE jobs
+        SET status = 'interrupted',
+            error = 'Server restarted during job execution. Please retry.',
+            updated_at = NOW()
+        WHERE status = 'running'
+    """)
+    return count
+```
+
+`backend/main.py`:
+```python
+# BUG-028: Mark interrupted jobs on server restart
+job_store = JobStore(db_connection=db if db.is_connected else None)
+await job_store.init_table()
+interrupted_count = await job_store.mark_running_as_interrupted()
+if interrupted_count > 0:
+    logger.warning(f"BUG-028: Marked {interrupted_count} interrupted import jobs")
+```
+
+**BUG-028-C: Frontend INTERRUPTED 상태 처리**
+
+`frontend/components/import/ImportProgress.tsx`:
+```typescript
+} else if (status.status === 'interrupted') {
+  // BUG-028: Handle interrupted state (server restart killed the task)
+  clearInterval(intervalId);
+  setError(status.error || 'Import was interrupted due to server restart. Please try again.');
+  onError?.(status.error || 'Import interrupted');
+}
+```
+
+`frontend/types/graph.ts`:
+```typescript
+// BUG-028: Added 'interrupted' status for jobs killed by server restart
+status: 'pending' | 'running' | 'completed' | 'failed' | 'interrupted';
+```
+
+---
+
+## Updated Verification Status
+
+| Bug | Status | Test |
+|-----|--------|------|
+| BUG-026 | ✅ Completed | CORS headers present, 200 OK |
+| BUG-027 Backend | ✅ Completed | JobStore now receives progress updates |
+| BUG-027 Frontend | ✅ Completed | Progress displays correctly (0-100%) |
+| BUG-027-C | ✅ Completed | Error callback added to create_task |
+| BUG-027-D | ✅ Completed | Status API prefers most recent data |
+| BUG-028-A | ✅ Completed | INTERRUPTED status added to JobStatus |
+| BUG-028-B | ✅ Completed | Server startup marks RUNNING jobs as INTERRUPTED |
+| BUG-028-C | ✅ Completed | Frontend handles INTERRUPTED status |
+
+---
+
+## Updated Commits
+
+| Commit | Description |
+|--------|-------------|
+| `644a6fe` | fix(BUG-026): skip OPTIONS preflight in rate limiter |
+| `16531bc` | fix(BUG-027): progress_callback updates JobStore for real-time progress |
+| `12d6ae4` | fix(BUG-027): frontend progress scaling 0.0-1.0 → 0-100% |
+| `fef83eb` | fix(BUG-027-C,D): error callback + status API prefer recent data |
+| `(pending)` | fix(BUG-028): INTERRUPTED status + server restart detection |
+
+---
+
+## Updated Session Statistics
+
+| Metric | Value |
+|--------|-------|
+| Bugs Fixed | 3 (BUG-026, BUG-027, BUG-028) |
+| Sub-fixes | 8 |
+| Files Modified | 6 |
+| Commits | 5 |
+| Skills Used | superpowers:systematic-debugging, code-reviewer (Codex CLI) |
+
+---
+
+### 7. Server Restart Kills Background Tasks
+
+Render 자동 배포가 실행 중인 import background task를 죽임.
+해결책: 서버 시작 시 RUNNING 상태 job을 INTERRUPTED로 변경하여 사용자에게 알림.
+
+향후 개선 방향:
+- Checkpoint 저장 및 Resume 기능 구현
+- Worker process 분리 (Celery/RQ)
+- 배포 중 graceful shutdown
+
+---
+
 ## Related Documents
 
-- `DOCS/project-management/action-items.md` - BUG-026, BUG-027 문서화
+- `DOCS/project-management/action-items.md` - BUG-026, BUG-027, BUG-028 문서화
 - `DOCS/.meta/sessions/2026-01-21_bug-020-025-visualization-fixes.md` - 이전 세션
 - `backend/middleware/rate_limiter.py` - BUG-026 수정
 - `backend/routers/import_.py` - BUG-027 수정
+- `backend/jobs/job_store.py` - BUG-028 수정
+- `backend/main.py` - BUG-028 서버 시작 감지

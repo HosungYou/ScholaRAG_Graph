@@ -21,6 +21,7 @@ from middleware.rate_limiter import RateLimiterMiddleware, init_rate_limit_store
 from middleware.quota_service import init_quota_service
 from middleware.quota_middleware import QuotaTrackingMiddleware
 from middleware.error_tracking import ErrorTrackingMiddleware, init_error_tracker
+from jobs.job_store import JobStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -130,6 +131,18 @@ async def lifespan(app: FastAPI):
             logger.info("   pgvector extension: available")
         else:
             logger.warning("   pgvector extension: NOT available")
+
+        # BUG-028: Mark interrupted jobs on server restart
+        # When server restarts (e.g., Render auto-deploy), background tasks are killed.
+        # Mark RUNNING jobs as INTERRUPTED so users know what happened.
+        try:
+            job_store = JobStore(db_connection=db if db.is_connected else None)
+            await job_store.init_table()
+            interrupted_count = await job_store.mark_running_as_interrupted()
+            if interrupted_count > 0:
+                logger.warning(f"   BUG-028: Marked {interrupted_count} interrupted import jobs")
+        except Exception as job_err:
+            logger.warning(f"   Failed to check interrupted jobs: {job_err}")
     except Exception as e:
         logger.error(f"   Database connection failed: {e}")
 

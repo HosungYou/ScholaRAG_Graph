@@ -444,6 +444,66 @@
 
 ---
 
+### BUG-028: Import가 37%에서 멈춤 - 서버 재시작으로 인한 Task 종료
+- **Source**: Render 로그 분석 + Systematic Debugging 2026-01-21
+- **Status**: ✅ Completed
+- **Priority**: 🔴 P0 (Critical - Import 실패 시 원인 불명확)
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/jobs/job_store.py` - INTERRUPTED 상태 추가
+  - `backend/main.py` - 서버 시작 시 RUNNING job 감지
+  - `backend/routers/import_.py` - ImportStatus에 INTERRUPTED 추가
+  - `frontend/components/import/ImportProgress.tsx` - INTERRUPTED 처리
+  - `frontend/types/graph.ts` - ImportJob 타입에 interrupted 추가
+- **Description**: Import 진행 중 Render 자동 배포가 발생하면 background task가 종료되어 progress가 영원히 멈춤.
+- **Root Cause Analysis**:
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    Render Auto-Deploy 문제                      │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  06:46:12 - Import 시작 (16 papers)                             │
+  │       ↓                                                         │
+  │  06:46:37 - 논문 4/16 처리 중 (progress ≈ 37%)                  │
+  │       ↓                                                         │
+  │  06:47:19 - ⚠️ Render: "==> Deploying..."                       │
+  │       ↓                                                         │
+  │  06:47:30 - 새 서버 시작, 이전 프로세스 종료                     │
+  │       ↓                                                         │
+  │  Background Task 사망 → Progress 업데이트 중단!                 │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+- **Resolution**:
+  - **BUG-028-A**: JobStatus에 INTERRUPTED 상태 추가
+    ```python
+    class JobStatus(str, Enum):
+        INTERRUPTED = "interrupted"  # BUG-028
+    ```
+  - **BUG-028-B**: 서버 시작 시 RUNNING → INTERRUPTED 자동 변경
+    ```python
+    async def mark_running_as_interrupted(self) -> int:
+        await self.db.execute("""
+            UPDATE jobs SET status = 'interrupted',
+            error = 'Server restarted during job execution.'
+            WHERE status = 'running'
+        """)
+    ```
+  - **BUG-028-C**: Frontend에서 INTERRUPTED 상태 처리
+    ```typescript
+    } else if (status.status === 'interrupted') {
+        setError('Import was interrupted due to server restart.');
+    }
+    ```
+- **Acceptance Criteria**:
+  - [x] INTERRUPTED 상태가 JobStatus, ImportStatus에 추가됨
+  - [x] 서버 시작 시 RUNNING job이 INTERRUPTED로 변경됨
+  - [x] Frontend에서 INTERRUPTED 상태를 적절히 표시
+  - [ ] (향후) Checkpoint 저장 및 Resume 기능
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Related**: BUG-027
+
+---
+
 ### BUG-025: Filter UI에 Paper/Author 표시 - ADR-001 위반
 - **Source**: Parallel Agent Audit (Filter UI) 2026-01-21
 - **Status**: ✅ Completed

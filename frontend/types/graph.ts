@@ -174,7 +174,8 @@ export interface ImportValidationResult {
 
 export interface ImportJob {
   job_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  // BUG-028: Added 'interrupted' status for jobs killed by server restart
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'interrupted';
   progress: number;
   current_step?: string;
   total_steps?: number;
