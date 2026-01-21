@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 14 | 14 | 0 | 0 |
-| 🟡 Medium | 7 | 7 | 0 | 0 |
-| 🟢 Low | 3 | 3 | 0 | 0 |
-| **Total** | **24** | **24** | **0** | **0** |
+| 🔴 High | 15 | 15 | 0 | 0 |
+| 🟡 Medium | 8 | 7 | 0 | 1 |
+| 🟢 Low | 4 | 3 | 0 | 1 |
+| **Total** | **27** | **25** | **0** | **2** |
 
 ---
 
@@ -26,17 +26,94 @@
 
 ## 🟡 Medium Priority (Short-term)
 
-*모든 Medium Priority 항목이 완료되어 Archive 섹션으로 이동되었습니다.*
+### INFRA-007: 502/503 에러 응답에 CORS 헤더 누락
+- **Source**: Import 스크린샷 분석 2026-01-21 (CORS 에러 다수 발생)
+- **Status**: ⏳ Pending
+- **Assignee**: DevOps Team
+- **Files**:
+  - `backend/main.py` - 에러 핸들러에 CORS 헤더 추가 고려
+- **Description**: Render 서버 에러(502/503) 시 CORS 헤더가 없어서 브라우저가 응답 차단
+- **Root Cause**:
+  - FastAPI CORSMiddleware는 정상 응답에만 CORS 헤더 추가
+  - Render 로드밸런서가 반환하는 502/503 에러에는 CORS 헤더 없음
+  - 프론트엔드에서 에러 내용 확인 불가 (CORS 차단으로 인해)
+- **Proposed Solution**:
+  - [ ] Option A: Cloudflare 프록시 추가하여 모든 응답에 CORS 헤더 삽입
+  - [ ] Option B: 프론트엔드에서 CORS 에러 시 네트워크 에러로 graceful 처리
+  - [ ] Option C: FastAPI exception handler에서 CORS 헤더 수동 추가
+- **Evidence**:
+  ```
+  Console: Access to fetch at '.../api/import/status/...' has been blocked by CORS policy
+  Network: Status 502 → CORS 헤더 없음 → 브라우저 차단
+  ```
+- **Created**: 2026-01-21
 
 ---
 
 ## 🟢 Low Priority (Long-term)
 
-*모든 Low Priority 항목이 완료되어 Archive 섹션으로 이동되었습니다.*
+### PERF-011: Import 처리 중 17분 로그 공백 원인 조사
+- **Source**: Import 로그 분석 2026-01-21
+- **Status**: ⏳ Pending
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/graph/entity_extractor.py` - 로깅 추가 필요
+  - `backend/importers/zotero_rdf_importer.py` - 진행 로깅 개선
+- **Description**: Import 중 10:29:56 → 10:47:20 사이 약 17분 40초 동안 로그 출력 없음
+- **Possible Causes**:
+  - Entity 추출 중 Groq API 레이트 리밋 대기
+  - 메모리 부족으로 GC 지연
+  - asyncio 이벤트 루프 블로킹
+  - DB 커넥션 풀 고갈
+- **Proposed Solution**:
+  - [ ] Entity 추출 루프에 진행 로그 추가 (매 5개 논문마다)
+  - [ ] Groq API 호출 시간 측정 로깅 추가
+  - [ ] 메모리 사용량 주기적 로깅 추가 (psutil 활용)
+- **Evidence**:
+  ```
+  10:29:56 INFO: 논문 처리 중: 1/16
+  ... (17분 40초 로그 없음) ...
+  10:47:20 INFO: Cohere API 호출 재개
+  ```
+- **Created**: 2026-01-21
+- **Priority Justification**: 디버깅 용이성 개선, 직접적 장애 아님
 
 ---
 
 ## 📝 Completed Items Archive
+
+### BUG-040: Cohere API 연결 실패 시 복원력 부족
+- **Source**: Import 로그 분석 2026-01-21 (Import 86%에서 embedding 전부 실패)
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/llm/cohere_embeddings.py` - 재시도 로직 추가
+  - `backend/graph/embedding/embedding_pipeline.py` - 멀티 프로바이더 폴백 추가
+- **Description**: Cohere API ConnectError 발생 시 재시도 없이 즉시 실패, 전체 embedding이 0개로 손실
+- **Root Cause**:
+  - `ERROR:llm.cohere_embeddings:Cohere embedding error (ConnectError): (no message)`
+  - 네트워크 일시 장애에 대한 복원력 없음
+  - BUG-038의 slow call 감지는 동작했으나, ConnectError 재시도가 없음
+- **Solution Applied**:
+  - [x] Cohere API 호출에 exponential backoff 재시도 로직 추가 (최대 3회: 1s→2s→4s)
+  - [x] ConnectError, TimeoutError, OSError 등 네트워크 에러 시 자동 재시도
+  - [x] httpx, httpcore 예외도 재시도 대상에 포함
+  - [x] 총 5회 이상 재시도 발생 시 조기 종료 (API 불안정 감지)
+  - [x] `_get_embedding_providers()` 메서드 추가로 primary/fallback 프로바이더 관리
+  - [x] Cohere 실패 시 OpenAI로 자동 폴백
+  - [x] 폴백 실패 시에도 import 계속 진행 (embeddings 없이)
+- **Evidence**:
+  ```
+  10:48:26 WARNING: Cohere API slow: 10.8s for batch 723
+  10:48:58 WARNING: Cohere API slow: 30.1s for batch 724
+  10:50:19 ERROR: Cohere embedding error (ConnectError): (no message)
+  10:50:19 INFO: Created 0 embeddings  ← 이제 재시도 + 폴백으로 방지
+  ```
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: Render 재배포 필요
+
+---
 
 ### BUG-039: DB 연결 실패 시 Job 데이터 손실
 - **Source**: 중단된 Import 미표시 원인 분석 2026-01-21

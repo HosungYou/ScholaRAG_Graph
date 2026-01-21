@@ -2,11 +2,13 @@
 Embedding Pipeline - Vector embedding creation and similarity search.
 
 Extracted from GraphStore for Single Responsibility Principle.
+
+BUG-040 (2026-01-21): Added fallback from Cohere to OpenAI on failure
 """
 
 import json
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,7 @@ class EmbeddingPipeline:
     # Embedding Provider Selection
     # =========================================================================
 
-    def _get_embedding_provider(self):
+    def _get_embedding_provider(self, prefer_openai: bool = False):
         """
         Get the best available embedding provider with fallback logic.
 
@@ -49,13 +51,16 @@ class EmbeddingPipeline:
         2. OpenAI (if OPENAI_API_KEY available) - Paid fallback
         3. None (skip embeddings)
 
+        Args:
+            prefer_openai: If True, skip Cohere and use OpenAI directly (for fallback)
+
         Returns:
             Embedding provider instance or None if no provider available
         """
         from config import settings
 
-        # Priority 1: Cohere (FREE tier available)
-        if settings.cohere_api_key:
+        # Priority 1: Cohere (FREE tier available) - unless prefer_openai
+        if settings.cohere_api_key and not prefer_openai:
             from llm.cohere_embeddings import CohereEmbeddingProvider
             logger.info("Using Cohere for embeddings (primary provider)")
             return CohereEmbeddingProvider(api_key=settings.cohere_api_key)
@@ -63,7 +68,10 @@ class EmbeddingPipeline:
         # Priority 2: OpenAI (paid fallback)
         if settings.openai_api_key:
             from llm.openai_embeddings import OpenAIEmbeddingProvider
-            logger.info("Using OpenAI for embeddings (Cohere fallback)")
+            if prefer_openai:
+                logger.info("Using OpenAI for embeddings (fallback from Cohere)")
+            else:
+                logger.info("Using OpenAI for embeddings (Cohere not available)")
             return OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
 
         # No provider available
@@ -72,6 +80,36 @@ class EmbeddingPipeline:
             "Set COHERE_API_KEY (free) or OPENAI_API_KEY to enable embeddings."
         )
         return None
+
+    def _get_embedding_providers(self) -> Tuple[Optional[object], Optional[object]]:
+        """
+        BUG-040: Get primary and fallback embedding providers.
+
+        Returns:
+            Tuple of (primary_provider, fallback_provider)
+            Either can be None if not available
+        """
+        from config import settings
+
+        primary = None
+        fallback = None
+
+        # Primary: Cohere (FREE tier)
+        if settings.cohere_api_key:
+            from llm.cohere_embeddings import CohereEmbeddingProvider
+            primary = CohereEmbeddingProvider(api_key=settings.cohere_api_key)
+
+        # Fallback: OpenAI (paid)
+        if settings.openai_api_key:
+            from llm.openai_embeddings import OpenAIEmbeddingProvider
+            fallback = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+
+        # If no Cohere, use OpenAI as primary
+        if primary is None and fallback is not None:
+            primary = fallback
+            fallback = None
+
+        return primary, fallback
 
     # =========================================================================
     # Entity Embeddings
@@ -244,7 +282,10 @@ class EmbeddingPipeline:
             logger.info("No chunks need embeddings")
             return 0
 
-        # Get or create embedding provider with fallback logic
+        # BUG-040: Get primary and fallback providers
+        primary_provider = None
+        fallback_provider = None
+
         if not embedding_provider:
             if use_specter:
                 try:
@@ -255,12 +296,16 @@ class EmbeddingPipeline:
                     use_specter = False
 
             if not use_specter:
-                embedding_provider = self._get_embedding_provider()
-                if embedding_provider is None:
+                primary_provider, fallback_provider = self._get_embedding_providers()
+                if primary_provider is None:
                     logger.warning("No embedding provider available - skipping chunk embeddings")
                     return 0
+                embedding_provider = primary_provider
+        else:
+            primary_provider = embedding_provider
 
         embeddings_created = 0
+        provider_failed = False  # BUG-040: Track if primary provider failed
 
         # Process in batches
         for i in range(0, len(rows), batch_size):
@@ -315,10 +360,40 @@ class EmbeddingPipeline:
                             logger.error(f"Failed to update embedding for chunk {chunk_id}: {inner_e}")
 
             except Exception as e:
-                # BUG-038: Better error logging - capture exception type
+                # BUG-038/040: Better error logging - capture exception type
                 error_type = type(e).__name__
                 error_msg = str(e) if str(e) else "(no message)"
                 logger.error(f"Failed to create chunk embeddings ({error_type}): {error_msg}")
+
+                # BUG-040: Try fallback provider if available and not already using it
+                if fallback_provider and embedding_provider is not fallback_provider and not provider_failed:
+                    logger.warning(f"BUG-040: Primary embedding provider failed, switching to fallback")
+                    embedding_provider = fallback_provider
+                    provider_failed = True  # Only try fallback once
+
+                    # Retry this batch with fallback provider
+                    try:
+                        embeddings = await embedding_provider.get_embeddings(
+                            texts, input_type="search_document"
+                        )
+                        batch_data = []
+                        for chunk_id, embedding in zip(ids, embeddings):
+                            embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+                            batch_data.append((embedding_str, chunk_id))
+                        await self.db.executemany(
+                            """
+                            UPDATE semantic_chunks
+                            SET embedding = $1::vector
+                            WHERE id = $2
+                            """,
+                            batch_data,
+                        )
+                        embeddings_created += len(batch_data)
+                        logger.info(f"BUG-040: Fallback provider succeeded for batch {i // batch_size + 1}")
+                    except Exception as fallback_e:
+                        fallback_error_type = type(fallback_e).__name__
+                        fallback_error_msg = str(fallback_e) if str(fallback_e) else "(no message)"
+                        logger.error(f"BUG-040: Fallback provider also failed ({fallback_error_type}): {fallback_error_msg}")
 
         logger.info(f"Created {embeddings_created} chunk embeddings (specter={use_specter})")
         return embeddings_created
