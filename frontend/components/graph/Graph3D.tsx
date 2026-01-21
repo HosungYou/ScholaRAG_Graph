@@ -409,12 +409,20 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         ? node.name.substring(0, 17) + '...'
         : node.name;
 
+      // UI-006 FIX: Scale font size by centrality (range: 10px - 22px)
+      // Higher centrality = larger font for visual hierarchy
+      const minFontSize = 10;
+      const maxFontSize = 22;
+      const centralityNormalized = Math.min(1, nodeCentrality / 0.5); // Cap at 0.5 centrality
+      const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * centralityNormalized);
+
       const labelColor = node.isHighlighted ? '#FFD700' : '#FFFFFF';
-      const labelSprite = createTextSprite(displayName, labelColor, 14);
+      const labelSprite = createTextSprite(displayName, labelColor, fontSize);
 
       if (labelSprite) {
-        // Position label above the node
-        labelSprite.position.set(0, nodeSize + 8, 0);
+        // Position label above the node - scale position with font size
+        const labelOffset = nodeSize + 6 + (fontSize - minFontSize) * 0.3;
+        labelSprite.position.set(0, labelOffset, 0);
         group.add(labelSprite);
       }
     }
@@ -737,12 +745,16 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         onNodeRightClick={handleNodeRightClick}  // Right-click also focuses camera on node
         onNodeHover={handleNodeHover}
         onBackgroundClick={handleBackgroundClick}
-        // Force simulation parameters (optimized for fast stabilization)
-        cooldownTicks={100}
-        d3AlphaDecay={0.05}
-        d3VelocityDecay={0.7}
+        // UI-005 FIX: Force simulation parameters (optimized for FAST stabilization)
+        // d3AlphaDecay: Higher = faster cooldown (default 0.0228, was 0.05 causing long drift)
+        // d3VelocityDecay: Lower = less friction (default 0.4, was 0.7 causing sticky motion)
+        // d3AlphaMin: Stop simulation when alpha reaches this value (prevents infinite micro-adjustments)
+        cooldownTicks={50}
+        d3AlphaDecay={0.02}
+        d3VelocityDecay={0.4}
+        d3AlphaMin={0.001}
         // Performance optimizations
-        warmupTicks={50}
+        warmupTicks={30}
         onEngineStop={() => console.log('Force simulation stabilized')}
       />
     </div>

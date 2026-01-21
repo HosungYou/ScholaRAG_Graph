@@ -12,9 +12,9 @@
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
 | 🔴 High | 15 | 15 | 0 | 0 |
-| 🟡 Medium | 9 | 9 | 0 | 0 |
+| 🟡 Medium | 14 | 14 | 0 | 0 |
 | 🟢 Low | 4 | 4 | 0 | 0 |
-| **Total** | **28** | **28** | **0** | **0** |
+| **Total** | **33** | **33** | **0** | **0** |
 
 ---
 
@@ -31,6 +31,124 @@
 ---
 
 ## 📝 Medium Priority - Completed Archive
+
+### UI-006: Node Labels 중심성 기반 폰트 스케일링 누락
+- **Source**: 시각화 UI 리뷰 2026-01-21 (스크린샷 분석)
+- **Status**: ✅ Completed
+- **Assignee**: Frontend Team
+- **Files**:
+  - `frontend/components/graph/Graph3D.tsx` - 폰트 크기 동적 계산 추가
+- **Description**: 노드 라벨이 고정 14px 폰트로 표시되어 시각적 계층 구조 부재
+- **Root Cause**:
+  - `createTextSprite(displayName, labelColor, 14)` 고정값 사용
+  - 노드 중심성에 따른 폰트 스케일링 미구현
+- **Solution Applied**:
+  - [x] 중심성 기반 폰트 크기 계산 (10px ~ 22px 범위)
+  - [x] `centralityNormalized = Math.min(1, nodeCentrality / 0.5)` 정규화
+  - [x] 라벨 위치도 폰트 크기에 따라 동적 조정
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: 중심성 높은 노드 = 큰 폰트, 시각적 계층 구조 제공
+
+---
+
+### UI-005: Force Simulation 불안정성 - d3AlphaDecay 설정 오류
+- **Source**: 시각화 UI 리뷰 2026-01-21 (스크린샷 분석)
+- **Status**: ✅ Completed
+- **Assignee**: Frontend Team
+- **Files**:
+  - `frontend/components/graph/Graph3D.tsx` - d3 force 파라미터 최적화
+- **Description**: 노드 클릭/드래그 시 노드들이 급격히 확장/수축 반복하며 불안정한 동작
+- **Root Cause**:
+  - `d3AlphaDecay=0.05` 너무 낮음 (시뮬레이션이 오래 지속)
+  - `d3VelocityDecay=0.7` 너무 높음 (끈적거리는 움직임)
+  - `d3AlphaMin` 미설정 (무한 미세 조정)
+- **Solution Applied**:
+  - [x] `d3AlphaDecay` 0.05 → 0.02 (빠른 안정화)
+  - [x] `d3VelocityDecay` 0.7 → 0.4 (부드러운 움직임)
+  - [x] `d3AlphaMin=0.001` 추가 (미세 조정 중단점)
+  - [x] `warmupTicks=30` 추가 (초기 안정화)
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: Force simulation 빠른 안정화로 UX 개선
+
+---
+
+### UI-003: Node Type 토글 필터링 미작동 - 자동 동기화 버그
+- **Source**: 시각화 UI 리뷰 2026-01-21 (스크린샷 분석)
+- **Status**: ✅ Completed
+- **Assignee**: Frontend Team
+- **Files**:
+  - `frontend/app/projects/[id]/page.tsx` - hasInitializedFilters 상태 추가
+- **Description**: NODE TYPES 패널에서 토글 off/on해도 노드가 숨겨지거나 표시되지 않음
+- **Root Cause**:
+  - `useEffect`가 `actualEntityTypes` 변경 시마다 실행
+  - 토글 off → validSelectedTypes.length === 0 → 모든 타입 자동 재선택
+  - 사용자 필터 선택이 즉시 덮어씌워짐
+- **Solution Applied**:
+  - [x] `hasInitializedFilters` 상태 추가
+  - [x] 초기 로드 시에만 자동 동기화 실행
+  - [x] 초기화 후 사용자 자유로운 필터 토글 허용
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: 초기 필터 동기화 후 사용자 자유도 보장
+
+---
+
+### BUG-042: list_import_jobs가 빈 배열 반환
+- **Source**: 사용자 리포트 2026-01-21 (중단된 Import 미표시)
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/routers/import_.py` - 모든 import 관련 job_type 조회 추가
+- **Description**: `/api/import/jobs` API가 빈 배열 `[]`을 반환하여 중단된 Import가 UI에 표시되지 않음
+- **Root Cause**:
+  - `list_import_jobs`가 `job_type="import"`만 조회
+  - Zotero Import는 `job_type="zotero_import"` 사용
+  - PDF Import는 `job_type="pdf_import"` 또는 `"pdf_import_multiple"` 사용
+- **Solution Applied**:
+  - [x] 모든 import 관련 job_type 조회: `import`, `pdf_import`, `pdf_import_multiple`, `zotero_import`
+  - [x] 결과를 `created_at` 기준 정렬 후 limit 적용
+- **Evidence**:
+  ```
+  GET /api/import/jobs?limit=20 → [] (empty)
+  GET /api/import/status/{zotero_job_id} → {"status": "processing"} (works)
+  ```
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Commit**: 908d60c
+- **Notes**: Render 재배포 완료
+
+---
+
+### BUG-041: total_papers가 항상 0으로 표시
+- **Source**: 사용자 리포트 2026-01-21 (프로젝트 목록 스크린샷)
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/routers/projects.py` - paper_metadata 테이블 카운트 추가
+- **Description**: 모든 프로젝트에서 `total_papers: 0`으로 표시되지만 실제로는 논문 데이터가 존재함
+- **Root Cause**:
+  - ADR-001에 따라 Papers는 `paper_metadata` 테이블에 저장 (엔티티 아님)
+  - 하지만 `_get_project_stats_batch()`가 `entities` 테이블에서 `entity_type='Paper'` 카운트
+  - 결과적으로 항상 0 반환
+- **Solution Applied**:
+  - [x] `paper_metadata` 테이블에서 별도 카운트 쿼리 추가
+  - [x] `total_papers`가 `paper_lookup.get(pid, 0)` 사용하도록 변경
+- **Evidence**:
+  ```json
+  // Before fix
+  {"stats": {"total_papers": 0, "total_concepts": 1805, ...}}
+
+  // After fix (expected)
+  {"stats": {"total_papers": 16, "total_concepts": 1805, ...}}
+  ```
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Commit**: 908d60c
+- **Notes**: Render 재배포 완료
+
+---
 
 ### INFRA-007: 502/503 에러 응답에 CORS 헤더 누락
 - **Source**: Import 스크린샷 분석 2026-01-21 (CORS 에러 다수 발생)

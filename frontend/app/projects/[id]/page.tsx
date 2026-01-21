@@ -196,23 +196,28 @@ export default function ProjectDetailPage() {
     return orderedTypes.filter(type => (nodeCountsByType[type] || 0) > 0);
   }, [nodeCountsByType]);
 
-  // Sync selected entity types with actual entity types when graph loads
-  // This ensures the filter selection matches available types
+  // UI-003 FIX: Sync entity types ONLY on initial graph load
+  // Track whether initial sync has been done to allow user freedom after
+  const [hasInitializedFilters, setHasInitializedFilters] = useState(false);
+
   useEffect(() => {
-    if (actualEntityTypes.length > 0) {
+    // Only run on initial graph load, not on every filter change
+    if (actualEntityTypes.length > 0 && !hasInitializedFilters) {
       // Only select types that actually exist in the graph
       const validSelectedTypes = filters.entityTypes.filter(
         type => actualEntityTypes.includes(type)
       );
-      // If no valid types are selected, select all available types
+      // If no valid types match, select all available types
       if (validSelectedTypes.length === 0) {
         setFilters({ entityTypes: [...actualEntityTypes] });
       } else if (validSelectedTypes.length !== filters.entityTypes.length) {
         // Update to only include valid types
         setFilters({ entityTypes: validSelectedTypes });
       }
+      // Mark as initialized - user can now freely toggle without auto-reset
+      setHasInitializedFilters(true);
     }
-  }, [actualEntityTypes, filters.entityTypes, setFilters]);
+  }, [actualEntityTypes, hasInitializedFilters, filters.entityTypes, setFilters]);
 
   // Handle node click in graph
   const handleNodeClick = useCallback(
