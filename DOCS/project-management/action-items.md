@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 8 | 8 | 0 | 0 |
-| 🟡 Medium | 4 | 4 | 0 | 0 |
+| 🔴 High | 9 | 9 | 0 | 0 |
+| 🟡 Medium | 5 | 5 | 0 | 0 |
 | 🟢 Low | 3 | 3 | 0 | 0 |
-| **Total** | **15** | **15** | **0** | **0** |
+| **Total** | **17** | **17** | **0** | **0** |
 
 ---
 
@@ -37,6 +37,48 @@
 ---
 
 ## 📝 Completed Items Archive
+
+### PERF-009: Render 512MB 메모리 제한 최적화
+- **Source**: Render Memory Exceeded Alert 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/llm/cohere_embeddings.py` - batch_size 96 → 20
+  - `backend/llm/openai_embeddings.py` - batch_size 50 → 20
+  - `backend/graph/embedding/embedding_pipeline.py` - batch_size 50 → 20
+  - `backend/graph/graph_store.py` - batch_size 50 → 20
+  - `backend/config.py` - llm_cache_max_size 1000 → 100
+- **Description**: Import 중 Render 서버가 512MB 메모리 제한 초과로 재시작되어 import 중단
+- **Root Cause**:
+  - Cohere embedding batch_size = 96 (너무 큼)
+  - LLM 캐시 max_size = 1000 (메모리 과다 사용)
+  - 동시 처리 시 메모리 사용량 급증
+- **Solution Applied**:
+  - [x] 모든 embedding batch_size를 20으로 감소 (메모리 ~150MB 절약)
+  - [x] LLM 캐시 max_size를 100으로 감소 (메모리 ~50MB 절약)
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: 총 ~150-200MB 메모리 절약 예상, 문제 지속 시 인스턴스 업그레이드 검토 ($15/월 for 1GB)
+
+---
+
+### UI-001: Import Interrupted Resume 버튼 추가
+- **Source**: BUG-028 관련 UX 개선
+- **Status**: ✅ Completed
+- **Assignee**: Frontend Team
+- **Files**:
+  - `frontend/components/import/ImportProgress.tsx` - Resume 버튼 구현
+- **Description**: Import가 서버 재시작으로 중단되었을 때 Resume 버튼이 없어 사용자가 재개할 수 없음
+- **Solution Applied**:
+  - [x] `handleResumeImport()` 함수 구현 - `api.resumeImport(jobId)` 호출
+  - [x] "Import 재개" 버튼을 primary action으로 추가
+  - [x] 로딩 상태 및 에러 처리 추가
+  - [x] 버튼 레이아웃 재구성: Resume (primary) → Re-upload → Partial results
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: Vercel 재배포 필요
+
+---
 
 ### BUG-034: Chunk Embedding pgvector 형식 변환 누락
 - **Source**: Render 로그 분석 2026-01-21 (import 실패)
