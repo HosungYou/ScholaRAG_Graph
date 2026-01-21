@@ -206,7 +206,7 @@ class EmbeddingPipeline:
         self,
         project_id: str,
         embedding_provider=None,
-        batch_size: int = 20,  # PERF-009: Reduced from 50 for memory optimization
+        batch_size: int = 5,  # PERF-010: Further reduced for 512MB memory limit
         use_specter: bool = False,
     ) -> int:
         """

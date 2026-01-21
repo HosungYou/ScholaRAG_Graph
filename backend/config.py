@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     # Performance: LLM Caching
     llm_cache_enabled: bool = True  # Enable LLM response caching
     llm_cache_ttl: int = 3600  # Default cache TTL in seconds (1 hour)
-    llm_cache_max_size: int = 100  # PERF-009: Reduced from 1000 for 512MB memory limit
+    llm_cache_max_size: int = 50  # PERF-010: Further reduced for 512MB memory limit
 
     # Performance: Redis (for rate limiting and caching in production)
     redis_url: str = ""  # Redis connection URL (e.g., redis://localhost:6379)

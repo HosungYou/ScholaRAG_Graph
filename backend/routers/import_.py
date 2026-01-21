@@ -1626,6 +1626,22 @@ async def _run_zotero_import(
         if result.get("project_id"):
             current_project_id = str(result.get("project_id"))
 
+            # BUG-035 FIX: Update checkpoint with project_id immediately
+            # Checkpoint may have been saved during import without project_id
+            # because project is created DURING processing, not before
+            try:
+                existing_job = await job_store.get_job(job_id)
+                if existing_job and existing_job.metadata.get("checkpoint"):
+                    checkpoint = existing_job.metadata["checkpoint"]
+                    checkpoint["project_id"] = current_project_id
+                    await job_store.update_job(
+                        job_id=job_id,
+                        metadata={"checkpoint": checkpoint},
+                    )
+                    logger.debug(f"[Zotero Import {job_id}] Updated checkpoint with project_id: {current_project_id}")
+            except Exception as e:
+                logger.warning(f"[Zotero Import {job_id}] Failed to update checkpoint with project_id: {e}")
+
         if result.get("success"):
             concepts_count = result.get("concepts_extracted", 0)
             relationships_count = result.get("relationships_created", 0)

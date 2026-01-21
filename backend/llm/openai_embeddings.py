@@ -66,9 +66,10 @@ class OpenAIEmbeddingProvider:
         model_to_use = model or self.DEFAULT_MODEL
 
         try:
-            # PERF-009: Reduced batch size for memory optimization on 512MB instances
-            # OpenAI allows ~8191 tokens, but smaller batches use less memory
-            batch_size = 20
+            # PERF-010: Further reduced batch size for 512MB Render instances
+            # PERF-009 had batch_size=20, but still caused memory overflow
+            # OpenAI allows ~8191 tokens, but we use 5 to stay under memory limit
+            batch_size = 5
             all_embeddings = []
 
             for i in range(0, len(texts), batch_size):
