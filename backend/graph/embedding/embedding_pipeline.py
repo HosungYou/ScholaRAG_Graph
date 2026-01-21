@@ -4,6 +4,7 @@ Embedding Pipeline - Vector embedding creation and similarity search.
 Extracted from GraphStore for Single Responsibility Principle.
 
 BUG-040 (2026-01-21): Added fallback from Cohere to OpenAI on failure
+PERF-012 (2026-01-21): Changed primary provider to OpenAI (6x cheaper, more stable)
 """
 
 import json
@@ -19,14 +20,16 @@ class EmbeddingPipeline:
     Embedding Pipeline for vector operations.
 
     Handles:
-    - Entity embedding creation (Cohere/OpenAI with fallback)
-    - Chunk embedding creation (Cohere/OpenAI/SPECTER2 with fallback)
+    - Entity embedding creation (OpenAI/Cohere with fallback)
+    - Chunk embedding creation (OpenAI/Cohere/SPECTER2 with fallback)
     - Vector similarity search
 
-    Embedding Provider Priority:
-    1. Cohere (if COHERE_API_KEY set) - FREE tier available
-    2. OpenAI (if OPENAI_API_KEY set) - Paid fallback
+    Embedding Provider Priority (PERF-012: Changed 2026-01-21):
+    1. OpenAI (if OPENAI_API_KEY set) - $0.02/1M tokens, most stable
+    2. Cohere (if COHERE_API_KEY set) - $0.12/1M tokens, fallback
     3. Skip embeddings (if no provider available)
+
+    Cost comparison: OpenAI is 6x cheaper than Cohere ($0.02 vs $0.12 per 1M tokens)
     """
 
     def __init__(self, db=None):
@@ -42,48 +45,52 @@ class EmbeddingPipeline:
     # Embedding Provider Selection
     # =========================================================================
 
-    def _get_embedding_provider(self, prefer_openai: bool = False):
+    def _get_embedding_provider(self, prefer_cohere: bool = False):
         """
         Get the best available embedding provider with fallback logic.
 
-        Priority order:
-        1. Cohere (if COHERE_API_KEY available) - FREE tier, recommended
-        2. OpenAI (if OPENAI_API_KEY available) - Paid fallback
+        Priority order (PERF-012: Changed 2026-01-21):
+        1. OpenAI (if OPENAI_API_KEY available) - $0.02/1M tokens, most stable
+        2. Cohere (if COHERE_API_KEY available) - $0.12/1M tokens, fallback
         3. None (skip embeddings)
 
         Args:
-            prefer_openai: If True, skip Cohere and use OpenAI directly (for fallback)
+            prefer_cohere: If True, skip OpenAI and use Cohere directly (for fallback)
 
         Returns:
             Embedding provider instance or None if no provider available
         """
         from config import settings
 
-        # Priority 1: Cohere (FREE tier available) - unless prefer_openai
-        if settings.cohere_api_key and not prefer_openai:
-            from llm.cohere_embeddings import CohereEmbeddingProvider
-            logger.info("Using Cohere for embeddings (primary provider)")
-            return CohereEmbeddingProvider(api_key=settings.cohere_api_key)
-
-        # Priority 2: OpenAI (paid fallback)
-        if settings.openai_api_key:
+        # PERF-012: Priority 1: OpenAI (cheaper and more stable)
+        if settings.openai_api_key and not prefer_cohere:
             from llm.openai_embeddings import OpenAIEmbeddingProvider
-            if prefer_openai:
-                logger.info("Using OpenAI for embeddings (fallback from Cohere)")
-            else:
-                logger.info("Using OpenAI for embeddings (Cohere not available)")
+            logger.info("Using OpenAI for embeddings (primary provider, $0.02/1M tokens)")
             return OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+
+        # Priority 2: Cohere (fallback)
+        if settings.cohere_api_key:
+            from llm.cohere_embeddings import CohereEmbeddingProvider
+            if prefer_cohere:
+                logger.info("Using Cohere for embeddings (fallback from OpenAI)")
+            else:
+                logger.info("Using Cohere for embeddings (OpenAI not available)")
+            return CohereEmbeddingProvider(api_key=settings.cohere_api_key)
 
         # No provider available
         logger.warning(
             "No embedding provider available - skipping embedding creation. "
-            "Set COHERE_API_KEY (free) or OPENAI_API_KEY to enable embeddings."
+            "Set OPENAI_API_KEY (recommended) or COHERE_API_KEY to enable embeddings."
         )
         return None
 
     def _get_embedding_providers(self) -> Tuple[Optional[object], Optional[object]]:
         """
-        BUG-040: Get primary and fallback embedding providers.
+        BUG-040/PERF-012: Get primary and fallback embedding providers.
+
+        PERF-012: Changed provider priority (2026-01-21)
+        - OpenAI: $0.02/1M tokens (6x cheaper), more stable
+        - Cohere: $0.12/1M tokens, used as fallback
 
         Returns:
             Tuple of (primary_provider, fallback_provider)
@@ -94,20 +101,24 @@ class EmbeddingPipeline:
         primary = None
         fallback = None
 
-        # Primary: Cohere (FREE tier)
-        if settings.cohere_api_key:
-            from llm.cohere_embeddings import CohereEmbeddingProvider
-            primary = CohereEmbeddingProvider(api_key=settings.cohere_api_key)
-
-        # Fallback: OpenAI (paid)
+        # PERF-012: Primary: OpenAI (cheaper and more stable)
         if settings.openai_api_key:
             from llm.openai_embeddings import OpenAIEmbeddingProvider
-            fallback = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+            primary = OpenAIEmbeddingProvider(api_key=settings.openai_api_key)
+            logger.info("Primary embedding provider: OpenAI ($0.02/1M tokens)")
 
-        # If no Cohere, use OpenAI as primary
+        # Fallback: Cohere
+        if settings.cohere_api_key:
+            from llm.cohere_embeddings import CohereEmbeddingProvider
+            fallback = CohereEmbeddingProvider(api_key=settings.cohere_api_key)
+            if primary:
+                logger.info("Fallback embedding provider: Cohere")
+
+        # If no OpenAI, use Cohere as primary
         if primary is None and fallback is not None:
             primary = fallback
             fallback = None
+            logger.info("Primary embedding provider: Cohere (OpenAI not available)")
 
         return primary, fallback
 

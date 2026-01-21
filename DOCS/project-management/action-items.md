@@ -12,9 +12,9 @@
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
 | 🔴 High | 15 | 15 | 0 | 0 |
-| 🟡 Medium | 8 | 7 | 0 | 1 |
+| 🟡 Medium | 9 | 8 | 0 | 1 |
 | 🟢 Low | 4 | 3 | 0 | 1 |
-| **Total** | **27** | **25** | **0** | **2** |
+| **Total** | **28** | **26** | **0** | **2** |
 
 ---
 
@@ -81,6 +81,28 @@
 ---
 
 ## 📝 Completed Items Archive
+
+### PERF-012: OpenAI를 Primary 임베딩 프로바이더로 변경
+- **Source**: 비용/안정성 분석 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/graph/embedding/embedding_pipeline.py` - 프로바이더 우선순위 변경
+- **Description**: OpenAI가 Cohere보다 6배 저렴하고 더 안정적이므로 Primary로 변경
+- **Cost Comparison**:
+  | Provider | Price (per 1M tokens) | Notes |
+  |----------|----------------------|-------|
+  | OpenAI text-embedding-3-small | **$0.02** | 6x cheaper, more stable |
+  | Cohere embed-v4 | $0.12 | Has free tier but limited |
+- **Solution Applied**:
+  - [x] `_get_embedding_provider()` - OpenAI 우선으로 변경
+  - [x] `_get_embedding_providers()` - OpenAI Primary, Cohere Fallback
+  - [x] 클래스 docstring 업데이트
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Notes**: Render 재배포 필요
+
+---
 
 ### BUG-040: Cohere API 연결 실패 시 복원력 부족
 - **Source**: Import 로그 분석 2026-01-21 (Import 86%에서 embedding 전부 실패)
