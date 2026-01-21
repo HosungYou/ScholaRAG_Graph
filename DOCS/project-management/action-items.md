@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 6 | 6 | 0 | 0 |
-| 🟡 Medium | 3 | 3 | 0 | 0 |
+| 🔴 High | 8 | 8 | 0 | 0 |
+| 🟡 Medium | 4 | 4 | 0 | 0 |
 | 🟢 Low | 3 | 3 | 0 | 0 |
-| **Total** | **12** | **12** | **0** | **0** |
+| **Total** | **15** | **15** | **0** | **0** |
 
 ---
 
@@ -38,6 +38,64 @@
 
 ## 📝 Completed Items Archive
 
+### BUG-034: Chunk Embedding pgvector 형식 변환 누락
+- **Source**: Render 로그 분석 2026-01-21 (import 실패)
+- **Status**: ✅ Completed
+- **Assignee**: Backend Team
+- **Files**:
+  - `backend/graph/embedding/embedding_pipeline.py` - `create_chunk_embeddings` 메서드 수정
+- **Description**: Cohere 임베딩 생성 후 semantic_chunks 테이블 저장 시 "expected str, got list" 에러 발생
+- **Root Cause**: `create_chunk_embeddings` 메서드에서 embedding list를 pgvector 문자열 형식으로 변환하지 않음
+  - `create_embeddings` (엔티티)에서는 `embedding_str = "[" + ",".join(map(str, embedding)) + "]"` 사용
+  - `create_chunk_embeddings` (청크)에서는 변환 누락
+- **Solution Applied**:
+  - [x] `create_chunk_embeddings`에 문자열 변환 로직 추가
+  - [x] batch_data 생성 시 `embedding_str` 사용
+  - [x] fallback 개별 업데이트에서도 `embedding_str` 사용
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Verified By**: Claude Code
+- **Notes**: Render 재배포 필요
+
+---
+
+### BUG-033: semantic_chunks 테이블 누락 및 Groq Rate Limit
+- **Source**: Render 로그 분석 2026-01-21 (import 실패)
+- **Status**: ✅ Completed
+- **Assignee**: Database Team / Infrastructure
+- **Files**:
+  - `database/migrations/011_semantic_chunks.sql` - Supabase에서 수동 실행
+- **Description**: Import 시 세 가지 에러 발생:
+  1. `relation "semantic_chunks" does not exist` - 마이그레이션 미적용
+  2. `Groq rate limit reached (429)` - 무료 티어 한도 초과 (500K tokens/day)
+  3. `LLM extraction failed after 3 retries` - fallback 없이 완전 실패
+- **Root Cause**:
+  - 011_semantic_chunks.sql 마이그레이션이 Supabase에 적용되지 않음
+  - Groq 무료 티어 일일 토큰 한도 500,000 초과
+- **Solution Applied**:
+  - [x] Supabase SQL Editor에서 011_semantic_chunks.sql 마이그레이션 실행
+  - [x] Groq Dev Tier 업그레이드 (500K → 7M tokens/day)
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Verified By**: User
+- **Notes**: Dev Tier 비용 $2/월 또는 pay-as-you-go
+
+---
+
+### INFRA-007: Groq Dev Tier 업그레이드
+- **Source**: BUG-033 해결 과정
+- **Status**: ✅ Completed
+- **Assignee**: Infrastructure
+- **Description**: Groq API 무료 티어에서 Dev Tier로 업그레이드하여 일일 토큰 한도 증가
+- **Details**:
+  - Before: Free Tier (500K tokens/day)
+  - After: Dev Tier (7M tokens/day)
+  - Console: https://console.groq.com/settings/billing
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+
+---
+
 ### BUG-029: system.py DB 쿼리 - 존재하지 않는 컬럼 수정
 - **Source**: Render 로그 분석 2026-01-21
 - **Status**: ✅ Completed
@@ -53,7 +111,7 @@
 - **Created**: 2026-01-21
 - **Completed**: 2026-01-21
 - **Verified By**: Claude Code
-- **Notes**: Supabase에서 마이그레이션 실행 필요
+- **Notes**: ✅ Supabase에서 마이그레이션 실행 완료 (2026-01-21)
 
 ---
 

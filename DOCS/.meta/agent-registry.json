@@ -1,10 +1,86 @@
 {
-  "version": "1.8.0",
-  "last_updated": "2026-01-21T06:00:00Z",
+  "version": "1.10.0",
+  "last_updated": "2026-01-21T09:00:00Z",
   "project": "ScholaRAG_Graph",
   "repository": "https://github.com/HosungYou/ScholaRAG_Graph",
 
   "sessions": [
+    {
+      "id": "2026-01-21_bug-033-semantic-chunks-groq-upgrade",
+      "date": "2026-01-21T08:30:00Z",
+      "agents": ["Opus 4.5"],
+      "type": "bugfix-infrastructure",
+      "feature": "semantic-chunks-groq-upgrade",
+      "duration_minutes": 30,
+      "skills_used": ["superpowers:systematic-debugging"],
+      "files_read": 4,
+      "files_created": 1,
+      "files_modified": 2,
+      "lines_added": 120,
+      "lines_removed": 4,
+      "artifacts": [
+        "DOCS/.meta/sessions/2026-01-21_bug-033-semantic-chunks-groq-upgrade.md",
+        "DOCS/project-management/action-items.md",
+        "DOCS/.meta/agent-registry.json"
+      ],
+      "decisions": [
+        "Groq Dev Tier upgrade instead of LLM fallback implementation",
+        "Manual Supabase migration execution"
+      ],
+      "outcome": "completed",
+      "follow_up_required": true,
+      "follow_up_tasks": [
+        "Verify import works after changes"
+      ],
+      "bugs_fixed": [
+        "BUG-033: semantic_chunks table missing + Groq rate limit"
+      ],
+      "infrastructure_changes": [
+        "INFRA-007: Groq Dev Tier upgrade (500K → 7M tokens/day)"
+      ],
+      "supabase_migration_executed": true,
+      "methodology": "systematic-debugging"
+    },
+    {
+      "id": "2026-01-21_bug-029-migration-execution",
+      "date": "2026-01-21T07:30:00Z",
+      "agents": ["Opus 4.5"],
+      "type": "implementation",
+      "feature": "bug-029-migration",
+      "duration_minutes": 45,
+      "skills_used": ["superpowers:systematic-debugging", "browser-automation"],
+      "files_read": 5,
+      "files_created": 1,
+      "files_modified": 4,
+      "lines_added": 52,
+      "lines_removed": 0,
+      "artifacts": [
+        "database/migrations/011_add_import_tracking_to_projects.sql",
+        "backend/llm/groq_provider.py",
+        "backend/graph/entity_extractor.py",
+        "DOCS/project-management/action-items.md",
+        "DOCS/.meta/sessions/2026-01-21_bug-029-migration-execution.md"
+      ],
+      "decisions": [
+        "Git rebase conflict: use interval-based rate limiter",
+        "Git rebase conflict: merge both section-aware and JSON fallback extraction",
+        "Use JavaScript Monaco API to set SQL in Supabase editor"
+      ],
+      "outcome": "completed",
+      "follow_up_required": true,
+      "follow_up_tasks": [
+        "Render manual deployment"
+      ],
+      "bugs_fixed": [
+        "BUG-029: system.py DB query - missing columns",
+        "BUG-031: entity_extractor.py JSON parsing (git conflict resolved)",
+        "BUG-032: Groq API rate limiting (git conflict resolved)"
+      ],
+      "commits": ["ca8a8c0"],
+      "browser_automation_actions": 15,
+      "methodology": "git-rebase-and-browser-automation",
+      "supabase_migration_executed": true
+    },
     {
       "id": "2026-01-21_codex-review-proxy-headers-fix",
       "date": "2026-01-21T05:30:00Z",
@@ -398,23 +474,23 @@
   ],
 
   "action_items": {
-    "total": 47,
+    "total": 52,
     "by_priority": {
-      "high": 20,
-      "medium": 18,
+      "high": 24,
+      "medium": 19,
       "low": 9
     },
     "by_status": {
       "pending": 2,
       "in_progress": 0,
-      "completed": 45
+      "completed": 50
     },
     "recently_completed": [
-      "BUG-019: Uvicorn proxy headers not enabled (TRUE root cause)",
-      "BUG-018: vercel.json deprecated Render service URL",
-      "BUG-015: system.py get_connection() AttributeError",
-      "BUG-016: SSR enforceHttps not working",
-      "BUG-017: quota_middleware.py ImportError"
+      "BUG-033: semantic_chunks table missing + Groq rate limit",
+      "INFRA-007: Groq Dev Tier upgrade",
+      "BUG-029: system.py DB query - missing columns (migration executed)",
+      "BUG-031: entity_extractor.py JSON parsing failure",
+      "BUG-032: Groq API rate limiting"
     ],
     "pending_large_tasks": [
       "INFRA-005: Infrastructure as Code",
@@ -425,13 +501,13 @@
 
   "agent_stats": {
     "Opus 4.5": {
-      "total_sessions": 9,
-      "total_hours": 11.0,
-      "decisions_made": 22,
+      "total_sessions": 11,
+      "total_hours": 12.25,
+      "decisions_made": 27,
       "primary_role": "Architecture & Complex Design",
-      "features_designed": ["documentation-restructure", "zotero-hybrid-import", "infranodus-visualization", "infranodus-integration", "production-stability", "action-items-completion", "deployment-fix", "vercel-url-fix", "proxy-headers-fix"],
+      "features_designed": ["documentation-restructure", "zotero-hybrid-import", "infranodus-visualization", "infranodus-integration", "production-stability", "action-items-completion", "deployment-fix", "vercel-url-fix", "proxy-headers-fix", "bug-029-migration", "semantic-chunks-groq-upgrade"],
       "reviews_conducted": 3,
-      "bugs_fixed": 8,
+      "bugs_fixed": 12,
       "security_fixes": 2,
       "performance_fixes": 3,
       "architecture_fixes": 2,

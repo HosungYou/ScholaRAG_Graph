@@ -279,7 +279,11 @@ class EmbeddingPipeline:
                     )
 
                 # PERF-008: Batch update chunks with embeddings
-                batch_data = [(emb, cid) for cid, emb in zip(ids, embeddings)]
+                # Convert embedding list to string format for pgvector
+                batch_data = []
+                for chunk_id, embedding in zip(ids, embeddings):
+                    embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+                    batch_data.append((embedding_str, chunk_id))
                 try:
                     await self.db.executemany(
                         """
@@ -292,7 +296,7 @@ class EmbeddingPipeline:
                     embeddings_created += len(batch_data)
                 except Exception as batch_e:
                     logger.warning(f"Batch chunk embedding update failed: {batch_e}, falling back")
-                    for embedding, chunk_id in batch_data:
+                    for embedding_str, chunk_id in batch_data:
                         try:
                             await self.db.execute(
                                 """
@@ -300,7 +304,7 @@ class EmbeddingPipeline:
                                 SET embedding = $1::vector
                                 WHERE id = $2
                                 """,
-                                embedding,
+                                embedding_str,
                                 chunk_id,
                             )
                             embeddings_created += 1
