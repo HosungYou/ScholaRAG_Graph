@@ -155,6 +155,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 ## Deployment
 
 > ⚠️ **INFRA-004 (2026-01-20)**: Backend migrated from Python service to Docker service.
+> ⚠️ **INFRA-006 (2026-01-21)**: Auto-Deploy disabled to prevent import interruption (BUG-028).
 
 | Service | Platform | Type | URL |
 |---------|----------|------|-----|
@@ -175,6 +176,19 @@ CORS_ORIGINS=https://schola-rag-graph.vercel.app,https://scholarag-graph.vercel.
 ```
 
 **Render Dashboard Path**: `scholarag-graph-docker` → Settings → Environment Variables
+
+### Auto-Deploy Configuration (INFRA-006)
+
+> ⚠️ **Auto-Deploy is OFF** - Manual deployment required.
+
+**Why**: Auto-deploy causes server restarts during import operations, killing background tasks (BUG-028).
+
+**Render Dashboard Path**: `scholarag-graph-docker` → Settings → Build & Deploy → Auto-Deploy → **Off**
+
+**To Deploy**:
+1. Go to Render Dashboard → `scholarag-graph-docker`
+2. Click "Manual Deploy" → "Deploy latest commit"
+3. ⚠️ Ensure no imports are running before deploying
 
 ---
 
@@ -275,6 +289,7 @@ Use `INFRA-XXX` prefix for infrastructure-related action items:
 - `INFRA-002`: CI/CD configuration
 - `INFRA-003`: Environment variables setup
 - `INFRA-004`: Service migration (e.g., Python → Docker)
+- `INFRA-006`: Auto-Deploy disabled (BUG-028 prevention)
 
 ---
 

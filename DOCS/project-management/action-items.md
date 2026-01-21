@@ -1291,6 +1291,32 @@
 
 ---
 
+### INFRA-006: Auto-Deploy 비활성화 (BUG-028 예방)
+- **Source**: BUG-028 분석 결과 2026-01-21
+- **Status**: ✅ Completed
+- **Assignee**: DevOps Team
+- **Description**: Render Auto-Deploy 기능이 import 진행 중 서버를 재시작하여 background task를 종료시킴. 이를 방지하기 위해 Auto-Deploy를 비활성화하고 수동 배포로 전환.
+- **Root Cause**:
+  ```
+  git push → Render Auto-Deploy → 서버 재시작 → Import task 사망 → Progress 멈춤
+  ```
+- **Configuration Change**:
+  - **Path**: Render Dashboard → `scholarag-graph-docker` → Settings → Build & Deploy → Auto-Deploy
+  - **Before**: On Commit
+  - **After**: **Off**
+- **Deployment Process (New)**:
+  1. Render Dashboard → `scholarag-graph-docker` 접속
+  2. "Manual Deploy" → "Deploy latest commit" 클릭
+  3. ⚠️ 배포 전 진행 중인 import가 없는지 확인
+- **Acceptance Criteria**:
+  - [x] Auto-Deploy를 Off로 변경
+  - [x] CLAUDE.md에 문서화
+- **Created**: 2026-01-21
+- **Completed**: 2026-01-21
+- **Related**: BUG-028
+
+---
+
 ### BUG-011: DATABASE_URL 특수문자 연결 실패
 - **Source**: Render Docker Deployment 2026-01-20
 - **Status**: ✅ Completed

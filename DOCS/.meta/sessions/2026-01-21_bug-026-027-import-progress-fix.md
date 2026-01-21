@@ -522,6 +522,24 @@ Render 자동 배포가 실행 중인 import background task를 죽임.
 
 ---
 
+## INFRA-006: Auto-Deploy 비활성화
+
+### Configuration Change
+BUG-028 근본 원인 해결을 위해 Render Auto-Deploy를 비활성화.
+
+| Setting | Before | After |
+|---------|--------|-------|
+| Auto-Deploy | On Commit | **Off** |
+
+**Path**: Render Dashboard → `scholarag-graph-docker` → Settings → Build & Deploy → Auto-Deploy → Off
+
+### 배포 프로세스 (New)
+1. Render Dashboard → `scholarag-graph-docker` 접속
+2. "Manual Deploy" → "Deploy latest commit" 클릭
+3. ⚠️ 배포 전 진행 중인 import가 없는지 확인
+
+---
+
 ## Related Documents
 
 - `DOCS/project-management/action-items.md` - BUG-026, BUG-027, BUG-028 문서화
