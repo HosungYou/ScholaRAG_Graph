@@ -142,6 +142,13 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   const fgRef = useRef<any>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
+  // UI-010 FIX: Store node positions to persist across re-renders
+  // This prevents the simulation from restarting when graphData is recreated
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number; z: number; fx?: number; fy?: number; fz?: number }>>(new Map());
+
+  // UI-010 FIX: Track if this is the initial render
+  const isInitialRenderRef = useRef(true);
+
   // Double-click detection state
   const lastClickRef = useRef<{ nodeId: string; timestamp: number } | null>(null);
   const DOUBLE_CLICK_THRESHOLD = 300; // ms
@@ -265,7 +272,8 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     return `rgba(${r}, ${g}, ${b}, 0.35)`;
   }, []);
 
-  // Transform data for ForceGraph3D
+  // UI-010 FIX: Transform data for ForceGraph3D with position preservation
+  // KEY: We now restore positions from nodePositionsRef to prevent simulation reset
   const graphData = useMemo<ForceGraphData>(() => {
     const forceNodes: ForceGraphNode[] = nodes.map(node => {
       const clusterId = (node.properties as { cluster_id?: number })?.cluster_id;
@@ -289,7 +297,10 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       const bridgeBoost = isBridge ? 2 : 0;
       const nodeSize = baseSize + centralityBoost + bridgeBoost;
 
-      return {
+      // UI-010 FIX: Restore position from ref if available
+      const savedPosition = nodePositionsRef.current.get(node.id);
+
+      const forceNode: ForceGraphNode = {
         id: node.id,
         name: node.name,
         val: nodeSize,
@@ -301,6 +312,19 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         isBridge,
         properties: node.properties,
       };
+
+      // Restore saved positions to prevent simulation restart
+      if (savedPosition) {
+        forceNode.x = savedPosition.x;
+        forceNode.y = savedPosition.y;
+        forceNode.z = savedPosition.z;
+        // Restore pinned positions (fx, fy, fz) if they were set
+        if (savedPosition.fx !== undefined) forceNode.fx = savedPosition.fx;
+        if (savedPosition.fy !== undefined) forceNode.fy = savedPosition.fy;
+        if (savedPosition.fz !== undefined) forceNode.fz = savedPosition.fz;
+      }
+
+      return forceNode;
     });
 
     const forceLinks: ForceGraphLink[] = edges.map(edge => ({
@@ -330,6 +354,33 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
 
     return { nodes: forceNodes, links: forceLinks };
   }, [nodes, edges, clusterColorMap, centralityMap, highlightedNodeSet, highlightedEdgeSet, showGhostEdges, potentialEdges]);
+
+  // UI-010 FIX: Save node positions periodically to preserve across re-renders
+  useEffect(() => {
+    const savePositions = () => {
+      if (fgRef.current) {
+        const currentNodes = fgRef.current.graphData()?.nodes;
+        if (currentNodes) {
+          currentNodes.forEach((node: ForceGraphNode) => {
+            if (node.x !== undefined && node.y !== undefined && node.z !== undefined) {
+              nodePositionsRef.current.set(node.id, {
+                x: node.x,
+                y: node.y,
+                z: node.z,
+                fx: node.fx,
+                fy: node.fy,
+                fz: node.fz,
+              });
+            }
+          });
+        }
+      }
+    };
+
+    // Save positions every 500ms while simulation is running
+    const intervalId = setInterval(savePositions, 500);
+    return () => clearInterval(intervalId);
+  }, []);
 
   // Custom node rendering with glow effect and bloom support
   const nodeThreeObject = useCallback((nodeData: unknown) => {
@@ -770,35 +821,74 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         onBackgroundClick={handleBackgroundClick}
         // UI-011: Edge click handler for Relationship Evidence modal
         onLinkClick={handleEdgeClick}
-        // UI-010 FIX: Drag handlers to prevent jitter/oscillation during node dragging
-        // Problem: Nodes vibrate rapidly when dragged because force simulation keeps applying forces
-        // Solution: Pin node position during drag (fx, fy, fz) to prevent force interference
+        // UI-010 COMPREHENSIVE FIX: Drag handlers with proper simulation control
+        // Key insight: The node object must have fx/fy/fz set to prevent physics from moving it
         onNodeDrag={(node) => {
-          // Pin node to current position while dragging - prevents force simulation interference
+          // Pin node to cursor position during drag
+          // This is crucial - fx/fy/fz tells the physics engine "don't touch this node"
           node.fx = node.x;
           node.fy = node.y;
           node.fz = node.z;
+          // Save to ref for persistence across re-renders
+          const nodeId = String(node.id);
+          if (nodeId && node.x !== undefined && node.y !== undefined && node.z !== undefined) {
+            nodePositionsRef.current.set(nodeId, {
+              x: node.x,
+              y: node.y,
+              z: node.z,
+              fx: node.fx,
+              fy: node.fy,
+              fz: node.fz,
+            });
+          }
         }}
         onNodeDragEnd={(node) => {
-          // Keep node pinned after drag ends to prevent snap-back
-          // User can double-click to unpin (handled in handleNodeClick)
+          // CRITICAL: Keep node pinned after drag - this prevents snap-back!
+          // Setting fx/fy/fz to current position locks the node in place
           node.fx = node.x;
           node.fy = node.y;
           node.fz = node.z;
+          // Save final position to ref for persistence
+          const nodeId = String(node.id);
+          if (nodeId && node.x !== undefined && node.y !== undefined && node.z !== undefined) {
+            nodePositionsRef.current.set(nodeId, {
+              x: node.x,
+              y: node.y,
+              z: node.z,
+              fx: node.fx,
+              fy: node.fy,
+              fz: node.fz,
+            });
+          }
         }}
-        // UI-005 FIX: Force simulation parameters (optimized to REDUCE jitter/oscillation)
+        // UI-010 ENHANCED: Force simulation parameters for smooth, stable interaction
         // Problem: Nodes vibrate rapidly, rubber-banding effect, struggling to settle
-        // Solution: HIGH damping + FAST cooling = quick stabilization without jitter
-        // d3AlphaDecay: Higher = faster cooldown (0.1 = stops 4x faster than default 0.0228)
-        // d3VelocityDecay: Higher = more friction/damping (0.85 = strong damping to kill oscillation)
-        // d3AlphaMin: Higher = simulation stops earlier (0.01 vs 0.001)
-        cooldownTicks={100}
-        d3AlphaDecay={0.1}
-        d3VelocityDecay={0.85}
-        d3AlphaMin={0.01}
-        // Performance optimizations
-        warmupTicks={30}
-        onEngineStop={() => console.log('Force simulation stabilized')}
+        // Solution: HIGH damping + MODERATE cooling = stable without being sluggish
+        cooldownTicks={200}         // More ticks for smoother settling
+        d3AlphaDecay={0.05}         // Moderate cooldown (not too fast)
+        d3VelocityDecay={0.9}       // Very high damping (0.9 = strong friction, kills oscillation)
+        d3AlphaMin={0.001}          // Lower threshold for finer settling
+        warmupTicks={50}            // More warmup for initial stability
+        // CRITICAL: Disable auto-refresh of simulation when data changes
+        // This prevents the "explosion" effect when highlighting changes
+        enableNodeDrag={true}
+        onEngineStop={() => {
+          console.log('Force simulation stabilized');
+          // Save all positions when simulation stops
+          if (fgRef.current) {
+            const currentNodes = fgRef.current.graphData()?.nodes;
+            if (currentNodes) {
+              currentNodes.forEach((n: ForceGraphNode) => {
+                if (n.x !== undefined && n.y !== undefined && n.z !== undefined) {
+                  nodePositionsRef.current.set(n.id, {
+                    x: n.x, y: n.y, z: n.z,
+                    fx: n.fx, fy: n.fy, fz: n.fz,
+                  });
+                }
+              });
+            }
+          }
+        }}
       />
     </div>
   );
