@@ -29,7 +29,7 @@
     "reactflow": "^11.10.0",
     "tailwind-merge": "^2.2.0",
     "three": "^0.160.0",
-    "zustand": "^4.5.0"
+    "zustand": "^5.0.10"
   },
   "overrides": {
     "three": "^0.160.0"
