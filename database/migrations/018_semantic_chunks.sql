@@ -1,4 +1,4 @@
--- Migration: 011_semantic_chunks.sql
+-- Migration: 018_semantic_chunks.sql
 -- Description: Add semantic chunking support for hierarchical retrieval
 -- Version: v0.3.0
 
@@ -149,11 +149,14 @@ CREATE POLICY semantic_chunks_select_policy ON semantic_chunks
     FOR SELECT
     USING (
         project_id IN (
-            SELECT id FROM projects 
-            WHERE user_id = auth.uid() 
+            SELECT id FROM projects
+            WHERE owner_id = auth.uid()
+               OR visibility = 'public'
+               OR id IN (SELECT pc.project_id FROM project_collaborators pc WHERE pc.user_id = auth.uid())
                OR id IN (
-                   SELECT project_id FROM team_members 
-                   WHERE user_id = auth.uid()
+                   SELECT tp.project_id FROM team_projects tp
+                   JOIN team_members tm ON tp.team_id = tm.team_id
+                   WHERE tm.user_id = auth.uid()
                )
         )
     );
@@ -163,8 +166,8 @@ CREATE POLICY semantic_chunks_insert_policy ON semantic_chunks
     FOR INSERT
     WITH CHECK (
         project_id IN (
-            SELECT id FROM projects 
-            WHERE user_id = auth.uid()
+            SELECT id FROM projects
+            WHERE owner_id = auth.uid()
         )
     );
 
@@ -173,8 +176,8 @@ CREATE POLICY semantic_chunks_delete_policy ON semantic_chunks
     FOR DELETE
     USING (
         project_id IN (
-            SELECT id FROM projects 
-            WHERE user_id = auth.uid()
+            SELECT id FROM projects
+            WHERE owner_id = auth.uid()
         )
     );
 
