@@ -272,20 +272,18 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     return `rgba(${r}, ${g}, ${b}, 0.35)`;
   }, []);
 
-  // UI-010 FIX: Transform data for ForceGraph3D with position preservation
-  // KEY: We now restore positions from nodePositionsRef to prevent simulation reset
-  const graphData = useMemo<ForceGraphData>(() => {
+  // UI-010 FIX: Separate base graph data from styling to prevent simulation reset
+  // KEY INSIGHT: ForceGraph3D resets physics when graphData reference changes
+  // Solution: Keep graphData stable, apply styles through separate maps
+  const baseGraphData = useMemo<ForceGraphData>(() => {
     const forceNodes: ForceGraphNode[] = nodes.map(node => {
       const clusterId = (node.properties as { cluster_id?: number })?.cluster_id;
       const centrality = centralityMap.get(node.id) || 0;
       const isBridge = (node.properties as { is_gap_bridge?: boolean })?.is_gap_bridge || false;
-      const isHighlighted = highlightedNodeSet.has(node.id);
 
-      // Determine color: highlighted > cluster > entity type
+      // Base color (NO highlight logic here - handled in nodeStyleMap)
       let color: string;
-      if (isHighlighted) {
-        color = '#FFD700'; // Gold for highlighted
-      } else if (clusterId !== undefined && clusterColorMap.has(clusterId)) {
+      if (clusterId !== undefined && clusterColorMap.has(clusterId)) {
         color = clusterColorMap.get(clusterId)!;
       } else {
         color = ENTITY_TYPE_COLORS[node.entity_type] || '#888888';
@@ -308,7 +306,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         entityType: node.entity_type,
         clusterId,
         centrality,
-        isHighlighted,
+        isHighlighted: false, // Always false here - use nodeStyleMap for actual state
         isBridge,
         properties: node.properties,
       };
@@ -333,7 +331,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       target: edge.target,
       weight: edge.weight || 1,
       relationshipType: edge.relationship_type,
-      isHighlighted: highlightedEdgeSet.has(edge.id),
+      isHighlighted: false, // Always false here - use edgeStyleMap for actual state
       isGhost: false,
     }));
 
@@ -345,7 +343,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         target: pe.target_id,
         weight: pe.similarity,
         relationshipType: 'POTENTIAL',
-        isHighlighted: true,  // Always highlight ghost edges
+        isHighlighted: true,  // Ghost edges are always highlighted
         isGhost: true,
         similarity: pe.similarity,
       }));
@@ -353,7 +351,35 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     }
 
     return { nodes: forceNodes, links: forceLinks };
-  }, [nodes, edges, clusterColorMap, centralityMap, highlightedNodeSet, highlightedEdgeSet, showGhostEdges, potentialEdges]);
+  }, [nodes, edges, clusterColorMap, centralityMap, showGhostEdges, potentialEdges]);
+  // ⚠️ CRITICAL: highlightedNodeSet and highlightedEdgeSet REMOVED from dependencies!
+
+  // UI-010 FIX: Separate style maps for highlighting (changes without triggering graph rebuild)
+  const nodeStyleMap = useMemo(() => {
+    const styleMap = new Map<string, { isHighlighted: boolean; baseColor: string }>();
+    // Pre-populate with all nodes to ensure consistent lookup
+    baseGraphData.nodes.forEach(node => {
+      styleMap.set(node.id, {
+        isHighlighted: highlightedNodeSet.has(node.id),
+        baseColor: node.color,
+      });
+    });
+    return styleMap;
+  }, [baseGraphData.nodes, highlightedNodeSet]);
+
+  const edgeStyleMap = useMemo(() => {
+    const styleMap = new Map<string, { isHighlighted: boolean }>();
+    baseGraphData.links.forEach(link => {
+      styleMap.set(link.id, {
+        isHighlighted: highlightedEdgeSet.has(link.id) || link.isGhost === true,
+      });
+    });
+    return styleMap;
+  }, [baseGraphData.links, highlightedEdgeSet]);
+
+  // Backward compatibility: graphData reference for ForceGraph3D
+  // This is now stable - only changes when nodes/edges/clusters change, NOT when highlights change
+  const graphData = baseGraphData;
 
   // UI-010 FIX: Save node positions periodically to preserve across re-renders
   useEffect(() => {
@@ -383,16 +409,22 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, []);
 
   // Custom node rendering with glow effect and bloom support
+  // UI-010 FIX: Uses nodeStyleMap instead of node.isHighlighted to prevent stale renders
   const nodeThreeObject = useCallback((nodeData: unknown) => {
     const node = nodeData as ForceGraphNode;
     const group = new THREE.Group();
     const nodeSize = node.val || 5;
 
+    // UI-010 FIX: Get highlight state from style map, not from node object
+    const nodeStyle = nodeStyleMap.get(node.id);
+    const isHighlighted = nodeStyle?.isHighlighted || false;
+    const displayColor = isHighlighted ? '#FFD700' : (node.color || '#888888');
+
     // Calculate emissive intensity based on bloom settings
-    let emissiveIntensity = node.isHighlighted ? 0.6 : 0.2;
+    let emissiveIntensity = isHighlighted ? 0.6 : 0.2;
     if (bloomEnabled) {
       // Boost emissive intensity when bloom is enabled
-      emissiveIntensity = node.isHighlighted
+      emissiveIntensity = isHighlighted
         ? 0.4 + bloomIntensity * 0.6
         : 0.15 + bloomIntensity * 0.45;
     }
@@ -400,11 +432,11 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     // Main sphere
     const geometry = new THREE.SphereGeometry(nodeSize, 16, 16);
     const material = new THREE.MeshPhongMaterial({
-      color: node.color || '#888888',
-      emissive: node.color || '#888888',
+      color: displayColor,
+      emissive: displayColor,
       emissiveIntensity,
       transparent: true,
-      opacity: node.isHighlighted || hoveredNode === node.id ? 1 : 0.85,
+      opacity: isHighlighted || hoveredNode === node.id ? 1 : 0.85,
       shininess: bloomEnabled ? 50 : 30,
     });
     const sphere = new THREE.Mesh(geometry, material);
@@ -415,7 +447,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       const glowGeometry = new THREE.SphereGeometry(nodeSize * glowSize, 16, 16);
       const glowOpacity = 0.08 + bloomIntensity * 0.12;
       const glowMaterial = new THREE.MeshBasicMaterial({
-        color: node.color || '#888888',
+        color: displayColor,
         transparent: true,
         opacity: glowOpacity,
       });
@@ -438,7 +470,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     }
 
     // Highlight ring for selected nodes
-    if (node.isHighlighted) {
+    if (isHighlighted) {
       const ringSize = bloomEnabled ? nodeSize * glowSize * 0.95 : nodeSize * 1.3;
       const ringGeometry = new THREE.RingGeometry(ringSize, ringSize + nodeSize * 0.2, 32);
       const ringOpacity = bloomEnabled ? 0.4 + bloomIntensity * 0.3 : 0.6;
@@ -474,7 +506,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
 
       // InfraNodus style: Label color matches cluster color
       // Highlighted nodes get gold, otherwise use node's cluster color
-      const labelColor = node.isHighlighted ? '#FFD700' : (node.color || '#FFFFFF');
+      const labelColor = isHighlighted ? '#FFD700' : (node.color || '#FFFFFF');
       const labelSprite = createTextSprite(displayName, labelColor, fontSize);
 
       if (labelSprite) {
@@ -486,9 +518,10 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     }
 
     return group;
-  }, [hoveredNode, bloomEnabled, bloomIntensity, glowSize, labelCentralityThreshold, createTextSprite]);
+  }, [nodeStyleMap, hoveredNode, bloomEnabled, bloomIntensity, glowSize, createTextSprite]);
 
   // Link width based on weight
+  // UI-010 FIX: Uses edgeStyleMap for highlight state
   const linkWidth = useCallback((linkData: unknown) => {
     const link = linkData as ForceGraphLink;
     if (link.isGhost) {
@@ -496,10 +529,14 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       return 1.5;
     }
     const baseWidth = Math.max(0.3, (link.weight || 1) * 0.5);
-    return link.isHighlighted ? baseWidth * 2 : baseWidth;
-  }, []);
+    // Get highlight state from style map
+    const edgeStyle = edgeStyleMap.get(link.id);
+    const isHighlighted = edgeStyle?.isHighlighted || false;
+    return isHighlighted ? baseWidth * 2 : baseWidth;
+  }, [edgeStyleMap]);
 
   // Link color - Cluster-based coloring (InfraNodus-style)
+  // UI-010 FIX: Uses edgeStyleMap for highlight state
   const linkColor = useCallback((linkData: unknown) => {
     const link = linkData as ForceGraphLink;
 
@@ -509,8 +546,12 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       return `rgba(255, 170, 0, ${alpha})`;
     }
 
+    // UI-010 FIX: Get highlight state from style map
+    const edgeStyle = edgeStyleMap.get(link.id);
+    const isHighlighted = edgeStyle?.isHighlighted || false;
+
     // Highlighted edges: gold
-    if (link.isHighlighted) {
+    if (isHighlighted) {
       return 'rgba(255, 215, 0, 0.8)';
     }
 
@@ -541,7 +582,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
 
     // Default: white with low opacity
     return 'rgba(255, 255, 255, 0.15)';
-  }, [nodeClusterMap, clusterColorMap, hexToRgba, blendColors]);
+  }, [edgeStyleMap, nodeClusterMap, clusterColorMap, hexToRgba, blendColors]);
 
   // Custom link rendering for ghost edges (dashed lines)
   const linkThreeObject = useCallback((linkData: unknown) => {
@@ -793,6 +834,8 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       <ForceGraph3D
         ref={fgRef}
         graphData={graphData}
+        // UI-010 FIX: Explicit node ID prop for stable tracking
+        nodeId="id"
         nodeThreeObject={nodeThreeObject}
         nodeLabel={(nodeData: unknown) => {
           const node = nodeData as ForceGraphNode;
@@ -864,16 +907,21 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         // UI-010 ENHANCED: Force simulation parameters for smooth, stable interaction
         // Problem: Nodes vibrate rapidly, rubber-banding effect, struggling to settle
         // Solution: HIGH damping + MODERATE cooling = stable without being sluggish
-        cooldownTicks={200}         // More ticks for smoother settling
-        d3AlphaDecay={0.05}         // Moderate cooldown (not too fast)
+        //
+        // UI-010 FIX: Use isInitialRenderRef to determine warmup/cooldown behavior
+        // - Initial render: More warmup for stable layout
+        // - Subsequent renders: Minimal warmup to prevent simulation restart
+        warmupTicks={isInitialRenderRef.current ? 50 : 0}
+        cooldownTicks={isInitialRenderRef.current ? 200 : 50}
+        d3AlphaDecay={0.02}         // Slower cooldown (0.02 instead of 0.05) for smoother settling
         d3VelocityDecay={0.9}       // Very high damping (0.9 = strong friction, kills oscillation)
         d3AlphaMin={0.001}          // Lower threshold for finer settling
-        warmupTicks={50}            // More warmup for initial stability
         // CRITICAL: Disable auto-refresh of simulation when data changes
         // This prevents the "explosion" effect when highlighting changes
         enableNodeDrag={true}
         onEngineStop={() => {
-          console.log('Force simulation stabilized');
+          // Mark initial render as complete
+          isInitialRenderRef.current = false;
           // Save all positions when simulation stops
           if (fgRef.current) {
             const currentNodes = fgRef.current.graphData()?.nodes;

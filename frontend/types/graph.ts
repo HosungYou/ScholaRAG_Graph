@@ -324,8 +324,21 @@ export interface ConceptCentricProperties {
   [key: string]: unknown;
 }
 
-// Topic View Mode Types (InfraNodus-style 2D Block Visualization)
-export type ViewMode = '3d' | 'topic';
+// View Mode Types (InfraNodus-style visualization modes)
+// - '3d': Full 3D force-directed graph
+// - 'topic': 2D cluster block visualization
+// - 'gaps': Gap-focused visualization with bridge highlighting
+export type ViewMode = '3d' | 'topic' | 'gaps';
+
+// Gaps View Configuration
+export interface GapsViewConfig {
+  selectedGapId: string | null;
+  showAllGaps: boolean;
+  highlightBridges: boolean;
+  dimInactiveNodes: boolean;
+  inactiveOpacity: number;  // 0.15 - 0.25
+  bridgeGlowIntensity: number;
+}
 
 export interface TopicNode {
   id: string;

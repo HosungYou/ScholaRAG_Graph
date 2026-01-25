@@ -11,10 +11,11 @@ import { NodeDetails } from './NodeDetails';
 import { InsightHUD } from './InsightHUD';
 import { MainTopicsPanel } from './MainTopicsPanel';
 import { TopicViewMode } from './TopicViewMode';
+import { GapsViewMode } from './GapsViewMode';  // UI-010: Gaps View Mode
 import { EdgeContextModal } from './EdgeContextModal';  // UI-011: Relationship Evidence
 import { useGraphStore } from '@/hooks/useGraphStore';
 import { useGraph3DStore, applyLOD } from '@/hooks/useGraph3DStore';
-import type { GraphEntity, EntityType, StructuralGap, GraphEdge } from '@/types';
+import type { GraphEntity, EntityType, StructuralGap, GraphEdge, ViewMode } from '@/types';
 import {
   Hexagon,
   Box,
@@ -282,8 +283,8 @@ export function KnowledgeGraph3D({
 
   return (
     <div className="relative w-full h-full">
-      {/* Graph View (3D or Topic) */}
-      {viewMode === '3d' ? (
+      {/* Graph View (3D, Topic, or Gaps) */}
+      {viewMode === '3d' && (
         <Graph3D
           ref={graph3DRef}
           nodes={displayData.nodes}
@@ -302,7 +303,8 @@ export function KnowledgeGraph3D({
           bloomIntensity={view3D.bloom.intensity}
           glowSize={view3D.bloom.glowSize}
         />
-      ) : (
+      )}
+      {viewMode === 'topic' && (
         <TopicViewMode
           clusters={clusters}
           gaps={gaps}
@@ -318,6 +320,25 @@ export function KnowledgeGraph3D({
               clearHighlights();
             }
           }}
+        />
+      )}
+      {viewMode === 'gaps' && (
+        <GapsViewMode
+          ref={graph3DRef}
+          nodes={displayData.nodes}
+          edges={displayData.edges}
+          clusters={clusters}
+          centralityMetrics={centralityMetrics}
+          gaps={gaps}
+          selectedGap={selectedGap}
+          onGapSelect={setSelectedGap}
+          onNodeClick={handleNodeClick}
+          onBackgroundClick={handleBackgroundClick}
+          onEdgeClick={handleEdgeClick}
+          projectId={projectId}
+          bloomEnabled={view3D.bloom.enabled}
+          bloomIntensity={view3D.bloom.intensity}
+          glowSize={view3D.bloom.glowSize}
         />
       )}
 
@@ -457,33 +478,55 @@ export function KnowledgeGraph3D({
 
           <div className="w-px bg-ink/10 dark:bg-paper/10" />
 
-          {/* UI-012: View Mode Toggle - Made more prominent with label */}
-          <button
-            onClick={() => setViewMode(viewMode === '3d' ? 'topic' : '3d')}
-            className={`flex items-center gap-2 px-3 py-2 transition-all ${
-              viewMode === 'topic'
-                ? 'bg-accent-purple text-white'
-                : 'bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal'
-            }`}
-            title={viewMode === '3d' ? 'Switch to Topic View (InfraNodus-style clusters)' : 'Switch to 3D Graph View'}
-          >
-            {viewMode === '3d' ? (
-              <>
-                <Grid2X2 className="w-4 h-4" />
-                <span className="font-mono text-xs uppercase tracking-wider">Topics</span>
-              </>
-            ) : (
-              <>
-                <Box className="w-4 h-4" />
-                <span className="font-mono text-xs uppercase tracking-wider">3D</span>
-              </>
-            )}
-          </button>
+          {/* UI-012: View Mode Toggle - 3 modes: 3D, Topic, Gaps */}
+          <div className="flex items-center gap-1">
+            {/* 3D Mode */}
+            <button
+              onClick={() => setViewMode('3d')}
+              className={`flex items-center gap-1.5 px-2 py-2 transition-all ${
+                viewMode === '3d'
+                  ? 'bg-accent-teal text-white'
+                  : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+              }`}
+              title="3D Graph View"
+            >
+              <Box className="w-4 h-4" />
+              <span className="font-mono text-xs uppercase tracking-wider">3D</span>
+            </button>
+
+            {/* Topic Mode */}
+            <button
+              onClick={() => setViewMode('topic')}
+              className={`flex items-center gap-1.5 px-2 py-2 transition-all ${
+                viewMode === 'topic'
+                  ? 'bg-accent-purple text-white'
+                  : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+              }`}
+              title="Topic View (InfraNodus-style clusters)"
+            >
+              <Grid2X2 className="w-4 h-4" />
+              <span className="font-mono text-xs uppercase tracking-wider">Topics</span>
+            </button>
+
+            {/* Gaps Mode */}
+            <button
+              onClick={() => setViewMode('gaps')}
+              className={`flex items-center gap-1.5 px-2 py-2 transition-all ${
+                viewMode === 'gaps'
+                  ? 'bg-accent-amber text-white'
+                  : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+              }`}
+              title="Gaps View (Structural gap exploration)"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span className="font-mono text-xs uppercase tracking-wider">Gaps</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Gap Panel */}
-      {showGapPanel && (
+      {/* Gap Panel - Hidden in Gaps mode (GapsViewMode has integrated gap list) */}
+      {showGapPanel && viewMode !== 'gaps' && (
         <GapPanel
           projectId={projectId}
           gaps={gaps}
@@ -552,32 +595,35 @@ export function KnowledgeGraph3D({
         />
       )}
 
-      {/* View Mode Badge */}
-      <div className="absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 px-3 py-1.5">
-        <div className="flex items-center gap-2">
-          {viewMode === '3d' ? (
-            <>
-              <Box className="w-4 h-4 text-accent-teal" />
-              <span className="font-mono text-xs uppercase tracking-wider text-muted">
-                3D Mode
-              </span>
-              <span className="text-xs text-muted">
-                • {displayData.nodes.length} nodes
-              </span>
-            </>
-          ) : (
-            <>
-              <Grid2X2 className="w-4 h-4 text-accent-purple" />
-              <span className="font-mono text-xs uppercase tracking-wider text-muted">
-                Topic View
-              </span>
-              <span className="text-xs text-muted">
-                • {clusters.length} clusters
-              </span>
-            </>
-          )}
+      {/* View Mode Badge - Hidden in Gaps mode (GapsViewMode has its own badge) */}
+      {viewMode !== 'gaps' && (
+        <div className="absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 px-3 py-1.5">
+          <div className="flex items-center gap-2">
+            {viewMode === '3d' && (
+              <>
+                <Box className="w-4 h-4 text-accent-teal" />
+                <span className="font-mono text-xs uppercase tracking-wider text-muted">
+                  3D Mode
+                </span>
+                <span className="text-xs text-muted">
+                  • {displayData.nodes.length} nodes
+                </span>
+              </>
+            )}
+            {viewMode === 'topic' && (
+              <>
+                <Grid2X2 className="w-4 h-4 text-accent-purple" />
+                <span className="font-mono text-xs uppercase tracking-wider text-muted">
+                  Topic View
+                </span>
+                <span className="text-xs text-muted">
+                  • {clusters.length} clusters
+                </span>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* UI-011: Edge Context Modal - Relationship Evidence */}
       <EdgeContextModal
