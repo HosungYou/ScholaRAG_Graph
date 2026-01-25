@@ -1071,8 +1071,8 @@ async def refresh_gap_analysis(
         relationships = [
             {
                 "id": str(row["id"]),
-                "source": str(row["source_id"]),
-                "target": str(row["target_id"]),
+                "source_id": str(row["source_id"]),  # Fixed: was "source", gap_detector expects "source_id"
+                "target_id": str(row["target_id"]),  # Fixed: was "target", gap_detector expects "target_id"
                 "type": row["relationship_type"],
                 "properties": row["properties"] or {},
             }

@@ -270,8 +270,11 @@ class GapDetector:
         total_relationships = 0
 
         for rel in relationships:
-            source_cluster = concept_to_cluster.get(rel.get("source_id"))
-            target_cluster = concept_to_cluster.get(rel.get("target_id"))
+            # Support both naming conventions for backward compatibility
+            source_id = rel.get("source_id") or rel.get("source")
+            target_id = rel.get("target_id") or rel.get("target")
+            source_cluster = concept_to_cluster.get(source_id)
+            target_cluster = concept_to_cluster.get(target_id)
 
             if source_cluster is not None and target_cluster is not None:
                 if source_cluster != target_cluster:

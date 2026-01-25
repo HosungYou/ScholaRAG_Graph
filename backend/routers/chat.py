@@ -507,12 +507,26 @@ def get_orchestrator() -> AgentOrchestrator:
     """Get or create the global orchestrator instance with DB and GraphStore connections."""
     global _orchestrator
     if _orchestrator is None:
-        # Initialize LLM provider with caching
+        from backend.llm import ClaudeProvider, OpenAIProvider, GroqProvider, GeminiProvider
+
+        # Initialize LLM provider with multi-provider support
         llm_provider = None
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if api_key:
+        provider_name = settings.get_available_llm_provider()
+
+        provider_factories = {
+            "anthropic": lambda: ClaudeProvider(api_key=settings.anthropic_api_key),
+            "openai": lambda: OpenAIProvider(api_key=settings.openai_api_key),
+            "groq": lambda: GroqProvider(
+                api_key=settings.groq_api_key,
+                requests_per_minute=int(getattr(settings, 'groq_requests_per_second', 1) * 60)
+            ),
+            "google": lambda: GeminiProvider(api_key=settings.google_api_key),
+        }
+
+        factory = provider_factories.get(provider_name)
+        if factory:
             try:
-                base_provider = ClaudeProvider(api_key=api_key)
+                base_provider = factory()
                 # Wrap with caching (enabled by default, can be disabled via settings)
                 cache_enabled = getattr(settings, 'llm_cache_enabled', True)
                 cache_ttl = getattr(settings, 'llm_cache_ttl', 3600)  # 1 hour default
@@ -521,9 +535,12 @@ def get_orchestrator() -> AgentOrchestrator:
                     enabled=cache_enabled,
                     default_ttl=cache_ttl,
                 )
-                logger.info(f"Initialized Claude LLM provider (cache={'enabled' if cache_enabled else 'disabled'})")
+                logger.info(f"Initialized {provider_name} LLM provider (cache={'enabled' if cache_enabled else 'disabled'})")
             except Exception as e:
-                logger.warning(f"Failed to initialize Claude provider: {e}")
+                logger.warning(f"Failed to initialize {provider_name} provider: {e}")
+
+        if llm_provider is None:
+            logger.error("No LLM provider available - chat functionality will be limited")
 
         # Initialize GraphStore with DB connection
         graph_store = None

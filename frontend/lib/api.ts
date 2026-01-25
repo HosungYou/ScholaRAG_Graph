@@ -610,10 +610,12 @@ class ApiClient {
     yearStart?: number,
     yearEnd?: number
   ): Promise<GraphData & { yearRange: { min: number; max: number } }> {
-    const params = new URLSearchParams({ project_id: projectId });
+    // Fixed: project_id should be path parameter, not query parameter
+    const params = new URLSearchParams();
     if (yearStart) params.set('year_start', yearStart.toString());
     if (yearEnd) params.set('year_end', yearEnd.toString());
-    return this.request(`/api/graph/temporal?${params}`);
+    const queryString = params.toString();
+    return this.request(`/api/graph/temporal/${projectId}${queryString ? `?${queryString}` : ''}`);
   }
 
   // ============================================
