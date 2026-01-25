@@ -86,10 +86,13 @@ CREATE POLICY relationship_evidence_select_policy ON relationship_evidence
         relationship_id IN (
             SELECT r.id FROM relationships r
             JOIN projects p ON r.project_id = p.id
-            WHERE p.user_id = auth.uid()
+            WHERE p.owner_id = auth.uid()
+               OR p.visibility = 'public'
+               OR p.id IN (SELECT pc.project_id FROM project_collaborators pc WHERE pc.user_id = auth.uid())
                OR p.id IN (
-                   SELECT project_id FROM team_members
-                   WHERE user_id = auth.uid()
+                   SELECT tp.project_id FROM team_projects tp
+                   JOIN team_members tm ON tp.team_id = tm.team_id
+                   WHERE tm.user_id = auth.uid()
                )
         )
     );

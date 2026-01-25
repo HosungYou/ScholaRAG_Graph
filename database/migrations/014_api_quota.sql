@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS api_usage (
 
     -- Usage tracking
     call_count INT NOT NULL DEFAULT 1,  -- For bulk operations
+    tokens_used INT DEFAULT 0,          -- LLM tokens consumed (for LLM providers)
 
     -- Date tracking (for daily/monthly aggregation)
     usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -320,9 +321,17 @@ CREATE POLICY "project_assignments_members" ON project_quota_assignments
     USING (
         EXISTS (
             SELECT 1 FROM projects p
-            LEFT JOIN team_members tm ON tm.team_id = p.team_id
             WHERE p.id = project_quota_assignments.project_id
-            AND (p.user_id = auth.uid() OR tm.user_id = auth.uid())
+            AND (
+                p.owner_id = auth.uid()
+                OR p.visibility = 'public'
+                OR p.id IN (SELECT pc.project_id FROM project_collaborators pc WHERE pc.user_id = auth.uid())
+                OR p.id IN (
+                    SELECT tp.project_id FROM team_projects tp
+                    JOIN team_members tm ON tp.team_id = tm.team_id
+                    WHERE tm.user_id = auth.uid()
+                )
+            )
         )
     );
 
