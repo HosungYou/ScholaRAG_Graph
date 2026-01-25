@@ -507,7 +507,7 @@ def get_orchestrator() -> AgentOrchestrator:
     """Get or create the global orchestrator instance with DB and GraphStore connections."""
     global _orchestrator
     if _orchestrator is None:
-        from backend.llm import ClaudeProvider, OpenAIProvider, GroqProvider, GeminiProvider
+        from llm import ClaudeProvider, OpenAIProvider, GroqProvider, GeminiProvider
 
         # Initialize LLM provider with multi-provider support
         llm_provider = None
