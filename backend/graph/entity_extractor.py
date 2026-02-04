@@ -201,9 +201,57 @@ JSON Response:"""
 
 # ============================================================================
 # Simplified Prompt for High-Speed Extraction (Claude 3.5 Haiku)
+# v0.6.0: Fixed to ensure all entity types are extracted, not just concepts
 # ============================================================================
 
-FAST_EXTRACTION_PROMPT = """Extract key entities from this academic paper.
+FAST_EXTRACTION_PROMPT = """You are an academic entity extraction system. Extract EXACTLY these 7 entity types from the paper. Return ALL categories, even if empty.
+
+## Paper
+Title: {title}
+Abstract: {abstract}
+
+## Required Entity Types (extract ALL 7):
+
+### 1. CONCEPTS (max 10)
+Key theoretical concepts, theories, domain terms.
+Example: "machine learning", "cognitive load"
+
+### 2. METHODS (max 3)
+Research methodologies, techniques, approaches.
+Example: "meta-analysis", "randomized controlled trial"
+
+### 3. FINDINGS (max 3)
+Key results, conclusions, discoveries.
+Example: "positive effect on learning outcomes"
+
+### 4. PROBLEMS (max 2)
+Research questions or problems addressed.
+Example: "gap in understanding ai adoption"
+
+### 5. INNOVATIONS (max 2)
+Novel contributions of this work.
+Example: "new framework for evaluation"
+
+### 6. LIMITATIONS (max 2)
+Study limitations acknowledged.
+Example: "small sample size"
+
+### 7. DATASETS (max 2)
+Datasets used or created.
+Example: "imagenet", "custom survey n=500"
+
+## Output Format
+Return ONLY valid JSON. ALL 7 keys MUST be present. Use empty arrays [] if no entities found.
+
+{{"concepts": [...], "methods": [...], "findings": [...], "problems": [...], "innovations": [...], "limitations": [...], "datasets": [...]}}
+
+Each entity: {{"name": "lowercase 1-4 words", "confidence": 0.0-1.0}}
+
+JSON:"""
+
+
+# Legacy prompt (deprecated, kept for reference)
+FAST_EXTRACTION_PROMPT_LEGACY = """Extract key entities from this academic paper.
 
 Title: {title}
 Abstract: {abstract}
@@ -631,11 +679,26 @@ class EntityExtractor:
         """
         BUG-031 Fix: Parse already-extracted JSON data into structured entities.
         Separated from _parse_llm_response for use with generate_json().
+
+        v0.6.0 Fix: Validates all expected keys are present and logs missing categories.
         """
         result = self._empty_result()
 
         if not data or not isinstance(data, dict):
             return result
+
+        # v0.6.0: Validate all expected keys are present
+        expected_keys = {'concepts', 'methods', 'findings', 'problems', 'innovations', 'limitations', 'datasets'}
+        missing_keys = expected_keys - set(data.keys())
+        if missing_keys:
+            logger.warning(f"Entity extraction missing categories: {missing_keys}")
+            for key in missing_keys:
+                data[key] = []
+
+        # Log extraction distribution for monitoring
+        non_empty_counts = {k: len(v) for k, v in data.items() if isinstance(v, list) and len(v) > 0}
+        if non_empty_counts:
+            logger.debug(f"Extraction distribution: {non_empty_counts}")
 
         try:
             # Parse concepts (primary nodes)

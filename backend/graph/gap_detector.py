@@ -240,6 +240,8 @@ class GapDetector:
         clusters: list[ConceptCluster],
         relationships: list[dict],
         concepts: list[dict],
+        min_gaps: int = 3,
+        max_gaps: int = 10,
     ) -> list[StructuralGap]:
         """
         Detect structural gaps between concept clusters.
@@ -248,10 +250,14 @@ class GapDetector:
         - Low inter-cluster connectivity (few relationships)
         - But potential for connection (semantic similarity)
 
+        v0.6.0 Fix: Uses adaptive threshold to ensure gaps are detected even in dense graphs.
+
         Args:
             clusters: List of ConceptCluster objects
             relationships: List of relationship dicts with source_id, target_id
             concepts: List of concept dicts for semantic analysis
+            min_gaps: Minimum number of gaps to return (default: 3)
+            max_gaps: Maximum number of gaps to return (default: 10)
 
         Returns:
             List of StructuralGap objects, sorted by gap strength (strongest gaps first)
@@ -284,7 +290,8 @@ class GapDetector:
                     total_relationships += 1
 
         # Calculate gap strength for each cluster pair
-        gaps = []
+        # v0.6.0: First calculate ALL gap strengths, then apply adaptive threshold
+        all_gap_candidates = []
         cluster_ids = [c.id for c in clusters]
 
         for i, c1 in enumerate(cluster_ids):
@@ -303,24 +310,50 @@ class GapDetector:
                 else:
                     gap_strength = 0.0
 
-                # Only report significant gaps (strength < 0.3 = less than 30% connected)
-                if gap_strength < 0.3:
-                    cluster_a = [c for c in clusters if c.id == c1][0]
-                    cluster_b = [c for c in clusters if c.id == c2][0]
+                cluster_a = [c for c in clusters if c.id == c1][0]
+                cluster_b = [c for c in clusters if c.id == c2][0]
 
-                    gap = StructuralGap(
-                        cluster_a_id=c1,
-                        cluster_b_id=c2,
-                        gap_strength=gap_strength,
-                        concept_a_ids=cluster_a.concept_ids[:5],  # Top 5 concepts
-                        concept_b_ids=cluster_b.concept_ids[:5],
-                    )
-                    gaps.append(gap)
+                gap = StructuralGap(
+                    cluster_a_id=c1,
+                    cluster_b_id=c2,
+                    gap_strength=gap_strength,
+                    concept_a_ids=cluster_a.concept_ids[:5],  # Top 5 concepts
+                    concept_b_ids=cluster_b.concept_ids[:5],
+                )
+                all_gap_candidates.append(gap)
 
         # Sort by gap strength (strongest gaps = lowest strength first)
-        gaps.sort(key=lambda g: g.gap_strength)
+        all_gap_candidates.sort(key=lambda g: g.gap_strength)
 
-        logger.info(f"Detected {len(gaps)} structural gaps")
+        # v0.6.0: Apply adaptive threshold
+        if all_gap_candidates:
+            strengths = [g.gap_strength for g in all_gap_candidates]
+
+            # Calculate 25th percentile
+            import numpy as np
+            percentile_25 = np.percentile(strengths, 25)
+
+            # Adaptive threshold: min of 0.3 (absolute) or 25th percentile + 0.1
+            adaptive_threshold = min(0.3, percentile_25 + 0.1)
+
+            # Filter gaps using adaptive threshold
+            filtered_gaps = [g for g in all_gap_candidates if g.gap_strength < adaptive_threshold]
+
+            # Ensure minimum number of gaps is returned
+            if len(filtered_gaps) < min_gaps:
+                filtered_gaps = all_gap_candidates[:min_gaps]
+
+            gaps = filtered_gaps[:max_gaps]
+
+            # Log for monitoring
+            logger.info(
+                f"Gap detection: {len(gaps)}/{len(all_gap_candidates)} gaps "
+                f"(adaptive threshold: {adaptive_threshold:.2f}, 25th percentile: {percentile_25:.2f})"
+            )
+        else:
+            gaps = []
+            logger.info("Gap detection: No cluster pairs to analyze")
+
         return gaps
 
     def calculate_centrality(
@@ -826,7 +859,11 @@ Return ONLY the research questions, one per line, without numbering or bullets.
         }
 
     def _generate_summary(self, clusters: list[ConceptCluster], gaps: list[StructuralGap]) -> str:
-        """Generate a text summary of the gap analysis."""
+        """
+        Generate a text summary of the gap analysis.
+
+        v0.6.0: Added explanation for well-connected (dense) graphs.
+        """
 
         if not clusters:
             return "Insufficient data for gap analysis."
@@ -854,5 +891,13 @@ Return ONLY the research questions, one per line, without numbering or bullets.
                 b_name = cluster_b[0].name if cluster_b else f"Cluster {gap.cluster_b_id}"
 
                 lines.append(f"- Gap between '{a_name}' and '{b_name}' (connectivity: {gap.gap_strength:.1%})")
+
+            # v0.6.0: Add explanation for well-connected graphs
+            avg_connectivity = sum(g.gap_strength for g in gaps) / len(gaps) if gaps else 0
+            if avg_connectivity > 0.15:  # Higher than 15% average = well connected
+                lines.extend([
+                    "",
+                    "*Note: This graph is well-connected. The gaps shown represent *relatively* weaker connections between topic clusters, not complete disconnections.*",
+                ])
 
         return "\n".join(lines)

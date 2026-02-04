@@ -85,14 +85,28 @@ Confidence: {reasoning_result.confidence}"""
             return self._generate_fallback(query, reasoning_result, intent)
 
     def _generate_fallback(self, query: str, reasoning_result, intent) -> ResponseResult:
-        """Fallback response generation."""
+        """
+        Fallback response generation.
+
+        v0.6.0 Fix: Enhanced to include more context from reasoning steps.
+        """
         answer_parts = [reasoning_result.final_conclusion]
 
+        # v0.6.0: Include evidence from steps if available
+        has_meaningful_evidence = False
         if reasoning_result.steps:
-            answer_parts.append("\n**Analysis:**")
             for step in reasoning_result.steps:
-                if step.conclusion:
-                    answer_parts.append(f"• {step.conclusion}")
+                if step.evidence and any(e for e in step.evidence if e and len(e) > 10):
+                    has_meaningful_evidence = True
+                    break
+
+        if reasoning_result.steps and has_meaningful_evidence:
+            answer_parts.append("\n**Analysis Details:**")
+            for step in reasoning_result.steps:
+                if step.evidence:
+                    for evidence in step.evidence:
+                        if evidence and len(evidence) > 10:
+                            answer_parts.append(f"• {evidence}")
 
         return ResponseResult(
             answer="\n".join(answer_parts),

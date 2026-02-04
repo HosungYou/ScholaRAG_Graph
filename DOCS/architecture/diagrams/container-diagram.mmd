@@ -1,0 +1,90 @@
+graph TB
+    %% C4 Container Diagram
+    %% Shows internal containers of ScholaRAG_Graph system
+
+    Researcher[["Researcher<br/>(User)"]]
+
+    subgraph ScholaRAG_Graph["ScholaRAG_Graph System"]
+
+        subgraph Frontend["Frontend Container<br/>[Next.js 15, React 19]"]
+            UI["User Interface<br/>---<br/>- Paper management<br/>- Query interface<br/>- Results display<br/>- Graph visualization"]
+
+            APIClient["API Client<br/>---<br/>- HTTP requests<br/>- State management<br/>- Error handling"]
+        end
+
+        subgraph Backend["Backend Container<br/>[FastAPI, Python 3.11]"]
+            RestAPI["REST API<br/>---<br/>- /api/papers<br/>- /api/query<br/>- /api/graph"]
+
+            AgentOrchestrator["Agent Orchestrator<br/>---<br/>- Pipeline coordination<br/>- Agent execution<br/>- Context management"]
+
+            Agents["6 Specialized Agents<br/>---<br/>Intent, Concept, Task,<br/>Query, Reasoning, Response"]
+
+            GraphService["Graph Service<br/>---<br/>- Entity extraction<br/>- Relationship building<br/>- Cypher generation"]
+
+            VectorService["Vector Service<br/>---<br/>- Embedding generation<br/>- Similarity search<br/>- Ranking"]
+        end
+
+        subgraph Database["Database Container<br/>[PostgreSQL 15 + pgvector]"]
+            PaperDB[("Papers Table<br/>---<br/>Metadata, authors,<br/>citations")]
+
+            EntityDB[("Entities Table<br/>---<br/>Concepts, methods,<br/>findings")]
+
+            RelationDB[("Relations Table<br/>---<br/>Graph edges:<br/>CITES, AUTHORED_BY,<br/>USES_METHOD")]
+
+            VectorDB[("Vectors Table<br/>---<br/>Embeddings:<br/>- Paper embeddings<br/>- Entity embeddings")]
+        end
+
+    end
+
+    %% External Systems
+    Zotero["Zotero<br/>---<br/>Reference manager"]
+
+    Groq["Groq API<br/>---<br/>LLM inference<br/>(llama-3.3-70b)"]
+
+    Supabase["Supabase<br/>---<br/>Database hosting"]
+
+    Vercel["Vercel<br/>---<br/>Frontend hosting"]
+
+    Render["Render<br/>---<br/>Backend hosting"]
+
+    %% Relationships
+    Researcher -->|"HTTPS"| UI
+    UI --> APIClient
+    APIClient -->|"REST API<br/>(HTTPS)"| RestAPI
+
+    RestAPI --> AgentOrchestrator
+    AgentOrchestrator --> Agents
+    Agents --> GraphService
+    Agents --> VectorService
+
+    GraphService -->|"SQL queries"| PaperDB
+    GraphService -->|"SQL queries"| EntityDB
+    GraphService -->|"SQL queries"| RelationDB
+
+    VectorService -->|"Vector search"| VectorDB
+    VectorService -->|"LLM calls<br/>(HTTPS)"| Groq
+
+    Agents -->|"LLM calls<br/>(HTTPS)"| Groq
+
+    RestAPI -->|"Import"| Zotero
+
+    Supabase -.->|"Hosts"| PaperDB
+    Supabase -.->|"Hosts"| EntityDB
+    Supabase -.->|"Hosts"| RelationDB
+    Supabase -.->|"Hosts"| VectorDB
+
+    Vercel -.->|"Deploys"| Frontend
+    Render -.->|"Deploys"| Backend
+
+    %% Styling
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef container fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef component fill:#63a0cc,stroke:#3d7ba8,color:#fff
+    classDef database fill:#2e7d32,stroke:#1b5e20,color:#fff
+    classDef external fill:#999,stroke:#666,color:#fff
+
+    class Researcher person
+    class Frontend,Backend,Database container
+    class UI,APIClient,RestAPI,AgentOrchestrator,Agents,GraphService,VectorService component
+    class PaperDB,EntityDB,RelationDB,VectorDB database
+    class Zotero,Groq,Supabase,Vercel,Render external

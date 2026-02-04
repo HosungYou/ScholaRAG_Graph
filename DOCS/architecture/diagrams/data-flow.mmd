@@ -1,0 +1,72 @@
+sequenceDiagram
+    %% Data Flow Sequence Diagram
+    %% Shows paper import, extraction, graph building, and query flow
+
+    actor Researcher
+    participant Frontend as Next.js Frontend
+    participant Backend as FastAPI Backend
+    participant Extractor as Entity Extractor
+    participant GraphBuilder as Graph Builder
+    participant DB as PostgreSQL + pgvector
+    participant LLM as Groq API
+
+    %% Paper Import Flow
+    rect rgb(200, 230, 255)
+        Note over Researcher,DB: Paper Import Flow
+        Researcher->>Frontend: Upload Zotero library<br/>(BibTeX/RIS)
+        Frontend->>Backend: POST /api/papers/import
+        Backend->>Backend: Parse bibliography
+        Backend->>DB: Store paper metadata
+        DB-->>Backend: Paper IDs
+        Backend-->>Frontend: Import success
+        Frontend-->>Researcher: Show imported papers
+    end
+
+    %% Entity Extraction Flow
+    rect rgb(255, 240, 200)
+        Note over Backend,LLM: Entity Extraction Flow
+        Backend->>Extractor: Process paper text
+        Extractor->>LLM: Extract entities<br/>(Title, Abstract, Keywords)
+        LLM-->>Extractor: Entities:<br/>- Authors<br/>- Concepts<br/>- Methods<br/>- Findings
+        Extractor->>DB: Store entities
+        Extractor->>LLM: Generate embeddings
+        LLM-->>Extractor: Vector embeddings
+        Extractor->>DB: Store vectors
+    end
+
+    %% Graph Building Flow
+    rect rgb(230, 255, 230)
+        Note over GraphBuilder,DB: Graph Building Flow
+        GraphBuilder->>DB: Query entities
+        DB-->>GraphBuilder: Entity data
+        GraphBuilder->>GraphBuilder: Identify relationships:<br/>- CITES<br/>- AUTHORED_BY<br/>- USES_METHOD<br/>- RELATED_TO
+        GraphBuilder->>DB: Store relationships
+        DB-->>GraphBuilder: Graph complete
+    end
+
+    %% User Query Flow
+    rect rgb(255, 230, 255)
+        Note over Researcher,LLM: User Query Flow
+        Researcher->>Frontend: Ask question
+        Frontend->>Backend: POST /api/query
+        Backend->>Backend: Intent Agent:<br/>Classify intent
+        Backend->>Backend: Concept Agent:<br/>Extract concepts
+        Backend->>Backend: Task Agent:<br/>Plan execution
+
+        par Graph Search
+            Backend->>DB: Cypher query
+            DB-->>Backend: Related entities
+        and Vector Search
+            Backend->>LLM: Generate query embedding
+            LLM-->>Backend: Query vector
+            Backend->>DB: Similarity search
+            DB-->>Backend: Relevant papers
+        end
+
+        Backend->>Backend: Reasoning Agent:<br/>Synthesize results
+        Backend->>LLM: Generate final answer
+        LLM-->>Backend: Response with reasoning
+        Backend->>Backend: Response Agent:<br/>Format + citations
+        Backend-->>Frontend: Structured response
+        Frontend-->>Researcher: Display answer<br/>with citations
+    end

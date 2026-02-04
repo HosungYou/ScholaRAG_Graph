@@ -63,13 +63,14 @@ interface DiversityGaugeProps {
 
 function DiversityGauge({ rating, entropy, biasScore }: DiversityGaugeProps) {
   // Determine colors based on rating
+  // v0.5.0: Changed "Low Diversity" → "Focused" for research context clarity
   const colors = {
-    high: { primary: '#10B981', bg: '#10B981/20', label: 'High Diversity' },
-    medium: { primary: '#F59E0B', bg: '#F59E0B/20', label: 'Medium Diversity' },
-    low: { primary: '#EF4444', bg: '#EF4444/20', label: 'Low Diversity' },
+    high: { primary: '#10B981', bg: '#10B981/20', label: 'Diverse Topics', desc: 'Broad coverage' },
+    medium: { primary: '#F59E0B', bg: '#F59E0B/20', label: 'Balanced', desc: 'Mixed focus' },
+    low: { primary: '#6366F1', bg: '#6366F1/20', label: 'Focused', desc: 'Specialized' }, // Changed from red to indigo
   };
 
-  const { primary, label } = colors[rating];
+  const { primary, label, desc } = colors[rating];
 
   // Calculate arc for gauge (based on entropy 0-1)
   const circumference = 2 * Math.PI * 28; // radius = 28
@@ -114,11 +115,14 @@ function DiversityGauge({ rating, entropy, biasScore }: DiversityGaugeProps) {
       <span className="text-xs font-mono mt-1" style={{ color: primary }}>
         {label}
       </span>
+      <span className="text-[10px] text-muted mt-0.5">
+        {desc}
+      </span>
 
-      {/* Bias indicator */}
+      {/* Focus indicator - v0.5.0: Changed from "Bias Detected" to "Focused Research" */}
       {biasScore > 0.5 && (
-        <div className="mt-2 px-2 py-1 bg-accent-red/10 text-accent-red text-xs font-mono rounded">
-          Bias Detected
+        <div className="mt-2 px-2 py-1 bg-indigo-500/10 text-indigo-400 text-xs font-mono rounded" title="Your research collection is concentrated on specific topics, which is typical for focused systematic reviews">
+          Focused Research
         </div>
       )}
     </div>
@@ -235,25 +239,28 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
                   />
                 </button>
 
-                {/* Expanded diversity details */}
+                {/* Expanded diversity details - v0.5.0: Simplified with explanations */}
                 {showDiversityPanel && (
                   <div className="mt-3 pt-3 border-t border-white/5 space-y-2">
+                    <div className="text-[10px] text-muted/70 mb-2">
+                      📊 Advanced Metrics (click to collapse)
+                    </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-muted">Shannon Entropy</span>
+                      <span className="text-muted" title="Measures topic variety (higher = more topics)">Shannon Entropy</span>
                       <span className="text-white font-mono">{diversityMetrics.shannon_entropy.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-muted">Gini Coefficient</span>
+                      <span className="text-muted" title="Cluster size inequality (0 = equal, 1 = one dominant)">Gini Coefficient</span>
                       <span className="text-white font-mono">{diversityMetrics.gini_coefficient.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-muted">Dominant Cluster</span>
+                      <span className="text-muted" title="Largest topic cluster proportion">Main Topic</span>
                       <span className="text-white font-mono">{Math.round(diversityMetrics.dominant_cluster_ratio * 100)}%</span>
                     </div>
                     {/* Cluster size distribution */}
                     {diversityMetrics.cluster_sizes.length > 0 && (
                       <div className="mt-2">
-                        <span className="text-xs text-muted block mb-1">Cluster Sizes</span>
+                        <span className="text-xs text-muted block mb-1">Topic Distribution</span>
                         <div className="flex gap-1 h-4">
                           {diversityMetrics.cluster_sizes.map((size, i) => {
                             const maxSize = Math.max(...diversityMetrics.cluster_sizes);
@@ -263,7 +270,7 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
                                 key={i}
                                 className="flex-1 bg-accent-teal/50 rounded-t"
                                 style={{ height: `${height}%` }}
-                                title={`Cluster ${i + 1}: ${size} concepts`}
+                                title={`Topic ${i + 1}: ${size} concepts`}
                               />
                             );
                           })}

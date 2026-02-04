@@ -247,9 +247,42 @@ Data: {results_summary[:3]}"""
         execution_result,
         gap_context: Optional[dict] = None
     ) -> ReasoningResult:
-        """Fallback structured reasoning with gap awareness."""
+        """
+        Fallback structured reasoning with gap awareness.
+
+        v0.6.0 Fix: Uses actual execution_result data instead of generic templates.
+        """
         num_results = len(execution_result.results)
         successful = sum(1 for r in execution_result.results if r.success)
+
+        # v0.6.0: Extract actual findings from execution results
+        actual_findings = []
+        entity_names = []
+        relationship_count = 0
+
+        for result in execution_result.results:
+            if result.success and result.data:
+                if isinstance(result.data, dict):
+                    # Extract entities if available
+                    if 'entities' in result.data:
+                        entities = result.data['entities'][:5]
+                        entity_names.extend([e.get('name', 'unknown') for e in entities if isinstance(e, dict)])
+                    # Count relationships
+                    if 'relationships' in result.data:
+                        rel_count = len(result.data['relationships'])
+                        relationship_count += rel_count
+                    # Extract any summary or description
+                    if 'summary' in result.data:
+                        actual_findings.append(result.data['summary'][:200])
+                    if 'description' in result.data:
+                        actual_findings.append(result.data['description'][:200])
+                elif isinstance(result.data, list):
+                    for item in result.data[:3]:
+                        if isinstance(item, dict) and 'name' in item:
+                            entity_names.append(item['name'])
+
+        # Remove duplicates and limit
+        entity_names = list(dict.fromkeys(entity_names))[:10]
 
         steps = [
             ReasoningStep(
@@ -261,13 +294,16 @@ Data: {results_summary[:3]}"""
             ReasoningStep(
                 step_number=2,
                 description="Synthesizing findings from concept network",
-                evidence=[f"Accessed {len(execution_result.nodes_accessed)} concept nodes"],
+                evidence=[
+                    f"Accessed {len(execution_result.nodes_accessed)} concept nodes",
+                    f"Found {len(entity_names)} related concepts" if entity_names else "No direct matches"
+                ],
                 conclusion="Patterns analyzed",
             ),
             ReasoningStep(
                 step_number=3,
                 description="Formulating response",
-                evidence=[],
+                evidence=actual_findings[:2] if actual_findings else [],
                 conclusion="Ready to present findings",
             ),
         ]
@@ -295,10 +331,28 @@ Data: {results_summary[:3]}"""
                     )
                 )
 
+        # v0.6.0: Build data-based conclusion instead of generic template
+        if entity_names:
+            concepts_str = ', '.join(entity_names[:5])
+            conclusion = f"Analysis of '{query}' in the knowledge graph:\n"
+            conclusion += f"• Related concepts: {concepts_str}\n"
+            if relationship_count > 0:
+                conclusion += f"• Found {relationship_count} relationship(s) between concepts\n"
+            if len(entity_names) > 5:
+                conclusion += f"• {len(entity_names) - 5} additional related concepts available"
+            confidence = 0.6 + min(0.3, len(entity_names) * 0.03)
+        else:
+            conclusion = (
+                f"No direct matches found for '{query}' in the knowledge graph. "
+                "Try using different keywords or broader concepts. "
+                f"The graph contains {len(execution_result.nodes_accessed)} accessible nodes."
+            )
+            confidence = 0.3
+
         return ReasoningResult(
             steps=steps,
-            final_conclusion=f"Based on analyzing the concept-centric knowledge graph for '{query}', relevant information was found.",
-            confidence=0.6,
+            final_conclusion=conclusion,
+            confidence=confidence,
             supporting_nodes=execution_result.nodes_accessed,
             supporting_edges=execution_result.edges_traversed,
             research_gaps=research_gaps,

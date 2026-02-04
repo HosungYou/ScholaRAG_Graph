@@ -1,7 +1,7 @@
 # CLAUDE.md - ScholaRAG_Graph Project Instructions
 
-> **Last Updated**: 2026-01-20
-> **Version**: 3.0.0
+> **Last Updated**: 2026-02-04
+> **Version**: 3.1.0 (v0.5.0 Architecture Documentation)
 
 ## Project Overview
 
@@ -487,3 +487,121 @@ All modes share:
 - Export capabilities
 
 Switch between modes using toolbar icons in the graph interface.
+
+---
+
+## 🏛️ Architecture Review Protocol
+
+> **CRITICAL**: All architectural changes MUST follow this review protocol before implementation.
+
+### Mandatory Review Triggers
+
+| Change Type | Review Required | SDD Section | Documentation |
+|-------------|-----------------|-------------|---------------|
+| New Agent added | ✅ | 4.1.1 | Update SDD + agent-pipeline.mmd |
+| New API Endpoint | ✅ | 6 | Update SDD + API docs |
+| Database schema change | ✅ | 4.3 | Update SDD + migrations |
+| LLM Provider change | ✅ | 4.1.4 | Update SDD + LLM_CONFIGURATION.md |
+| New Import method | ✅ | 4.1.3 | Update SDD + data-flow.mmd |
+| New View Mode | ✅ | 4.2.2 | Update SDD + container-diagram.mmd |
+| Core algorithm change | ✅ | Varies | Update SDD + relevant docs |
+
+### Architecture Review Checklist
+
+Before committing architectural changes:
+```
+□ Documented in SDD.md?
+□ Mermaid diagrams updated? (DOCS/architecture/diagrams/)
+□ Conflicts with existing ADRs? (DOCS/.meta/decisions/)
+□ API contract changes documented?
+□ Database migration required?
+□ Backward compatibility maintained?
+□ Performance impact assessed?
+```
+
+### Commit Message Conventions (Architecture)
+
+Use these prefixes for architecture-related commits:
+
+| Prefix | Description | Example |
+|--------|-------------|---------|
+| `arch:` | General architecture change | `arch: add caching layer` |
+| `arch(agent):` | Agent system change | `arch(agent): add validation agent` |
+| `arch(api):` | API contract change | `arch(api): add /graph/export endpoint` |
+| `arch(schema):` | Database schema change | `arch(schema): add temporal_data column` |
+| `arch(llm):` | LLM provider/config change | `arch(llm): add Gemini provider` |
+| `arch(viz):` | Visualization architecture | `arch(viz): add heatmap view mode` |
+
+### Architecture Decision Records (ADRs)
+
+For significant decisions, create ADR at `DOCS/.meta/decisions/NNN-title.md`:
+
+```markdown
+# ADR-NNN: [Title]
+
+## Status
+[Proposed | Accepted | Deprecated | Superseded by ADR-XXX]
+
+## Context
+[Why is this decision needed?]
+
+## Decision
+[What was decided?]
+
+## Consequences
+[What are the implications?]
+
+## Alternatives Considered
+[What other options were evaluated?]
+```
+
+### SDD Update Workflow
+
+When making architectural changes:
+
+1. **Before Implementation**:
+   - Check SDD.md for current architecture
+   - Identify affected sections
+   - Draft changes to SDD
+
+2. **During Implementation**:
+   - Keep SDD changes in sync with code
+   - Update Mermaid diagrams if flow changes
+
+3. **After Implementation**:
+   - Finalize SDD updates
+   - Update Change Log section
+   - Create ADR if decision was significant
+
+### Key Architecture Documents
+
+| Document | Location | Purpose |
+|----------|----------|---------|
+| SDD | `DOCS/architecture/SDD.md` | Master design document |
+| System Context | `DOCS/architecture/diagrams/system-context.mmd` | External interactions |
+| Agent Pipeline | `DOCS/architecture/diagrams/agent-pipeline.mmd` | 6-Agent flow |
+| Data Flow | `DOCS/architecture/diagrams/data-flow.mmd` | Import/query flows |
+| Container Diagram | `DOCS/architecture/diagrams/container-diagram.mmd` | Internal architecture |
+| Overview | `DOCS/architecture/overview.md` | Detailed architecture |
+| ADRs | `DOCS/.meta/decisions/` | Decision records |
+
+---
+
+## 📊 v0.5.0 Release Notes
+
+> **Version**: 0.5.0 | **Date**: 2026-02-04
+
+### Added
+- **SDD.md**: Comprehensive Software Design Document
+- **Mermaid Diagrams**: 4 architecture diagrams (system-context, agent-pipeline, data-flow, container)
+- **Architecture Review Protocol**: Mandatory review process for architectural changes
+
+### Changed
+- HUD metrics simplified (Modularity, Diversity, Density core; others in "Details")
+- "Bias Detected" → "Focused Research" terminology
+
+### Planned (v0.6.0)
+- Entity Extraction V2 (all 8 entity types)
+- AI Chat data-based fallback
+- Adaptive gap detection threshold
+- Semantic diversity metrics

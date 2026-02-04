@@ -1,0 +1,1127 @@
+# Software Design Document (SDD)
+
+**Project**: ScholaRAG_Graph
+**Version**: 0.5.0
+**Last Updated**: 2026-02-04
+**Status**: Production-Ready
+**Document Type**: Architecture & Design Specification
+
+---
+
+## Document Information
+
+| Field | Value |
+|-------|-------|
+| **Document Version** | 1.0.0 |
+| **Project Version** | 0.5.0 |
+| **Authors** | ScholaRAG_Graph Development Team |
+| **Classification** | Internal - Technical Documentation |
+| **Review Cycle** | Quarterly or on major releases |
+| **Related Documents** | [Architecture Overview](overview.md), [Multi-Agent System](multi-agent-system.md), [Database Schema](database-schema.md) |
+
+---
+
+## 1. System Overview
+
+### 1.1 Purpose
+
+ScholaRAG_Graph is an AGENTiGraph-style **Concept-Centric Knowledge Graph** platform designed for systematic literature review automation. It transforms academic paper collections into interactive knowledge graphs with multi-agent conversational exploration capabilities, following PRISMA 2020 guidelines.
+
+### 1.2 Scope
+
+**In Scope:**
+- Concept-centric knowledge graph construction from academic papers
+- Multi-agent RAG pipeline for intelligent query processing
+- Three visualization modes (3D, Topic, Gaps)
+- ScholaRAG folder import, PDF import, Zotero integration
+- Research gap detection using InfraNodus-style algorithms
+- Team collaboration features
+- PRISMA 2020 diagram generation
+
+**Out of Scope:**
+- Full-text paper search (only metadata and extracted entities)
+- Real-time collaborative editing
+- Mobile native applications
+- Paper recommendation algorithms
+
+### 1.3 Key Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Concept-Centric Graph** | Concepts/Methods/Findings as first-class entities; Papers/Authors as metadata | ✅ Complete |
+| **6-Agent RAG Pipeline** | Intent → Concept → Task → Query → Reasoning → Response | ✅ Complete |
+| **3D Visualization** | Three.js-based force-directed graph with physics simulation | ✅ Complete |
+| **Topic Clustering** | D3.js-based community detection with Louvain algorithm | ✅ Complete |
+| **Gap Detection** | InfraNodus-style structural gap analysis with AI bridge hypotheses | ✅ Complete |
+| **Zotero Integration** | Hybrid import (Local API + Web API fallback) | ✅ Complete |
+| **ScholaRAG Import** | Batch import from ScholaRAG systematic review projects | ✅ Complete |
+| **Team Collaboration** | Project sharing, role-based access control | ✅ Complete |
+
+### 1.4 Success Metrics
+
+| Metric | Target | Current |
+|--------|--------|---------|
+| Graph Load Time (100 nodes) | < 2 seconds | ~1.5s |
+| Query Response Time | < 5 seconds | ~3s (Groq LLM) |
+| Import Speed | 100 papers/minute | ~120 papers/min |
+| Concurrent Users | 50+ | Tested up to 100 |
+| Graph Visualization Smoothness | 60 FPS | 55-60 FPS |
+
+---
+
+## 2. Architecture Overview
+
+### 2.1 High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                           Frontend (Vercel)                          │
+│                      Next.js 14 + React 18 + Three.js               │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
+│  │   Project   │  │   Graph     │  │    Chat     │  │    Gap     │ │
+│  │   Manager   │  │   Canvas    │  │  Interface  │  │   Panel    │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+│         │               │               │                │          │
+│  ┌──────┴───────────────┴───────────────┴────────────────┴───────┐ │
+│  │              State Management (Zustand + TanStack Query)       │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ REST API (HTTPS)
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Backend (Render Docker)                        │
+│                         FastAPI + Python 3.11+                       │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │               API Layer (FastAPI Routers)                    │   │
+│  │  /projects  /graph  /entities  /gaps  /chat  /import        │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              │                                       │
+│  ┌───────────────────────────┴───────────────────────────────────┐ │
+│  │                     Service Layer                              │ │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │ │
+│  │  │  Graph   │  │  Entity  │  │   Gap    │  │    Import    │  │ │
+│  │  │ Service  │  │ Service  │  │ Service  │  │   Service    │  │ │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────────┘  │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                              │                                       │
+│  ┌───────────────────────────┴───────────────────────────────────┐ │
+│  │                   6-Agent Pipeline                             │ │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐  │ │
+│  │  │ Intent │→│Concept │→│  Task  │→│ Query  │→│  Reasoning │  │ │
+│  │  │ Agent  │ │ Agent  │ │ Agent  │ │ Agent  │ │   Agent    │  │ │
+│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────────┘  │ │
+│  │                                              ↓                 │ │
+│  │                                        ┌────────────┐         │ │
+│  │                                        │  Response  │         │ │
+│  │                                        │   Agent    │         │ │
+│  │                                        └────────────┘         │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                              │                                       │
+│  ┌───────────────────────────┴───────────────────────────────────┐ │
+│  │                   Core Components                              │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐│ │
+│  │  │   Entity     │  │     Gap      │  │    LLM Provider      ││ │
+│  │  │  Extractor   │  │   Detector   │  │  (Groq/Claude/GPT)   ││ │
+│  │  └──────────────┘  └──────────────┘  └──────────────────────┘│ │
+│  └───────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ asyncpg (Connection Pool)
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 PostgreSQL 16 + pgvector (Supabase)                  │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐    │
+│  │ projects │  │ entities │  │  edges   │  │ structural_gaps  │    │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────────┘    │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────┐   │
+│  │ paper_metadata   │  │ zotero_sync_state│  │ teams           │   │
+│  └──────────────────┘  └──────────────────┘  └─────────────────┘   │
+│                     │                                                │
+│              vector column                                           │
+│            (1536 dimensions)                                         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Reference Diagrams:**
+- System Context: [`DOCS/architecture/diagrams/system-context.mmd`](diagrams/system-context.mmd)
+- Full Architecture: [`DOCS/architecture/overview.md`](overview.md)
+
+### 2.2 Technology Stack
+
+#### Frontend
+| Layer | Technology | Version | Purpose |
+|-------|------------|---------|---------|
+| Framework | Next.js (App Router) | 14.1.0 | SSR, routing, React framework |
+| UI Library | React | 18.2.0 | Component-based UI |
+| State Management | Zustand | 4.5.0 | Global state |
+| Server State | TanStack Query | 5.17.0 | API caching, optimistic updates |
+| Styling | Tailwind CSS | 3.4.1 | Utility-first CSS |
+| 3D Visualization | Three.js + react-force-graph-3d | 0.160.0 | 3D force-directed graph |
+| 2D Visualization | D3.js | 7.9.0 | Topic clustering, network analysis |
+| Graph Editor | React Flow | 11.10.0 | Node-based canvas (legacy mode) |
+| Charts | Recharts | (via d3) | Data visualization |
+| Authentication | Supabase SSR | 0.8.0 | Auth state management |
+
+#### Backend
+| Layer | Technology | Version | Purpose |
+|-------|------------|---------|---------|
+| Framework | FastAPI | 0.109.0+ | Async web framework |
+| Language | Python | 3.11+ | Backend logic |
+| Database | PostgreSQL | 16 | Relational storage |
+| Vector DB | pgvector | 0.2.4+ | Embedding storage, similarity search |
+| DB Driver | asyncpg | 0.29.0+ | Async PostgreSQL driver |
+| Validation | Pydantic | 2.6.0+ | Schema validation |
+| LLM Provider (Default) | Groq | - | llama-3.3-70b-versatile |
+| LLM Providers (Optional) | Anthropic, OpenAI, Google | - | Fallback providers |
+| Embeddings | OpenAI | - | text-embedding-3-small (1536 dim) |
+| Testing | pytest + pytest-asyncio | 8.0.0+ | Test framework |
+
+#### Deployment
+| Service | Platform | Type | URL |
+|---------|----------|------|-----|
+| Frontend | Vercel | Next.js | `https://schola-rag-graph.vercel.app` |
+| Backend | Render | Docker | `https://scholarag-graph-docker.onrender.com` |
+| Database | Supabase | PostgreSQL+pgvector | Managed |
+
+---
+
+## 3. Component Specifications
+
+### 3.1 Backend Components
+
+#### 3.1.1 6-Agent Pipeline
+
+**Purpose**: Process user queries through a multi-stage RAG pipeline inspired by AGENTiGraph.
+
+**Architecture**:
+```
+User Query → Intent Agent → Concept Agent → Task Agent → Query Agent → Reasoning Agent → Response Agent → Final Response
+```
+
+**Agent Specifications**:
+
+| Agent | Input | Output | Model | Temperature |
+|-------|-------|--------|-------|-------------|
+| **1. Intent Agent** | User query string | Intent classification (SEARCH, EXPLORE, EXPLAIN, COMPARE, SUMMARIZE, IDENTIFY_GAPS) | Groq llama-3.3-70b | 0.3 |
+| **2. Concept Agent** | User query + Intent | Extracted entities (Concept, Method, Finding, Paper, Author) | Groq llama-3.3-70b | 0.3 |
+| **3. Task Agent** | Extracted entities + Intent | Task plan (DAG of subtasks) | Rule-based | N/A |
+| **4. Query Agent** | Task plan | SQL queries + Vector searches | asyncpg + pgvector | N/A |
+| **5. Reasoning Agent** | Query results | Chain-of-thought analysis | Groq llama-3.3-70b | 0.3 |
+| **6. Response Agent** | Analysis + User context | Natural language response + Citations + Graph highlights | Groq llama-3.3-70b | 0.5 |
+
+**Key Classes**:
+```python
+# backend/agents/orchestrator.py
+class AgentOrchestrator:
+    async def process_query(self, query: str, project_id: str) -> OrchestratorResult
+
+# backend/agents/intent_agent.py
+class IntentAgent:
+    async def classify(self, query: str) -> IntentResult
+
+# backend/agents/concept_extraction_agent.py
+class ConceptExtractionAgent:
+    async def extract(self, query: str) -> ExtractionResult
+
+# backend/agents/reasoning_agent.py
+class ReasoningAgent:
+    async def analyze(self, query_results: QueryResults, context: ConversationContext) -> ReasoningOutput
+```
+
+**Data Flow**: See [`DOCS/architecture/multi-agent-system.md`](multi-agent-system.md) for detailed pipeline diagrams.
+
+#### 3.1.2 Graph Processing
+
+**Purpose**: Extract, disambiguate, and analyze knowledge graph entities from academic papers.
+
+**Components**:
+
+| Component | File | Responsibility |
+|-----------|------|----------------|
+| **Entity Extractor** | `backend/graph/entity_extractor.py` | Extract Concepts, Methods, Findings from paper abstracts using LLM |
+| **Entity Disambiguator** | `backend/graph/entity_disambiguator.py` | Merge similar entities using embedding similarity (threshold: 0.9) |
+| **Relationship Builder** | `backend/graph/relationship_builder.py` | Create edges between entities based on co-occurrence and semantic similarity |
+| **Gap Detector** | `backend/graph/gap_detector.py` | Identify structural gaps using K-means clustering and connection matrix analysis |
+
+**Entity Extraction Pipeline**:
+```python
+# Extraction Prompt Template
+EXTRACTION_PROMPT = """
+Analyze this academic paper and extract structured knowledge:
+
+Title: {title}
+Abstract: {abstract}
+
+Extract:
+1. concepts: Key theoretical concepts (max 10)
+2. methods: Research methodologies (max 5)
+3. findings: Key findings with effect sizes (max 5)
+
+For each entity:
+- name: Canonical name (lowercase, singular)
+- definition: Brief definition in context
+- confidence: 0.0-1.0 extraction confidence
+
+Return ONLY valid JSON.
+"""
+```
+
+**Gap Detection Algorithm**:
+1. Cluster concepts using K-means (optimal K via elbow method)
+2. Build inter-cluster connection matrix from edges
+3. Identify gaps where connection strength < 0.1
+4. Calculate semantic distance between gap clusters
+5. Find bridge concepts using embedding similarity
+6. Generate research questions using LLM
+
+#### 3.1.3 Import Pipeline
+
+**Purpose**: Import papers from multiple sources and construct knowledge graphs.
+
+**Supported Import Types**:
+
+| Type | Source | Format | Status |
+|------|--------|--------|--------|
+| **ScholaRAG** | Local folder | `papers_metadata.csv` + PDFs | ✅ Complete |
+| **PDF Upload** | User upload | PDF files | ✅ Complete |
+| **Zotero** | Zotero library | Hybrid (Local API → Web API) | ✅ Complete |
+
+**ScholaRAG Import Flow**:
+```
+1. Validate folder structure
+2. Read papers_metadata.csv
+3. Extract entities from each paper (parallel)
+4. Disambiguate entities (merge similar)
+5. Build relationships (co-occurrence + semantic)
+6. Calculate graph metrics (degree, betweenness)
+7. Detect structural gaps
+8. Store in PostgreSQL
+```
+
+**Zotero Hybrid Import** (ADR-002):
+- **Local API First**: Connect to Zotero desktop app via HTTP (localhost:23119)
+- **Web API Fallback**: Use Zotero Web API if local unavailable
+- **Sync State**: Track last sync timestamp to enable incremental updates
+
+#### 3.1.4 LLM Provider Management
+
+**Default Provider**: Groq (llama-3.3-70b-versatile)
+
+**Rationale**:
+- **Cost**: Free tier (14,400 req/day)
+- **Speed**: 67 tokens/second for 70B model
+- **Quality**: Comparable to Claude 3.5 Haiku
+
+**Provider Priority**:
+```
+1. Groq (default)
+2. Anthropic (fallback)
+3. OpenAI (fallback)
+4. Google (fallback)
+```
+
+**Environment Variables**:
+```env
+# Primary LLM
+GROQ_API_KEY=gsk_...
+DEFAULT_LLM_PROVIDER=groq
+DEFAULT_LLM_MODEL=llama-3.3-70b-versatile
+
+# Embedding Provider (separate)
+OPENAI_API_KEY=sk-...  # Only for embeddings
+
+# Optional Fallbacks
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Rate Limiting**:
+```python
+# Groq Free Tier
+MAX_REQUESTS_PER_DAY = 14400
+MAX_REQUESTS_PER_MINUTE = 10  # 14400 / (24*60)
+
+# Implementation
+llm_provider = GroqProvider(
+    api_key=settings.groq_api_key,
+    requests_per_minute=10
+)
+```
+
+**Fallback Strategy**:
+```python
+async def get_llm_response(prompt: str) -> str:
+    for provider in ["groq", "anthropic", "openai"]:
+        try:
+            return await llm_provider.generate(prompt)
+        except Exception as e:
+            logger.warning(f"{provider} failed: {e}")
+            continue
+    # Final fallback: keyword-based rules
+    return fallback_response(prompt)
+```
+
+**Full Details**: See [`DOCS/development/LLM_CONFIGURATION.md`](../development/LLM_CONFIGURATION.md)
+
+### 3.2 Frontend Components
+
+#### 3.2.1 Pages
+
+**Directory**: `frontend/app/`
+
+| Page | Route | Purpose |
+|------|-------|---------|
+| **Home** | `/` | Landing page, project list |
+| **Project Detail** | `/projects/[id]` | Graph visualization + Chat interface |
+| **Import** | `/import` | Upload papers (ScholaRAG/PDF/Zotero) |
+| **Team Management** | `/teams` | Manage teams and project sharing |
+| **Login** | `/login` | Supabase authentication |
+
+#### 3.2.2 Graph Visualization
+
+**Purpose**: Three interactive view modes for exploring knowledge graphs.
+
+**View Modes**:
+
+| Mode | Component | Technology | Use Case |
+|------|-----------|------------|----------|
+| **3D View** | `Graph3D.tsx` | Three.js + react-force-graph-3d | Full graph exploration with physics simulation |
+| **Topic View** | `TopicViewMode.tsx` | D3.js force layout | Topic clustering and community detection |
+| **Gaps View** | `GapsViewMode.tsx` | Three.js + Ghost Edges | Research gap identification with AI hypotheses |
+
+**3D View Specifications**:
+```typescript
+// frontend/components/graph/Graph3D.tsx
+interface Graph3DProps {
+  nodes: Node[];
+  edges: Edge[];
+  onNodeClick: (node: Node) => void;
+}
+
+// Force simulation parameters
+{
+  charge: -30,          // Node repulsion
+  linkDistance: 50,     // Edge length
+  gravity: 0.1,         // Center pull
+  iterations: 100       // Stabilization iterations
+}
+
+// Rendering
+- Node size: 5-15 (scaled by degree centrality)
+- Node color: Cluster-based (8 colors)
+- Edge opacity: 0.3-0.7 (scaled by weight)
+- Highlighted nodes: Yellow glow effect
+```
+
+**Topic View Specifications**:
+```typescript
+// frontend/components/graph/TopicViewMode.tsx
+interface TopicViewProps {
+  nodes: Node[];
+  edges: Edge[];
+  clusters: Cluster[];
+}
+
+// D3 force layout
+{
+  forceLink: d3.forceLink().distance(100),
+  forceCharge: d3.forceManyBody().strength(-300),
+  forceCenter: d3.forceCenter(width/2, height/2),
+  forceCollide: d3.forceCollide().radius(30)
+}
+
+// Clustering
+- Algorithm: Louvain (community detection)
+- Visual grouping: Convex hull around clusters
+- Zoom levels: 0.5x - 3x (semantic zoom)
+```
+
+**Gaps View Specifications**:
+```typescript
+// frontend/components/graph/GapsViewMode.tsx
+interface GapsViewProps {
+  nodes: Node[];
+  edges: Edge[];
+  gaps: StructuralGap[];
+}
+
+// Ghost edges (potential connections)
+{
+  color: "rgba(255, 255, 0, 0.3)",  // Semi-transparent yellow
+  style: "dashed",
+  width: 2
+}
+
+// AI Bridge Hypotheses
+- Triggered on gap click
+- Backend: POST /api/graph/gaps/{id}/generate-bridge
+- LLM generates 3-5 bridge concepts
+- Displayed as tooltip overlays
+```
+
+**Full Details**: See [`DOCS/development/VIEW_MODES_REFERENCE.md`](../development/VIEW_MODES_REFERENCE.md)
+
+#### 3.2.3 State Management
+
+**Global State** (Zustand):
+```typescript
+// frontend/lib/store.ts
+interface GraphStore {
+  nodes: Node[];
+  edges: Edge[];
+  selectedNode: Node | null;
+  filters: FilterState;
+  viewMode: "3d" | "topic" | "gaps";
+
+  // Actions
+  setNodes: (nodes: Node[]) => void;
+  selectNode: (node: Node) => void;
+  updateFilters: (filters: Partial<FilterState>) => void;
+  setViewMode: (mode: string) => void;
+}
+```
+
+**Server State** (TanStack Query):
+```typescript
+// frontend/lib/api.ts
+const useProject = (projectId: string) => {
+  return useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => fetchProject(projectId),
+    staleTime: 5 * 60 * 1000,  // 5 minutes
+    cacheTime: 30 * 60 * 1000  // 30 minutes
+  });
+};
+
+const useGraphData = (projectId: string) => {
+  return useQuery({
+    queryKey: ["graph", projectId],
+    queryFn: () => fetchGraphData(projectId),
+    staleTime: 10 * 60 * 1000  // 10 minutes
+  });
+};
+```
+
+### 3.3 Database Schema
+
+**Database**: PostgreSQL 16 + pgvector
+**Hosting**: Supabase
+
+#### 3.3.1 Core Tables
+
+**Projects Table**:
+```sql
+CREATE TABLE projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    config JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Entities Table** (Concepts, Methods, Findings):
+```sql
+CREATE TYPE entity_type AS ENUM (
+    'Paper', 'Author', 'Concept', 'Method', 'Finding'
+);
+
+CREATE TABLE entities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    entity_type entity_type NOT NULL,
+    name VARCHAR(500) NOT NULL,
+    name_normalized VARCHAR(500),
+    definition TEXT,
+    properties JSONB DEFAULT '{}',
+    embedding vector(1536),          -- OpenAI embeddings
+    centrality_degree FLOAT DEFAULT 0,
+    centrality_betweenness FLOAT DEFAULT 0,
+    cluster_id INTEGER,
+    source_papers JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_entities_project ON entities(project_id);
+CREATE INDEX idx_entities_type ON entities(entity_type);
+CREATE INDEX idx_entities_embedding ON entities
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
+```
+
+**Relationships Table** (Edges):
+```sql
+CREATE TYPE relationship_type AS ENUM (
+    'AUTHORED_BY', 'CITES', 'DISCUSSES_CONCEPT',
+    'USES_METHOD', 'HAS_FINDING', 'RELATED_TO', 'CO_OCCURS'
+);
+
+CREATE TABLE relationships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    source_id UUID REFERENCES entities(id) ON DELETE CASCADE,
+    target_id UUID REFERENCES entities(id) ON DELETE CASCADE,
+    relationship_type relationship_type NOT NULL,
+    weight FLOAT DEFAULT 1.0,
+    properties JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(source_id, target_id, relationship_type)
+);
+
+-- Indexes
+CREATE INDEX idx_relationships_source ON relationships(source_id);
+CREATE INDEX idx_relationships_target ON relationships(target_id);
+CREATE INDEX idx_relationships_type ON relationships(relationship_type);
+```
+
+**Structural Gaps Table**:
+```sql
+CREATE TABLE structural_gaps (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    cluster_a_id INTEGER NOT NULL,
+    cluster_b_id INTEGER NOT NULL,
+    gap_strength FLOAT NOT NULL,
+    semantic_distance FLOAT,
+    bridge_concepts JSONB DEFAULT '[]',
+    research_questions JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Full Schema**: See [`DOCS/architecture/database-schema.md`](database-schema.md)
+
+#### 3.3.2 pgvector Usage
+
+**Embedding Search**:
+```sql
+-- Find similar entities by embedding
+SELECT *,
+       1 - (embedding <=> $1) as similarity
+FROM entities
+WHERE project_id = $2
+  AND embedding IS NOT NULL
+  AND 1 - (embedding <=> $1) > 0.7  -- Similarity threshold
+ORDER BY embedding <=> $1
+LIMIT 10;
+```
+
+**Index Type**: HNSW (Hierarchical Navigable Small World)
+- **Parameters**: m=16, ef_construction=64
+- **Operator**: `<=>` (cosine distance)
+- **Performance**: ~10ms for 10K vectors
+
+---
+
+## 4. Data Flow Diagrams
+
+### 4.1 Import Flow
+
+```
+User uploads ScholaRAG folder
+         ↓
+[Backend] Validate folder structure
+         ↓
+[Backend] Read papers_metadata.csv
+         ↓
+[Backend] For each paper:
+         ├─ Extract entities (LLM)
+         ├─ Generate embeddings (OpenAI)
+         └─ Store paper_metadata row
+         ↓
+[Backend] Entity disambiguation
+         ├─ Group by embedding similarity
+         ├─ Merge clusters (threshold: 0.9)
+         └─ Update entities table
+         ↓
+[Backend] Relationship building
+         ├─ Co-occurrence edges (same paper)
+         ├─ Semantic edges (embedding similarity)
+         └─ Store relationships table
+         ↓
+[Backend] Graph metrics calculation
+         ├─ Degree centrality
+         ├─ Betweenness centrality
+         ├─ Community detection (Louvain)
+         └─ Update entities.properties
+         ↓
+[Backend] Gap detection
+         ├─ K-means clustering
+         ├─ Inter-cluster connection matrix
+         ├─ Identify weak connections
+         ├─ Find bridge concepts
+         ├─ Generate research questions (LLM)
+         └─ Store structural_gaps table
+         ↓
+[Backend] Return import_job_id
+         ↓
+[Frontend] Poll /api/import/status/{job_id}
+         ↓
+[Frontend] Display success + redirect to project
+```
+
+### 4.2 Query Flow (6-Agent Pipeline)
+
+```
+User sends query: "What methods are used to study chatbot effectiveness?"
+         ↓
+[Backend] Intent Agent
+         ├─ Classify intent: "METHOD_ANALYSIS"
+         ├─ Extract domain: "effectiveness"
+         └─ Confidence: 0.95
+         ↓
+[Backend] Concept Agent
+         ├─ Extract entities: ["chatbot", "effectiveness", "methods"]
+         ├─ Match to graph entities via embedding search
+         └─ Return matched_ids: [uuid1, uuid2, uuid3]
+         ↓
+[Backend] Task Agent
+         ├─ Intent: METHOD_ANALYSIS
+         ├─ Plan tasks:
+         │   ├─ Task 1: Search methods related to "chatbot"
+         │   ├─ Task 2: Filter by "effectiveness" context
+         │   └─ Task 3: Rank by usage count
+         └─ Generate DAG (no dependencies, run parallel)
+         ↓
+[Backend] Query Agent
+         ├─ Execute Task 1: SQL query for methods
+         │   SELECT * FROM entities WHERE entity_type='Method' AND ...
+         ├─ Execute Task 2: Vector search for "effectiveness"
+         │   SELECT * FROM entities WHERE embedding <=> $1 < 0.3
+         ├─ Execute Task 3: Count relationships
+         │   SELECT method_id, COUNT(*) FROM relationships GROUP BY method_id
+         └─ Combine results
+         ↓
+[Backend] Reasoning Agent
+         ├─ Chain-of-thought analysis:
+         │   Step 1: "RCT appears in 23 papers"
+         │   Step 2: "Pre/post-test in 15 papers"
+         │   Step 3: "Most common for chatbot effectiveness studies"
+         └─ Final conclusion: "RCT is most prevalent..."
+         ↓
+[Backend] Response Agent
+         ├─ Generate natural language response
+         ├─ Add citations (papers containing methods)
+         ├─ Highlight graph nodes (methods)
+         ├─ Suggest follow-ups:
+         │   "Show me RCT chatbot papers"
+         │   "Compare RCT vs pre/post-test"
+         │   "What are the limitations of RCT?"
+         └─ Return OrchestratorResult
+         ↓
+[Frontend] Display response in chat
+         ├─ Render markdown response
+         ├─ Show citation list
+         ├─ Highlight nodes in graph (yellow glow)
+         └─ Display follow-up buttons
+```
+
+### 4.3 Graph Visualization Flow
+
+```
+User navigates to /projects/{id}
+         ↓
+[Frontend] Fetch graph data
+         ├─ GET /api/graph/{project_id}
+         ├─ Returns: { nodes: [...], edges: [...], metrics: {...} }
+         └─ Cache in TanStack Query (10 min stale time)
+         ↓
+[Frontend] User selects view mode
+         ├─ 3D View → Graph3D.tsx
+         ├─ Topic View → TopicViewMode.tsx
+         └─ Gaps View → GapsViewMode.tsx
+         ↓
+[Case: 3D View]
+         ├─ Initialize Three.js scene
+         ├─ Apply force simulation
+         │   ├─ Charge force (repulsion)
+         │   ├─ Link force (edge constraints)
+         │   └─ Center force (gravity)
+         ├─ Render nodes as spheres (size by degree)
+         ├─ Render edges as lines (opacity by weight)
+         ├─ User interaction:
+         │   ├─ Click node → Highlight neighbors
+         │   ├─ Drag node → Update position
+         │   └─ Scroll → Zoom camera
+         └─ Maintain 60 FPS
+         ↓
+[Case: Topic View]
+         ├─ Run Louvain clustering (if not cached)
+         ├─ Layout with D3 force simulation
+         ├─ Draw cluster boundaries (convex hull)
+         ├─ Color nodes by cluster
+         └─ Enable semantic zoom (0.5x-3x)
+         ↓
+[Case: Gaps View]
+         ├─ Fetch structural gaps: GET /api/graph/gaps/{project_id}
+         ├─ Render nodes + edges (same as 3D)
+         ├─ Add ghost edges for gaps (dashed yellow)
+         ├─ User clicks gap → POST /api/graph/gaps/{id}/generate-bridge
+         ├─ LLM generates bridge concepts
+         ├─ Display as tooltip overlay
+         └─ Allow "add to graph" action
+```
+
+---
+
+## 5. API Contracts
+
+### 5.1 Key Endpoints
+
+**Base URL**: `https://scholarag-graph-docker.onrender.com`
+
+#### Project Management
+
+```
+GET /api/projects
+Response: { projects: [{ id, name, description, paper_count, created_at }] }
+
+POST /api/projects
+Request: { name, description }
+Response: { project: { id, name, ... } }
+
+GET /api/projects/{id}
+Response: { project: { id, name, description, config, stats } }
+```
+
+#### Graph Data
+
+```
+GET /api/graph/{project_id}
+Response: {
+  nodes: [{ id, label, type, degree, betweenness, cluster_id, properties }],
+  edges: [{ id, source, target, weight, type }],
+  metrics: { node_count, edge_count, density, modularity }
+}
+
+GET /api/graph/visualization/{project_id}
+Response: {
+  nodes: [{ id, label, size, color, x, y, z }],
+  edges: [{ source, target, opacity }],
+  clusters: [{ id, nodes: [], centroid: [x,y,z] }]
+}
+```
+
+#### Gap Analysis
+
+```
+GET /api/graph/gaps/{project_id}
+Query: ?min_strength=0.5&limit=10
+Response: {
+  gaps: [{
+    id, cluster_a_id, cluster_b_id, gap_strength,
+    semantic_distance, bridge_concepts, research_questions
+  }]
+}
+
+POST /api/graph/gaps/{id}/generate-bridge
+Response: {
+  bridge_hypotheses: [
+    { concept: "active learning", relevance: 0.85, reasoning: "..." },
+    { concept: "peer feedback", relevance: 0.78, reasoning: "..." }
+  ]
+}
+```
+
+#### Chat (6-Agent RAG)
+
+```
+POST /api/chat/query
+Request: {
+  query: "What methods are used?",
+  project_id: "uuid",
+  conversation_id: "uuid" (optional)
+}
+Response: {
+  content: "The most common methods are...",
+  citations: ["paper_id_1", "paper_id_2"],
+  highlighted_nodes: ["node_id_1", "node_id_2"],
+  highlighted_edges: ["edge_id_1"],
+  suggested_follow_ups: ["Show me papers using RCT", "Compare methods"]
+}
+```
+
+#### Import
+
+```
+POST /api/import/scholarag
+Request: multipart/form-data { folder: File }
+Response: { import_job_id: "uuid" }
+
+GET /api/import/status/{job_id}
+Response: {
+  status: "processing" | "completed" | "failed",
+  progress: 75,
+  total_papers: 100,
+  processed_papers: 75,
+  error_message: null
+}
+```
+
+#### Health Check
+
+```
+GET /health
+Response: {
+  status: "healthy",
+  database: "connected",
+  llm_provider: "groq",
+  version: "0.5.0"
+}
+```
+
+**Full API Documentation**: See [`DOCS/api/overview.md`](../api/overview.md)
+
+---
+
+## 6. Deployment Architecture
+
+### 6.1 Production Environment
+
+| Service | Platform | Type | URL | Resources |
+|---------|----------|------|-----|-----------|
+| **Frontend** | Vercel | Next.js | `https://schola-rag-graph.vercel.app` | Serverless (Auto-scale) |
+| **Backend** | Render | Docker | `https://scholarag-graph-docker.onrender.com` | 1 vCPU, 2GB RAM |
+| **Database** | Supabase | PostgreSQL 16 + pgvector | Managed | Starter Plan |
+
+### 6.2 Docker Configuration
+
+**Backend Dockerfile**:
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc g++ libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Expose port
+EXPOSE 8000
+
+# Run FastAPI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+**render.yaml**:
+```yaml
+services:
+  - type: web
+    name: scholarag-graph-docker
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scholarag-db
+          property: connectionString
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://schola-rag-graph.vercel.app,http://localhost:3000
+```
+
+### 6.3 Environment Variables
+
+**Backend (Render)**:
+```env
+# Database
+DATABASE_URL=postgresql://user:pass@host:5432/db
+
+# Authentication
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+
+# LLM Providers
+GROQ_API_KEY=gsk_...
+DEFAULT_LLM_PROVIDER=groq
+DEFAULT_LLM_MODEL=llama-3.3-70b-versatile
+
+# Embeddings
+OPENAI_API_KEY=sk-...
+
+# CORS (CRITICAL)
+CORS_ORIGINS=https://schola-rag-graph.vercel.app,https://scholarag-graph.vercel.app,http://localhost:3000
+
+# Environment
+ENVIRONMENT=production
+```
+
+**Frontend (Vercel)**:
+```env
+NEXT_PUBLIC_API_URL=https://scholarag-graph-docker.onrender.com
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+```
+
+### 6.4 CORS Configuration
+
+**Critical**: Backend must whitelist frontend URLs in `CORS_ORIGINS`.
+
+**Implementation**:
+```python
+# backend/main.py
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins.split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+**Common Issue**: CORS errors after frontend URL change.
+**Solution**: Update `CORS_ORIGINS` in Render Dashboard → Environment Variables.
+
+### 6.5 Auto-Deploy Configuration
+
+**Status**: ❌ **DISABLED** (INFRA-006)
+
+**Reason**: Auto-deploy causes server restarts during import operations, killing background tasks (BUG-028).
+
+**Deployment Process**:
+1. Go to Render Dashboard → `scholarag-graph-docker`
+2. Click "Manual Deploy" → "Deploy latest commit"
+3. ⚠️ Ensure no imports are running before deploying
+
+---
+
+## 7. Change Log
+
+### Version 0.5.0 (2026-02-04) - Current
+
+**Major Features**:
+- 6-Agent RAG pipeline (Intent → Concept → Task → Query → Reasoning → Response)
+- Three view modes (3D, Topic, Gaps)
+- Groq LLM integration as default provider
+- InfraNodus-style gap detection with AI bridge hypotheses
+- ScholaRAG folder import
+- Zotero hybrid import (Local API + Web API)
+- Team collaboration features
+
+**Technical Improvements**:
+- Migrated backend to Render Docker (from Python service)
+- PostgreSQL 16 + pgvector for vector search
+- Supabase authentication integration
+- HNSW index for embedding search (m=16, ef_construction=64)
+
+**Known Issues**:
+- Auto-deploy disabled to prevent import interruption (INFRA-006)
+- Graph visualization performance degrades above 500 nodes
+
+### Version 0.4.0 (2026-01-20)
+
+**Features**:
+- Added Topic View mode with D3.js clustering
+- Implemented Gaps View mode with ghost edges
+- Added PRISMA 2020 diagram generation
+
+**Technical**:
+- Louvain community detection algorithm
+- Structural gap detection with K-means clustering
+
+### Version 0.3.0 (2026-01-15)
+
+**Features**:
+- ScholaRAG folder import
+- PDF upload and entity extraction
+
+**Technical**:
+- Entity disambiguation using embedding similarity
+- Relationship builder with co-occurrence and semantic edges
+
+### Version 0.2.0 (2026-01-10)
+
+**Features**:
+- Basic knowledge graph visualization (3D only)
+- Manual entity creation
+
+**Technical**:
+- PostgreSQL schema with pgvector extension
+- FastAPI backend setup
+
+### Version 0.1.0 (2026-01-01)
+
+**Initial Release**:
+- Project scaffolding
+- Basic authentication
+
+---
+
+## Appendices
+
+### Appendix A: Related Documents
+
+| Document | Purpose | Location |
+|----------|---------|----------|
+| **Architecture Overview** | High-level system design | [`DOCS/architecture/overview.md`](overview.md) |
+| **Multi-Agent System** | 6-Agent pipeline details | [`DOCS/architecture/multi-agent-system.md`](multi-agent-system.md) |
+| **Database Schema** | Full PostgreSQL schema | [`DOCS/architecture/database-schema.md`](database-schema.md) |
+| **LLM Configuration** | Groq setup guide | [`DOCS/development/LLM_CONFIGURATION.md`](../development/LLM_CONFIGURATION.md) |
+| **View Modes Reference** | Frontend visualization guide | [`DOCS/development/VIEW_MODES_REFERENCE.md`](../development/VIEW_MODES_REFERENCE.md) |
+| **API Documentation** | REST API reference | [`DOCS/api/overview.md`](../api/overview.md) |
+
+### Appendix B: Glossary
+
+| Term | Definition |
+|------|------------|
+| **Concept-Centric Graph** | Knowledge graph where concepts are first-class entities; papers are metadata |
+| **Entity** | Node in the knowledge graph (Concept, Method, Finding, Paper, Author) |
+| **Relationship** | Edge connecting two entities (DISCUSSES_CONCEPT, USES_METHOD, etc.) |
+| **Structural Gap** | Weak connection between two clusters of concepts, indicating research gap |
+| **Bridge Concept** | Potential entity that could connect two gap clusters |
+| **Ghost Edge** | Visualization of a potential (non-existent) relationship in Gaps View |
+| **Embedding** | 1536-dimensional vector representation of text (OpenAI text-embedding-3-small) |
+| **HNSW** | Hierarchical Navigable Small World; fast approximate nearest neighbor search |
+| **pgvector** | PostgreSQL extension for vector operations and similarity search |
+| **Louvain Algorithm** | Community detection algorithm for graph clustering |
+| **InfraNodus** | Text network visualization tool; inspiration for gap detection |
+| **PRISMA 2020** | Reporting guideline for systematic reviews |
+
+### Appendix C: Performance Benchmarks
+
+| Operation | Input Size | Time | Notes |
+|-----------|------------|------|-------|
+| Entity Extraction | 100 papers | ~2 min | Groq LLM, parallel processing |
+| Entity Disambiguation | 1000 entities | ~5 sec | Embedding similarity, threshold 0.9 |
+| Gap Detection | 500 concepts | ~3 sec | K-means + connection matrix |
+| Graph Rendering (3D) | 100 nodes, 200 edges | ~1.5 sec | Three.js, 60 FPS |
+| Graph Rendering (3D) | 500 nodes, 1000 edges | ~4 sec | 30-40 FPS |
+| Vector Search | 10K entities | ~10 ms | HNSW index, 10 results |
+| Query Response (6-Agent) | Average query | ~3 sec | Groq LLM, includes reasoning |
+
+### Appendix D: Security Considerations
+
+| Area | Current Status | Planned Improvements |
+|------|----------------|----------------------|
+| **Authentication** | Supabase JWT tokens | ✅ Production-ready |
+| **Authorization** | Role-based (team member, owner) | Add guest access (read-only) |
+| **API Security** | CORS, rate limiting (planned) | Implement API key rotation |
+| **Data Encryption** | HTTPS, DB encryption at rest | ✅ Production-ready |
+| **Input Validation** | Pydantic schemas | Add XSS sanitization for chat |
+| **SQL Injection** | Parameterized queries (asyncpg) | ✅ Safe |
+
+---
+
+**Document End**
+
+**Last Updated**: 2026-02-04
+**Next Review**: 2026-05-04
+**Maintained By**: ScholaRAG_Graph Development Team

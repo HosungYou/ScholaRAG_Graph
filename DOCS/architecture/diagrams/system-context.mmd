@@ -1,0 +1,39 @@
+graph TB
+    %% C4 System Context Diagram
+    %% Shows ScholaRAG_Graph in context of external systems and users
+
+    Researcher[["Researcher<br/>(User)"]]
+
+    ScholaRAG["ScholaRAG_Graph System<br/>---<br/>Agentic RAG system for<br/>systematic literature review<br/>with knowledge graph"]
+
+    Zotero["Zotero<br/>---<br/>Reference management<br/>and paper library"]
+
+    GroqAPI["Groq API<br/>---<br/>LLM inference service<br/>(llama-3.3-70b)"]
+
+    Supabase["Supabase<br/>---<br/>PostgreSQL + pgvector<br/>database hosting"]
+
+    Vercel["Vercel<br/>---<br/>Frontend hosting<br/>(Next.js deployment)"]
+
+    Render["Render<br/>---<br/>Backend hosting<br/>(FastAPI deployment)"]
+
+    %% Relationships
+    Researcher -->|"Imports papers,<br/>asks queries"| ScholaRAG
+    ScholaRAG -->|"Returns answers<br/>with citations"| Researcher
+
+    ScholaRAG -->|"Reads Zotero library,<br/>extracts papers"| Zotero
+
+    ScholaRAG -->|"Sends prompts,<br/>gets completions"| GroqAPI
+
+    ScholaRAG -->|"Stores/queries<br/>graph + vectors"| Supabase
+
+    Vercel -->|"Hosts"| ScholaRAG
+    Render -->|"Hosts"| ScholaRAG
+
+    %% Styling
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999,stroke:#666,color:#fff
+
+    class Researcher person
+    class ScholaRAG system
+    class Zotero,GroqAPI,Supabase,Vercel,Render external

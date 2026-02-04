@@ -1,0 +1,60 @@
+flowchart TB
+    %% Agent Pipeline Flowchart
+    %% Shows 6-agent pipeline with graph store and LLM provider
+
+    Start([User Query])
+
+    %% Agent Pipeline
+    IntentAgent["1. Intent Agent<br/>---<br/>Classifies query intent:<br/>- Simple factual<br/>- Relationship analysis<br/>- Summarization<br/>- Comparison"]
+
+    ConceptAgent["2. Concept Agent<br/>---<br/>Identifies key concepts<br/>and entities from query<br/>Maps to graph entities"]
+
+    TaskAgent["3. Task Agent<br/>---<br/>Decomposes query<br/>into sub-tasks<br/>Plans execution strategy"]
+
+    QueryAgent["4. Query Agent<br/>---<br/>Generates Cypher queries<br/>Executes graph retrieval<br/>Performs vector search"]
+
+    ReasoningAgent["5. Reasoning Agent<br/>---<br/>Synthesizes retrieved data<br/>Performs logical inference<br/>Identifies patterns"]
+
+    ResponseAgent["6. Response Agent<br/>---<br/>Formats final answer<br/>Adds citations<br/>Ensures coherence"]
+
+    End([Response to User])
+
+    %% External Components
+    GraphStore[("Graph Store<br/>---<br/>Neo4j/PostgreSQL<br/>Entities & Relations")]
+
+    VectorStore[("Vector Store<br/>---<br/>pgvector<br/>Semantic embeddings")]
+
+    LLM["LLM Provider<br/>---<br/>Groq API<br/>(llama-3.3-70b)"]
+
+    %% Flow
+    Start --> IntentAgent
+    IntentAgent --> ConceptAgent
+    ConceptAgent --> TaskAgent
+    TaskAgent --> QueryAgent
+
+    QueryAgent -->|Graph traversal| GraphStore
+    QueryAgent -->|Semantic search| VectorStore
+
+    GraphStore --> ReasoningAgent
+    VectorStore --> ReasoningAgent
+
+    ReasoningAgent --> ResponseAgent
+    ResponseAgent --> End
+
+    %% LLM connections
+    IntentAgent -.->|Uses LLM| LLM
+    ConceptAgent -.->|Uses LLM| LLM
+    TaskAgent -.->|Uses LLM| LLM
+    ReasoningAgent -.->|Uses LLM| LLM
+    ResponseAgent -.->|Uses LLM| LLM
+
+    %% Styling
+    classDef agent fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef storage fill:#2e7d32,stroke:#1b5e20,color:#fff
+    classDef external fill:#f57c00,stroke:#e65100,color:#fff
+    classDef endpoint fill:#6a1b9a,stroke:#4a148c,color:#fff
+
+    class IntentAgent,ConceptAgent,TaskAgent,QueryAgent,ReasoningAgent,ResponseAgent agent
+    class GraphStore,VectorStore storage
+    class LLM external
+    class Start,End endpoint

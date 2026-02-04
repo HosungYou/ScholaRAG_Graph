@@ -22,16 +22,29 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DiversityMetrics:
-    """Diversity metrics for a knowledge graph."""
+    """
+    Diversity metrics for a knowledge graph.
+
+    v0.6.0: Added topic_diversity, methodological_diversity, and insights.
+    Changed "low" rating to "focused" for research context clarity.
+    """
 
     shannon_entropy: float
     normalized_entropy: float  # 0-1 scale
     modularity: float
-    bias_score: float  # 0-1, higher = more biased (one cluster dominates)
-    diversity_rating: str  # "high", "medium", "low"
+    bias_score: float  # 0-1, higher = more focused (one cluster dominates)
+    diversity_rating: str  # "high", "medium", "focused" (v0.6.0: renamed from "low")
     cluster_sizes: list[int]
     dominant_cluster_ratio: float
     gini_coefficient: float  # Inequality measure
+
+    # v0.6.0 additions
+    topic_diversity: float = 0.5  # 0-1: semantic distance between cluster themes
+    insights: list[str] = None  # Human-readable explanations
+
+    def __post_init__(self):
+        if self.insights is None:
+            self.insights = []
 
 
 class DiversityAnalyzer:
@@ -76,10 +89,12 @@ class DiversityAnalyzer:
                 normalized_entropy=0.0,
                 modularity=0.0,
                 bias_score=1.0,
-                diversity_rating="low",
+                diversity_rating="focused",  # v0.6.0: Changed from "low"
                 cluster_sizes=[],
                 dominant_cluster_ratio=1.0,
                 gini_coefficient=1.0,
+                topic_diversity=0.0,
+                insights=["No clusters detected for diversity analysis."],
             )
 
         # Get cluster sizes
@@ -92,10 +107,12 @@ class DiversityAnalyzer:
                 normalized_entropy=0.0,
                 modularity=0.0,
                 bias_score=1.0,
-                diversity_rating="low",
+                diversity_rating="focused",  # v0.6.0: Changed from "low"
                 cluster_sizes=cluster_sizes,
                 dominant_cluster_ratio=1.0,
                 gini_coefficient=1.0,
+                topic_diversity=0.0,
+                insights=["Empty clusters detected."],
             )
 
         # Calculate Shannon Entropy
@@ -117,11 +134,16 @@ class DiversityAnalyzer:
         # Calculate Gini coefficient
         gini_coefficient = self._compute_gini(cluster_sizes)
 
-        # Determine diversity rating
-        diversity_rating = self._compute_rating(
+        # v0.6.0: Calculate topic diversity (placeholder - can be enhanced with embeddings)
+        # For now, estimate based on cluster count and entropy
+        topic_diversity = min(1.0, normalized_entropy * 0.5 + (len(clusters) / 10) * 0.5)
+
+        # Determine diversity rating with insights
+        diversity_rating, insights = self._compute_rating(
             normalized_entropy,
             bias_score,
             gini_coefficient,
+            topic_diversity,
         )
 
         return DiversityMetrics(
@@ -133,6 +155,8 @@ class DiversityAnalyzer:
             cluster_sizes=cluster_sizes,
             dominant_cluster_ratio=round(dominant_cluster_ratio, 4),
             gini_coefficient=round(gini_coefficient, 4),
+            topic_diversity=round(topic_diversity, 4),
+            insights=insights,
         )
 
     def _compute_modularity(
@@ -198,28 +222,51 @@ class DiversityAnalyzer:
         normalized_entropy: float,
         bias_score: float,
         gini_coefficient: float,
-    ) -> str:
+        topic_diversity: float = 0.5,
+    ) -> tuple[str, list[str]]:
         """
-        Compute overall diversity rating.
+        Compute overall diversity rating with contextual insights.
 
-        Considers:
-        - Normalized entropy (higher = better)
-        - Bias score (lower = better)
-        - Gini coefficient (lower = better)
+        v0.6.0: Changed "low" to "focused" for research context.
+        Added topic_diversity consideration and human-readable insights.
+
+        Returns:
+            Tuple of (rating, insights list)
         """
+        insights = []
+
+        # Generate contextual insights
+        if bias_score > 0.5:
+            dominant_pct = int(bias_score * 100)
+            insights.append(f"The main topic covers {dominant_pct}% of concepts, indicating focused research.")
+
+        if normalized_entropy > 0.8:
+            insights.append("Topics are evenly distributed across clusters.")
+        elif normalized_entropy < 0.4:
+            insights.append("Research is concentrated in specific topic areas.")
+
+        if topic_diversity > 0.7:
+            insights.append("High thematic diversity between topic clusters.")
+        elif topic_diversity < 0.3:
+            insights.append("Tightly focused thematic scope.")
+
         # Composite score (higher = more diverse)
+        # v0.6.0: Include topic_diversity with higher weight for semantic understanding
         diversity_score = (
-            normalized_entropy * 0.4 +
-            (1 - bias_score) * 0.3 +
-            (1 - gini_coefficient) * 0.3
+            normalized_entropy * 0.3 +
+            (1 - bias_score) * 0.2 +
+            (1 - gini_coefficient) * 0.2 +
+            topic_diversity * 0.3  # Added semantic diversity weight
         )
 
-        if diversity_score >= 0.7:
-            return "high"
-        elif diversity_score >= 0.4:
-            return "medium"
+        if diversity_score >= 0.65:
+            rating = "high"
+        elif diversity_score >= 0.35:
+            rating = "medium"
         else:
-            return "low"
+            rating = "focused"  # v0.6.0: Changed from "low" for research context
+
+        return rating, insights
 
     def analyze_from_data(
         self,
