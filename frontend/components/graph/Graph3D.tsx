@@ -112,6 +112,11 @@ export interface Graph3DProps {
   // v0.7.0: Adaptive labeling props
   labelVisibility?: 'none' | 'important' | 'all';
   onLabelVisibilityChange?: (mode: 'none' | 'important' | 'all') => void;
+  // v0.7.0: Node pinning props
+  pinnedNodes?: string[];
+  onNodePin?: (nodeId: string) => void;
+  onNodeUnpin?: (nodeId: string) => void;
+  onClearPinnedNodes?: () => void;
 }
 
 export interface Graph3DRef {
@@ -120,6 +125,7 @@ export interface Graph3DRef {
   focusOnGap: (gap: StructuralGap) => void;
   resetCamera: () => void;
   getCamera: () => THREE.Camera | undefined;
+  clearPinnedNodes: () => void;
 }
 
 export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
@@ -143,6 +149,10 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   glowSize = 1.3,
   labelVisibility: labelVisibilityProp = 'important',
   onLabelVisibilityChange,
+  pinnedNodes = [],
+  onNodePin,
+  onNodeUnpin,
+  onClearPinnedNodes,
 }, ref) => {
   const fgRef = useRef<any>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -260,6 +270,9 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   // Build highlighted sets for O(1) lookup
   const highlightedNodeSet = useMemo(() => new Set(highlightedNodes), [highlightedNodes]);
   const highlightedEdgeSet = useMemo(() => new Set(highlightedEdges), [highlightedEdges]);
+
+  // v0.7.0: Pinned nodes set for O(1) lookup
+  const pinnedNodeSet = useMemo(() => new Set(pinnedNodes), [pinnedNodes]);
 
   // Build node -> cluster mapping for edge coloring
   const nodeClusterMap = useMemo(() => {
@@ -381,26 +394,34 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
 
   // UI-010 FIX: Separate style maps for highlighting (changes without triggering graph rebuild)
   const nodeStyleMap = useMemo(() => {
-    const styleMap = new Map<string, { isHighlighted: boolean; baseColor: string }>();
+    const styleMap = new Map<string, { isHighlighted: boolean; isPinned: boolean; baseColor: string }>();
     // Pre-populate with all nodes to ensure consistent lookup
     baseGraphData.nodes.forEach(node => {
       styleMap.set(node.id, {
         isHighlighted: highlightedNodeSet.has(node.id),
+        isPinned: pinnedNodeSet.has(node.id),
         baseColor: node.color,
       });
     });
     return styleMap;
-  }, [baseGraphData.nodes, highlightedNodeSet]);
+  }, [baseGraphData.nodes, highlightedNodeSet, pinnedNodeSet]);
 
   const edgeStyleMap = useMemo(() => {
-    const styleMap = new Map<string, { isHighlighted: boolean }>();
+    const styleMap = new Map<string, { isHighlighted: boolean; isPinnedEdge: boolean }>();
     baseGraphData.links.forEach(link => {
+      const sourceId = typeof link.source === 'string' ? link.source : (link.source as ForceGraphNode).id;
+      const targetId = typeof link.target === 'string' ? link.target : (link.target as ForceGraphNode).id;
+
+      // v0.7.0: Edge is pinned if both source and target are pinned
+      const isPinnedEdge = pinnedNodeSet.has(sourceId) && pinnedNodeSet.has(targetId);
+
       styleMap.set(link.id, {
         isHighlighted: highlightedEdgeSet.has(link.id) || link.isGhost === true,
+        isPinnedEdge,
       });
     });
     return styleMap;
-  }, [baseGraphData.links, highlightedEdgeSet]);
+  }, [baseGraphData.links, highlightedEdgeSet, pinnedNodeSet]);
 
   // Backward compatibility: graphData reference for ForceGraph3D
   // This is now stable - only changes when nodes/edges/clusters change, NOT when highlights change
@@ -443,7 +464,17 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     // UI-010 FIX: Get highlight state from style map, not from node object
     const nodeStyle = nodeStyleMap.get(node.id);
     const isHighlighted = nodeStyle?.isHighlighted || false;
-    const displayColor = isHighlighted ? '#FFD700' : (node.color || '#888888');
+    const isPinned = nodeStyle?.isPinned || false;
+
+    // v0.7.0: Color priority: highlighted > pinned > normal
+    let displayColor: string;
+    if (isHighlighted) {
+      displayColor = '#FFD700'; // Gold for highlighted
+    } else if (isPinned) {
+      displayColor = '#00E5FF'; // Cyan for pinned
+    } else {
+      displayColor = node.color || '#888888';
+    }
 
     // Calculate emissive intensity based on bloom settings
     let emissiveIntensity = isHighlighted ? 0.6 : 0.2;
@@ -510,6 +541,21 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       group.add(ring);
     }
 
+    // v0.7.0: Pinned node indicator (cyan ring)
+    if (isPinned && !isHighlighted) {
+      const pinnedRingSize = bloomEnabled ? nodeSize * glowSize * 0.9 : nodeSize * 1.25;
+      const pinnedRingGeometry = new THREE.RingGeometry(pinnedRingSize, pinnedRingSize + nodeSize * 0.15, 32);
+      const pinnedRingMaterial = new THREE.MeshBasicMaterial({
+        color: '#00E5FF',
+        transparent: true,
+        opacity: bloomEnabled ? 0.5 + bloomIntensity * 0.2 : 0.6,
+        side: THREE.DoubleSide,
+      });
+      const pinnedRing = new THREE.Mesh(pinnedRingGeometry, pinnedRingMaterial);
+      pinnedRing.rotation.x = Math.PI / 2;
+      group.add(pinnedRing);
+    }
+
     // v0.7.0: Adaptive labeling based on zoom level and visibility mode
     const adaptiveThreshold = calculateLabelThreshold(currentZoom);
     const shouldShowLabel =
@@ -518,6 +564,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         (labelVisibility === 'important' && (
           nodeSize >= adaptiveThreshold ||
           isHighlighted ||
+          isPinned ||  // v0.7.0: Pinned nodes always show labels
           node.isBridge
         ))
       );
@@ -537,8 +584,8 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * sizeNormalized);
 
       // InfraNodus style: Label color matches cluster color
-      // Highlighted nodes get gold, otherwise use node's cluster color
-      const labelColor = isHighlighted ? '#FFD700' : (node.color || '#FFFFFF');
+      // Highlighted nodes get gold, pinned nodes get cyan, otherwise use node's cluster color
+      const labelColor = isHighlighted ? '#FFD700' : isPinned ? '#00E5FF' : (node.color || '#FFFFFF');
       const labelSprite = createTextSprite(displayName, labelColor, fontSize);
 
       if (labelSprite) {
@@ -567,7 +614,12 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     // Get highlight state from style map
     const edgeStyle = edgeStyleMap.get(link.id);
     const isHighlighted = edgeStyle?.isHighlighted || false;
-    return isHighlighted ? baseWidth * 2 : baseWidth;
+    const isPinnedEdge = edgeStyle?.isPinnedEdge || false;
+
+    // v0.7.0: Pinned edges are thicker
+    if (isHighlighted) return baseWidth * 2;
+    if (isPinnedEdge) return baseWidth * 1.5;
+    return baseWidth;
   }, [edgeStyleMap]);
 
   // Link color - Cluster-based coloring (InfraNodus-style)
@@ -588,6 +640,11 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     // Highlighted edges: gold
     if (isHighlighted) {
       return 'rgba(255, 215, 0, 0.8)';
+    }
+
+    // v0.7.0: Pinned edges (between pinned nodes) - cyan
+    if (edgeStyle?.isPinnedEdge) {
+      return 'rgba(0, 229, 255, 0.7)';  // Cyan for pinned edges
     }
 
     // Get source and target node IDs
@@ -672,9 +729,19 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, []);
 
   // Node click handler - selects node, double-click focuses camera
-  const handleNodeClick = useCallback((nodeData: unknown) => {
+  const handleNodeClick = useCallback((nodeData: unknown, event: MouseEvent) => {
     const node = nodeData as ForceGraphNode;
     const now = Date.now();
+
+    // v0.7.0: Shift+click to toggle pin
+    if (event.shiftKey) {
+      if (pinnedNodeSet.has(node.id)) {
+        onNodeUnpin?.(node.id);
+      } else {
+        onNodePin?.(node.id);
+      }
+      return; // Don't proceed with normal click behavior
+    }
 
     // Check for double-click
     if (
@@ -702,7 +769,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       }
     }
     // Note: Camera focus only happens on double-click for stable UX
-  }, [nodes, onNodeClick, focusCameraOnNode]);
+  }, [nodes, onNodeClick, focusCameraOnNode, pinnedNodeSet, onNodePin, onNodeUnpin]);
 
   // Node right-click handler - alternative way to focus camera on node
   const handleNodeRightClick = useCallback((nodeData: unknown) => {
@@ -817,7 +884,10 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       }
     },
     getCamera: () => fgRef.current?.camera(),
-  }), [graphData]);
+    clearPinnedNodes: () => {
+      onClearPinnedNodes?.();
+    },
+  }), [graphData, onClearPinnedNodes]);
 
   // Auto-focus on gap when selected
   useEffect(() => {

@@ -78,6 +78,11 @@ export function KnowledgeGraph3D({
     viewMode,
     setViewMode,
     filters,  // Phase 4 FIX: Subscribe to filters for reactive filtering
+    // v0.7.0: Node pinning
+    pinnedNodes,
+    addPinnedNode,
+    removePinnedNode,
+    clearPinnedNodes,
   } = useGraphStore();
 
   // 3D-specific store
@@ -304,6 +309,11 @@ export function KnowledgeGraph3D({
           bloomEnabled={view3D.bloom.enabled}
           bloomIntensity={view3D.bloom.intensity}
           glowSize={view3D.bloom.glowSize}
+          // v0.7.0: Node pinning
+          pinnedNodes={pinnedNodes}
+          onNodePin={addPinnedNode}
+          onNodeUnpin={removePinnedNode}
+          onClearPinnedNodes={clearPinnedNodes}
         />
       )}
       {viewMode === 'topic' && (
@@ -341,6 +351,11 @@ export function KnowledgeGraph3D({
           bloomEnabled={view3D.bloom.enabled}
           bloomIntensity={view3D.bloom.intensity}
           glowSize={view3D.bloom.glowSize}
+          // v0.7.0: Node pinning
+          pinnedNodes={pinnedNodes}
+          onNodePin={addPinnedNode}
+          onNodeUnpin={removePinnedNode}
+          onClearPinnedNodes={clearPinnedNodes}
         />
       )}
 

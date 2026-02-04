@@ -31,6 +31,11 @@ interface GapsViewModeProps {
   bloomEnabled?: boolean;
   bloomIntensity?: number;
   glowSize?: number;
+  // v0.7.0: Node pinning
+  pinnedNodes?: string[];
+  onNodePin?: (nodeId: string) => void;
+  onNodeUnpin?: (nodeId: string) => void;
+  onClearPinnedNodes?: () => void;
 }
 
 const DEFAULT_CONFIG: GapsViewConfig = {
@@ -58,6 +63,11 @@ export const GapsViewMode = forwardRef<Graph3DRef, GapsViewModeProps>(({
   bloomEnabled = true,
   bloomIntensity = 0.5,
   glowSize = 1.3,
+  // v0.7.0: Node pinning
+  pinnedNodes = [],
+  onNodePin,
+  onNodeUnpin,
+  onClearPinnedNodes,
 }, ref) => {
   const config = { ...DEFAULT_CONFIG, ...userConfig };
   const [showGapList, setShowGapList] = useState(true);
@@ -156,6 +166,11 @@ export const GapsViewMode = forwardRef<Graph3DRef, GapsViewModeProps>(({
         bloomEnabled={bloomEnabled}
         bloomIntensity={bloomIntensity}
         glowSize={glowSize}
+        // v0.7.0: Node pinning
+        pinnedNodes={pinnedNodes}
+        onNodePin={onNodePin}
+        onNodeUnpin={onNodeUnpin}
+        onClearPinnedNodes={onClearPinnedNodes}
       />
 
       {/* Gaps View Badge */}
