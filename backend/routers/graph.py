@@ -2495,29 +2495,48 @@ async def get_relationship_evidence(
         # Verify project access
         await verify_project_access(database, project_id, current_user, "access")
 
-        # Try to get evidence from relationship_evidence table
-        evidence_rows = await database.fetch(
+        # v0.8.0: Check if relationship_evidence table exists before querying
+        table_exists = await database.fetchval(
             """
-            SELECT
-                re.id as evidence_id,
-                re.chunk_id,
-                sc.text,
-                sc.section_type,
-                pm.id as paper_id,
-                pm.title as paper_title,
-                pm.authors as paper_authors,
-                pm.publication_year as paper_year,
-                re.relevance_score,
-                re.context_snippet
-            FROM relationship_evidence re
-            JOIN semantic_chunks sc ON re.chunk_id = sc.id
-            JOIN paper_metadata pm ON sc.paper_id = pm.id
-            WHERE re.relationship_id = $1
-            ORDER BY re.relevance_score DESC
-            LIMIT 10
-            """,
-            relationship_id,
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'public'
+                AND table_name = 'relationship_evidence'
+            )
+            """
         )
+
+        evidence_rows = []
+
+        if table_exists:
+            # Try to get evidence from relationship_evidence table
+            try:
+                evidence_rows = await database.fetch(
+                    """
+                    SELECT
+                        re.id as evidence_id,
+                        re.chunk_id,
+                        sc.text,
+                        sc.section_type,
+                        pm.id as paper_id,
+                        pm.title as paper_title,
+                        pm.authors as paper_authors,
+                        pm.publication_year as paper_year,
+                        re.relevance_score,
+                        re.context_snippet
+                    FROM relationship_evidence re
+                    JOIN semantic_chunks sc ON re.chunk_id = sc.id
+                    JOIN paper_metadata pm ON sc.paper_id = pm.id
+                    WHERE re.relationship_id = $1
+                    ORDER BY re.relevance_score DESC
+                    LIMIT 10
+                    """,
+                    relationship_id,
+                )
+            except Exception as e:
+                # If query fails (e.g., RLS issues, missing columns), log and continue
+                logger.warning(f"Failed to query relationship_evidence table: {e}")
+                evidence_rows = []
 
         # If no evidence in dedicated table, try to find evidence from
         # semantic chunks that mention both entities

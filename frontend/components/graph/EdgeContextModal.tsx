@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
   FileText,
@@ -262,6 +262,99 @@ export function EdgeContextModal({
   const [error, setError] = useState<string | null>(null);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
 
+  // v0.8.0: Focus trap and accessibility refs
+  const modalRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const firstFocusableRef = useRef<HTMLElement | null>(null);
+  const lastFocusableRef = useRef<HTMLElement | null>(null);
+
+  // v0.8.0: ESC key handler
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  // v0.8.0: Focus trap - keep focus within modal
+  useEffect(() => {
+    if (!isOpen || !modalRef.current) return;
+
+    // Focus the close button when modal opens
+    const timer = setTimeout(() => {
+      closeButtonRef.current?.focus();
+    }, 50);
+
+    // Get all focusable elements within the modal
+    const updateFocusableElements = () => {
+      if (!modalRef.current) return;
+      const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusableElements.length > 0) {
+        firstFocusableRef.current = focusableElements[0];
+        lastFocusableRef.current = focusableElements[focusableElements.length - 1];
+      }
+    };
+
+    updateFocusableElements();
+
+    // Handle tab key for focus trap
+    const handleTabKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      if (!firstFocusableRef.current || !lastFocusableRef.current) return;
+
+      if (e.shiftKey) {
+        // Shift + Tab: If on first element, move to last
+        if (document.activeElement === firstFocusableRef.current) {
+          e.preventDefault();
+          lastFocusableRef.current.focus();
+        }
+      } else {
+        // Tab: If on last element, move to first
+        if (document.activeElement === lastFocusableRef.current) {
+          e.preventDefault();
+          firstFocusableRef.current.focus();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleTabKey);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('keydown', handleTabKey);
+    };
+  }, [isOpen]);
+
+  // Update focusable elements when evidence loads (new buttons appear)
+  const updateFocusableElements = useCallback(() => {
+    if (!modalRef.current) return;
+    const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusableElements.length > 0) {
+      firstFocusableRef.current = focusableElements[0];
+      lastFocusableRef.current = focusableElements[focusableElements.length - 1];
+    }
+  }, []);
+
+  // Re-calculate focusable elements when evidence changes
+  useEffect(() => {
+    if (evidence) {
+      // Small delay to ensure DOM has updated
+      const timer = setTimeout(updateFocusableElements, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [evidence, updateFocusableElements]);
+
   // Fetch evidence when modal opens
   useEffect(() => {
     if (!isOpen || !relationshipId) {
@@ -280,7 +373,15 @@ export function EdgeContextModal({
         setExpandedIndex(0); // Auto-expand first evidence
       } catch (err) {
         console.error('Failed to fetch relationship evidence:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load evidence');
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load evidence';
+        // v0.8.0: User-friendly error messages for common scenarios
+        if (errorMessage.includes('500') || errorMessage.toLowerCase().includes('internal server')) {
+          setError('Evidence data is not available. PDF text may not be processed yet.');
+        } else if (errorMessage.includes('404')) {
+          setError('This relationship was not found. It may have been removed.');
+        } else {
+          setError(errorMessage);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -296,15 +397,25 @@ export function EdgeContextModal({
   const relationshipType = evidence?.relationship_type || initialRelationshipType || 'RELATED_TO';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edge-modal-title"
+      aria-describedby="edge-modal-description"
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-ink/60 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-2xl max-h-[80vh] bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 flex flex-col overflow-hidden">
+      <div
+        ref={modalRef}
+        className="relative w-full max-w-2xl max-h-[80vh] bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 flex flex-col overflow-hidden"
+      >
         {/* Decorative corner accent */}
         <div className="absolute top-0 right-0 w-24 h-24 bg-accent-teal/10 transform rotate-45 translate-x-12 -translate-y-12" />
 
@@ -315,7 +426,10 @@ export function EdgeContextModal({
               <div className="w-8 h-8 flex items-center justify-center bg-accent-teal/10">
                 <Link2 className="w-4 h-4 text-accent-teal" />
               </div>
-              <span className="font-mono text-xs uppercase tracking-wider text-muted">
+              <span
+                id="edge-modal-title"
+                className="font-mono text-xs uppercase tracking-wider text-muted"
+              >
                 Relationship Evidence
               </span>
             </div>
@@ -338,9 +452,11 @@ export function EdgeContextModal({
           </div>
 
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             className="absolute top-4 right-4 p-2 hover:bg-surface/10 transition-colors"
-            title="Close"
+            title="Close (ESC)"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5 text-muted hover:text-ink dark:hover:text-paper" />
           </button>
@@ -417,7 +533,7 @@ export function EdgeContextModal({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-ink/10 dark:border-paper/10 bg-surface/5">
-          <p className="text-xs text-muted">
+          <p id="edge-modal-description" className="text-xs text-muted">
             Evidence shows source text passages where these concepts appear together.
             Higher relevance scores indicate stronger contextual support.
           </p>

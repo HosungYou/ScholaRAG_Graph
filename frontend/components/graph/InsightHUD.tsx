@@ -171,9 +171,13 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
     fetchMetrics();
   }, [projectId]);
 
+  // v0.8.0: Calculate dynamic position based on props or use defaults
+  // Changed from bottom-left to right-side for InfraNodus-style analytics placement
+  const positionClass = className || 'top-20 right-4';
+
   if (isLoading) {
     return (
-      <div className={`absolute bottom-4 left-4 z-20 ${className}`}>
+      <div className={`absolute z-20 ${positionClass}`}>
         <div className="bg-[#161b22]/90 backdrop-blur-sm border border-white/10 rounded-lg p-3 w-48">
           <div className="animate-pulse space-y-2">
             <div className="h-3 bg-white/10 rounded w-20" />
@@ -191,7 +195,7 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
   }
 
   return (
-    <div className={`absolute bottom-4 left-4 z-20 ${className}`}>
+    <div className={`absolute z-20 ${positionClass}`}>
       <div className="bg-[#161b22]/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden w-52">
         {/* Header */}
         <button

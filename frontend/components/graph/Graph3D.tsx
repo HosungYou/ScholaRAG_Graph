@@ -188,14 +188,30 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   const lastClickRef = useRef<{ nodeId: string; timestamp: number } | null>(null);
   const DOUBLE_CLICK_THRESHOLD = 300; // ms
 
-  // Build cluster color map
+  // v0.8.0: Hash function for stable cluster color assignment
+  // Using cluster_id ensures same cluster always gets same color across refreshes
+  const hashClusterId = useCallback((clusterId: number): number => {
+    let hash = 0;
+    const str = `cluster_${clusterId}`;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash);
+  }, []);
+
+  // Build cluster color map with hash-based color assignment for stability
   const clusterColorMap = useMemo(() => {
     const colorMap = new Map<number, string>();
-    clusters.forEach((cluster, index) => {
-      colorMap.set(cluster.cluster_id, CLUSTER_COLORS[index % CLUSTER_COLORS.length]);
+    clusters.forEach((cluster) => {
+      // v0.8.0: Use hash-based color selection instead of array index
+      // This ensures same cluster_id always gets same color regardless of array order
+      const colorIndex = hashClusterId(cluster.cluster_id) % CLUSTER_COLORS.length;
+      colorMap.set(cluster.cluster_id, CLUSTER_COLORS[colorIndex]);
     });
     return colorMap;
-  }, [clusters]);
+  }, [clusters, hashClusterId]);
 
   // Build centrality map
   const centralityMap = useMemo(() => {

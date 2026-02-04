@@ -32,6 +32,9 @@ import {
   PieChart,
   Sun,
   SunDim,
+  Tag,
+  Tags,
+  Type,
 } from 'lucide-react';
 
 interface KnowledgeGraph3DProps {
@@ -93,6 +96,7 @@ export function KnowledgeGraph3D({
     getVisiblePercentage,
     toggleParticles,
     toggleBloom,
+    cycleLabelVisibility,
   } = useGraph3DStore();
 
   // Fetch data on mount
@@ -314,6 +318,8 @@ export function KnowledgeGraph3D({
           onNodePin={addPinnedNode}
           onNodeUnpin={removePinnedNode}
           onClearPinnedNodes={clearPinnedNodes}
+          // v0.8.0: Adaptive label visibility
+          labelVisibility={view3D.labelVisibility}
         />
       )}
       {viewMode === 'topic' && (
@@ -401,6 +407,27 @@ export function KnowledgeGraph3D({
               <Sun className="w-4 h-4" />
             ) : (
               <SunDim className="w-4 h-4" />
+            )}
+          </button>
+
+          {/* v0.8.0: Label Visibility Toggle */}
+          <button
+            onClick={cycleLabelVisibility}
+            className={`p-2 transition-colors ${
+              view3D.labelVisibility === 'all'
+                ? 'bg-accent-violet/10 text-accent-violet'
+                : view3D.labelVisibility === 'important'
+                ? 'bg-accent-teal/10 text-accent-teal'
+                : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+            }`}
+            title={`Labels: ${view3D.labelVisibility} (click to cycle)`}
+          >
+            {view3D.labelVisibility === 'all' ? (
+              <Tags className="w-4 h-4" />
+            ) : view3D.labelVisibility === 'important' ? (
+              <Tag className="w-4 h-4" />
+            ) : (
+              <Type className="w-4 h-4 opacity-50" />
             )}
           </button>
 
@@ -598,17 +625,31 @@ export function KnowledgeGraph3D({
       {/* Status Bar */}
       <StatusBar projectId={projectId} />
 
-      {/* Insight HUD - Bottom Left */}
-      {showInsightHUD && <InsightHUD projectId={projectId} />}
+      {/* Insight HUD - v0.8.0: Repositioned to right side (InfraNodus-style Analytics) */}
+      {/* Dynamic positioning: below CentralityPanel and ClusterPanel if visible */}
+      {showInsightHUD && (
+        <InsightHUD
+          projectId={projectId}
+          className={`right-4 ${
+            showCentralityPanel && showClusterPanel
+              ? 'top-[580px]'  // Below both panels
+              : showCentralityPanel
+              ? 'top-[340px]'  // Below CentralityPanel only
+              : showClusterPanel
+              ? 'top-[340px]'  // Below ClusterPanel only
+              : 'top-20'       // Just below top controls
+          }`}
+        />
+      )}
 
-      {/* Main Topics Panel - Bottom Left, above InsightHUD */}
+      {/* Main Topics Panel - Bottom Left (InsightHUD moved to right side) */}
       {showMainTopics && (
         <MainTopicsPanel
           clusters={clusters}
           onFocusCluster={handleFocusCluster}
           onHighlightCluster={setHighlightedNodes}
           onClearHighlight={clearHighlights}
-          className={`absolute z-20 ${showInsightHUD ? 'bottom-52 left-4' : 'bottom-4 left-4'}`}
+          className="absolute z-20 bottom-4 left-4"
         />
       )}
 

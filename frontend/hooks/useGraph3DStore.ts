@@ -42,6 +42,11 @@ export interface BloomConfig {
 }
 
 /**
+ * Label visibility mode (InfraNodus-style adaptive labeling)
+ */
+export type LabelVisibility = 'none' | 'important' | 'all';
+
+/**
  * 3D View state
  */
 export interface View3DState {
@@ -52,6 +57,7 @@ export interface View3DState {
   lodEnabled: boolean;
   currentZoom: number;
   bloom: BloomConfig;
+  labelVisibility: LabelVisibility;
 }
 
 interface Graph3DStore {
@@ -82,6 +88,9 @@ interface Graph3DStore {
   toggleBloom: () => void;
   setBloomIntensity: (intensity: number) => void;
   setGlowSize: (size: number) => void;
+  // v0.8.0: Label visibility actions
+  cycleLabelVisibility: () => void;
+  setLabelVisibility: (mode: LabelVisibility) => void;
 
   // Slicing Actions
   setSliceCount: (count: number) => void;
@@ -114,6 +123,7 @@ export const useGraph3DStore = create<Graph3DStore>((set, get) => ({
       intensity: 0.5,
       glowSize: 1.3,
     },
+    labelVisibility: 'important' as LabelVisibility,  // v0.8.0: Default to 'important'
   },
   lodConfig: DEFAULT_LOD_CONFIG,
 
@@ -196,6 +206,26 @@ export const useGraph3DStore = create<Graph3DStore>((set, get) => ({
         ...state.view3D,
         bloom: { ...state.view3D.bloom, glowSize: Math.max(1, Math.min(2, size)) },
       },
+    }));
+  },
+
+  // v0.8.0: Label Visibility Actions
+  cycleLabelVisibility: () => {
+    set(state => {
+      const currentMode = state.view3D.labelVisibility;
+      // Cycle: none -> important -> all -> none
+      const nextMode: LabelVisibility =
+        currentMode === 'none' ? 'important' :
+        currentMode === 'important' ? 'all' : 'none';
+      return {
+        view3D: { ...state.view3D, labelVisibility: nextMode },
+      };
+    });
+  },
+
+  setLabelVisibility: (mode) => {
+    set(state => ({
+      view3D: { ...state.view3D, labelVisibility: mode },
     }));
   },
 

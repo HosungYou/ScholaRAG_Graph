@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Scissors,
   RotateCcw,
@@ -11,6 +11,9 @@ import {
   Network,
   Target,
   Share2,
+  Eye,
+  EyeOff,
+  AlertTriangle,
 } from 'lucide-react';
 import { useGraph3DStore } from '@/hooks/useGraph3DStore';
 import { api } from '@/lib/api';
@@ -52,6 +55,8 @@ export function CentralityPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [sliceCount, setSliceCount] = useState(5);
   const [metric, setMetric] = useState<CentralityMetric>('betweenness');
+  // v0.8.0: Preview mode state
+  const [showPreview, setShowPreview] = useState(true);
 
   const {
     slicing,
@@ -68,6 +73,12 @@ export function CentralityPanel({
   useEffect(() => {
     fetchCentrality(projectId);
   }, [projectId, fetchCentrality]);
+
+  // v0.8.0: Calculate preview nodes (nodes that will be removed)
+  const previewNodeIds = useMemo(() => {
+    if (!showPreview || topBridges.length === 0) return [];
+    return topBridges.slice(0, sliceCount).map(b => b.id);
+  }, [topBridges, sliceCount, showPreview]);
 
   const handleSlice = useCallback(async () => {
     setIsLoading(true);
@@ -152,7 +163,21 @@ export function CentralityPanel({
               <p className="font-mono text-[10px] uppercase tracking-wider text-muted">
                 Remove Top Nodes
               </p>
-              <span className="font-mono text-sm text-accent-teal">{sliceCount}</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm text-accent-teal">{sliceCount}</span>
+                {/* v0.8.0: Preview toggle */}
+                <button
+                  onClick={() => setShowPreview(!showPreview)}
+                  className={`p-1 transition-colors ${
+                    showPreview
+                      ? 'text-accent-amber'
+                      : 'text-muted hover:text-ink dark:hover:text-paper'
+                  }`}
+                  title={showPreview ? 'Hide preview' : 'Show preview'}
+                >
+                  {showPreview ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                </button>
+              </div>
             </div>
             <input
               type="range"
@@ -170,26 +195,38 @@ export function CentralityPanel({
               <span>1</span>
               <span>20</span>
             </div>
+            {/* v0.8.0: Preview indicator */}
+            {showPreview && previewNodeIds.length > 0 && !slicing.isActive && (
+              <div className="mt-2 px-2 py-1 bg-accent-amber/10 border-l-2 border-accent-amber">
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3 h-3 text-accent-amber" />
+                  <span className="text-[10px] text-accent-amber">
+                    Preview: {previewNodeIds.length} node{previewNodeIds.length !== 1 ? 's' : ''} will be removed
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Action Buttons */}
           <div className="flex gap-2">
             <button
               onClick={handleSlice}
-              disabled={isLoading}
+              disabled={isLoading || topBridges.length === 0}
               className={`flex-1 px-3 py-2 font-mono text-xs uppercase tracking-wider transition-colors
                 ${slicing.isActive
-                  ? 'bg-surface/10 text-muted'
+                  ? 'bg-surface/10 text-muted cursor-not-allowed'
                   : 'bg-accent-teal text-white hover:bg-accent-teal/90'
                 }
                 disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={slicing.isActive ? 'Reset first to change slicing' : `Remove top ${sliceCount} nodes`}
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin mx-auto" />
               ) : (
                 <div className="flex items-center justify-center gap-1.5">
                   <Scissors className="w-3.5 h-3.5" />
-                  Slice
+                  {slicing.isActive ? 'Applied' : 'Apply Slicing'}
                 </div>
               )}
             </button>
@@ -205,6 +242,13 @@ export function CentralityPanel({
             </button>
           </div>
 
+          {/* v0.8.0: Reset hint when slicing is active */}
+          {slicing.isActive && (
+            <p className="text-[10px] text-muted text-center">
+              Click Reset to restore nodes and try different settings
+            </p>
+          )}
+
           {/* Top Bridges List */}
           {topBridges.length > 0 && (
             <div>
@@ -214,31 +258,54 @@ export function CentralityPanel({
                   Top Bridge Nodes
                 </p>
               </div>
-              <ul className="space-y-1 max-h-32 overflow-y-auto">
-                {topBridges.slice(0, 5).map((bridge, index) => (
-                  <li
-                    key={bridge.id}
-                    className={`flex items-center justify-between text-xs px-2 py-1.5 ${
-                      slicedNodeIds.includes(bridge.id)
-                        ? 'bg-accent-amber/10 border-l-2 border-accent-amber'
-                        : 'bg-surface/5'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2 truncate">
-                      <span className="font-mono text-muted">{index + 1}.</span>
-                      <span className="truncate text-ink dark:text-paper">
-                        {bridge.name || bridge.id}
+              <ul className="space-y-1 max-h-40 overflow-y-auto">
+                {topBridges.slice(0, Math.max(sliceCount, 5)).map((bridge, index) => {
+                  // v0.8.0: Determine node state for styling
+                  const isSliced = slicedNodeIds.includes(bridge.id);
+                  const isInPreview = showPreview && index < sliceCount && !slicing.isActive;
+                  const isAboveThreshold = index < sliceCount;
+
+                  return (
+                    <li
+                      key={bridge.id}
+                      className={`flex items-center justify-between text-xs px-2 py-1.5 transition-colors ${
+                        isSliced
+                          ? 'bg-accent-amber/20 border-l-2 border-accent-amber'
+                          : isInPreview
+                          ? 'bg-accent-amber/10 border-l-2 border-accent-amber/50'
+                          : isAboveThreshold
+                          ? 'bg-surface/10'
+                          : 'bg-surface/5'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <span className={`font-mono ${isAboveThreshold ? 'text-accent-amber' : 'text-muted'}`}>
+                          {index + 1}.
+                        </span>
+                        <span className={`truncate ${
+                          isSliced || isInPreview
+                            ? 'text-accent-amber'
+                            : 'text-ink dark:text-paper'
+                        }`}>
+                          {bridge.name || bridge.id}
+                        </span>
+                        {/* v0.8.0: Preview badge */}
+                        {isInPreview && (
+                          <span className="px-1 py-0.5 bg-accent-amber/20 text-accent-amber text-[8px] font-mono uppercase">
+                            Remove
+                          </span>
+                        )}
                       </span>
-                    </span>
-                    <span className="font-mono text-[10px] text-muted ml-2">
-                      {(bridge.score * 100).toFixed(1)}%
-                    </span>
-                  </li>
-                ))}
+                      <span className="font-mono text-[10px] text-muted ml-2">
+                        {(bridge.score * 100).toFixed(1)}%
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
-              {topBridges.length > 5 && (
+              {topBridges.length > Math.max(sliceCount, 5) && (
                 <p className="text-[10px] text-muted mt-1 text-center">
-                  +{topBridges.length - 5} more
+                  +{topBridges.length - Math.max(sliceCount, 5)} more
                 </p>
               )}
             </div>
