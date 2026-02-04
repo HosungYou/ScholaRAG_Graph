@@ -162,12 +162,47 @@ export function GapPanel({
     }
   }, [generatingBridgeFor]);
 
+  // State for bridge creation
+  const [creatingBridge, setCreatingBridge] = useState(false);
+  const [bridgeCreationResult, setBridgeCreationResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
   // Handle accepting a bridge hypothesis
-  const handleAcceptBridge = useCallback((hypothesis: BridgeHypothesis) => {
-    // TODO: Implement bridge creation logic
-    // This could create new relationships in the graph
-    console.log('Accepting bridge hypothesis:', hypothesis);
-  }, []);
+  const handleAcceptBridge = useCallback(async (hypothesis: BridgeHypothesis) => {
+    if (!selectedGap || creatingBridge) return;
+
+    setCreatingBridge(true);
+    setBridgeCreationResult(null);
+
+    try {
+      const result = await api.createBridge(selectedGap.id, {
+        hypothesis_title: hypothesis.title,
+        hypothesis_description: hypothesis.description,
+        connecting_concepts: hypothesis.connecting_concepts,
+        confidence: hypothesis.confidence,
+      });
+
+      setBridgeCreationResult({
+        success: result.success,
+        message: result.message,
+      });
+
+      // Refresh gap analysis to reflect new bridges
+      if (result.success && onRefresh) {
+        await onRefresh();
+      }
+    } catch (error) {
+      console.error('Failed to create bridge:', error);
+      setBridgeCreationResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to create bridge',
+      });
+    } finally {
+      setCreatingBridge(false);
+    }
+  }, [selectedGap, creatingBridge, onRefresh]);
 
   return (
     <div className={`absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 ${
@@ -412,6 +447,29 @@ export function GapPanel({
                         {/* Bridge Hypotheses Display */}
                         {showBridgeFor === gap.id && bridgeResults[gap.id] && (
                           <div className="pt-4 mt-4 border-t border-ink/10 dark:border-paper/10">
+                            {/* Bridge Creation Result Notification */}
+                            {bridgeCreationResult && (
+                              <div className={`mb-4 p-3 border-l-2 ${
+                                bridgeCreationResult.success
+                                  ? 'border-accent-teal bg-accent-teal/10 text-accent-teal'
+                                  : 'border-accent-red bg-accent-red/10 text-accent-red'
+                              }`}>
+                                <p className="font-mono text-xs">
+                                  {bridgeCreationResult.success ? '✓' : '✗'} {bridgeCreationResult.message}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Creating Bridge Loading State */}
+                            {creatingBridge && (
+                              <div className="mb-4 p-3 border-l-2 border-accent-amber bg-accent-amber/10">
+                                <p className="font-mono text-xs text-accent-amber flex items-center gap-2">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Creating bridge relationships...
+                                </p>
+                              </div>
+                            )}
+
                             <BridgeHypothesisList
                               hypotheses={bridgeResults[gap.id].hypotheses}
                               bridgeType={bridgeResults[gap.id].bridge_type as 'theoretical' | 'methodological' | 'empirical'}

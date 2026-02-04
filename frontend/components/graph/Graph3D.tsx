@@ -436,7 +436,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       emissive: displayColor,
       emissiveIntensity,
       transparent: true,
-      opacity: isHighlighted || hoveredNode === node.id ? 1 : 0.85,
+      opacity: isHighlighted ? 1 : 0.85,  // Removed hoveredNode check to prevent jitter
       shininess: bloomEnabled ? 50 : 30,
     });
     const sphere = new THREE.Mesh(geometry, material);
@@ -518,7 +518,9 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     }
 
     return group;
-  }, [nodeStyleMap, hoveredNode, bloomEnabled, bloomIntensity, glowSize, createTextSprite]);
+  }, [nodeStyleMap, bloomEnabled, bloomIntensity, glowSize, createTextSprite]);
+  // ⚠️ CRITICAL FIX: hoveredNode removed from dependencies to prevent full graph rebuild on hover
+  // Hover effect is now handled via CSS cursor only (see container div style below)
 
   // Link width based on weight
   // UI-010 FIX: Uses edgeStyleMap for highlight state
@@ -830,7 +832,10 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, []);
 
   return (
-    <div className="w-full h-full bg-[#0d1117]">
+    <div
+      className="w-full h-full bg-[#0d1117]"
+      style={{ cursor: hoveredNode ? 'pointer' : 'default' }}
+    >
       <ForceGraph3D
         ref={fgRef}
         graphData={graphData}
@@ -912,7 +917,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         // - Initial render: More warmup for stable layout
         // - Subsequent renders: Minimal warmup to prevent simulation restart
         warmupTicks={isInitialRenderRef.current ? 50 : 0}
-        cooldownTicks={isInitialRenderRef.current ? 200 : 50}
+        cooldownTicks={isInitialRenderRef.current ? 200 : 0}  // 0 prevents simulation restart on highlight changes
         d3AlphaDecay={0.02}         // Slower cooldown (0.02 instead of 0.05) for smoother settling
         d3VelocityDecay={0.9}       // Very high damping (0.9 = strong friction, kills oscillation)
         d3AlphaMin={0.001}          // Lower threshold for finer settling

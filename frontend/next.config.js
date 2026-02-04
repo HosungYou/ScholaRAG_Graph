@@ -25,6 +25,16 @@ const nextConfig = {
       bodySizeLimit: '10mb',
     },
   },
+
+  // Webpack configuration for Three.js single instance
+  // Prevents "Multiple instances of Three.js" warning from react-force-graph-3d
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      three: require.resolve('three'),
+    };
+    return config;
+  },
 };
 
 module.exports = nextConfig;

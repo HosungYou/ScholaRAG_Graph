@@ -77,6 +77,7 @@ export function KnowledgeGraph3D({
     setSelectedGap,
     viewMode,
     setViewMode,
+    filters,  // Phase 4 FIX: Subscribe to filters for reactive filtering
   } = useGraphStore();
 
   // 3D-specific store
@@ -115,7 +116,8 @@ export function KnowledgeGraph3D({
         e => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)
       ),
     };
-  }, [getFilteredData, view3D.lodEnabled, centrality, getVisiblePercentage]);
+  }, [getFilteredData, view3D.lodEnabled, centrality, getVisiblePercentage, filters]);
+  // Phase 4 FIX: Added `filters` to re-render when filter state changes
 
   // Handle node click
   const handleNodeClick = useCallback((node: GraphEntity) => {

@@ -1359,6 +1359,155 @@ async def generate_bridge_hypotheses(
         raise HTTPException(status_code=500, detail="Failed to generate bridge hypotheses")
 
 
+# ============================================
+# Bridge Creation API (Phase 6 - Accept Hypothesis)
+# ============================================
+
+class BridgeCreationRequest(BaseModel):
+    """Request to create a bridge relationship from an accepted hypothesis."""
+    hypothesis_title: str
+    hypothesis_description: str
+    connecting_concepts: List[str]  # List of concept names to connect
+    confidence: float = 0.5
+
+
+class BridgeCreationResponse(BaseModel):
+    """Response after creating bridge relationships."""
+    success: bool
+    relationships_created: int
+    relationship_ids: List[str]
+    message: str
+
+
+@router.post("/gaps/{gap_id}/create-bridge", response_model=BridgeCreationResponse)
+async def create_bridge_from_hypothesis(
+    gap_id: UUID,
+    request: BridgeCreationRequest,
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """
+    Create BRIDGES_GAP relationships between concepts from an accepted hypothesis.
+
+    This endpoint is called when a user accepts a bridge hypothesis. It creates
+    new relationships in the knowledge graph connecting concepts from the two
+    clusters identified in the structural gap.
+
+    Args:
+        gap_id: The structural gap ID
+        request: BridgeCreationRequest with hypothesis details and concepts to connect
+
+    Returns:
+        BridgeCreationResponse with created relationship IDs
+
+    Requires auth in production.
+    """
+    try:
+        # Get gap details including project_id
+        gap_row = await database.fetchrow(
+            """
+            SELECT id, project_id, cluster_a_concepts, cluster_b_concepts
+            FROM structural_gaps
+            WHERE id = $1
+            """,
+            str(gap_id),
+        )
+
+        if not gap_row:
+            raise HTTPException(status_code=404, detail="Gap not found")
+
+        project_id = UUID(str(gap_row["project_id"]))
+
+        # Verify project access (write access needed)
+        await verify_project_access(database, project_id, current_user, "write")
+
+        # Find concept entities by name
+        concept_ids = []
+        for concept_name in request.connecting_concepts:
+            row = await database.fetchrow(
+                """
+                SELECT id FROM entities
+                WHERE project_id = $1 AND name ILIKE $2 AND entity_type IN ('Concept', 'Method', 'Finding')
+                LIMIT 1
+                """,
+                str(project_id),
+                concept_name,
+            )
+            if row:
+                concept_ids.append(str(row["id"]))
+
+        if len(concept_ids) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Need at least 2 valid concepts to create bridge. Found: {len(concept_ids)}"
+            )
+
+        # Create BRIDGES_GAP relationships between consecutive pairs
+        import uuid
+        relationship_ids = []
+
+        for i in range(len(concept_ids) - 1):
+            source_id = concept_ids[i]
+            target_id = concept_ids[i + 1]
+
+            # Check if relationship already exists
+            existing = await database.fetchrow(
+                """
+                SELECT id FROM relationships
+                WHERE project_id = $1
+                  AND source_id = $2 AND target_id = $3
+                  AND relationship_type = 'BRIDGES_GAP'
+                """,
+                str(project_id),
+                source_id,
+                target_id,
+            )
+
+            if existing:
+                relationship_ids.append(str(existing["id"]))
+                continue
+
+            # Create new relationship
+            rel_id = str(uuid.uuid4())
+            properties = {
+                "gap_id": str(gap_id),
+                "hypothesis_title": request.hypothesis_title,
+                "hypothesis_description": request.hypothesis_description,
+                "confidence": request.confidence,
+                "ai_generated": True,
+            }
+
+            await database.execute(
+                """
+                INSERT INTO relationships (id, project_id, source_id, target_id, relationship_type, weight, properties)
+                VALUES ($1, $2, $3, $4, 'BRIDGES_GAP', $5, $6)
+                """,
+                rel_id,
+                str(project_id),
+                source_id,
+                target_id,
+                request.confidence,
+                json.dumps(properties),
+            )
+
+            relationship_ids.append(rel_id)
+
+        logger.info(f"Created {len(relationship_ids)} bridge relationships for gap {gap_id}")
+
+        return BridgeCreationResponse(
+            success=True,
+            relationships_created=len(relationship_ids),
+            relationship_ids=relationship_ids,
+            message=f"Successfully created {len(relationship_ids)} bridge relationship(s) based on hypothesis: {request.hypothesis_title}",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create bridge relationships: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create bridge relationships: {str(e)}")
+
+
 @router.post("/gaps/{gap_id}/questions")
 async def generate_gap_questions(
     gap_id: UUID,

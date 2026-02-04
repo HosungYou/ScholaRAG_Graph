@@ -641,6 +641,30 @@ class ApiClient {
     });
   }
 
+  /**
+   * Create a bridge relationship from an accepted hypothesis.
+   * Creates BRIDGES_GAP relationships between connecting concepts.
+   */
+  async createBridge(
+    gapId: string,
+    hypothesis: {
+      hypothesis_title: string;
+      hypothesis_description: string;
+      connecting_concepts: string[];
+      confidence: number;
+    }
+  ): Promise<{
+    success: boolean;
+    relationships_created: number;
+    relationship_ids: string[];
+    message: string;
+  }> {
+    return this.request(`/api/graph/gaps/${gapId}/create-bridge`, {
+      method: 'POST',
+      body: JSON.stringify(hypothesis),
+    });
+  }
+
   // ============================================
   // Diversity Analysis
   // ============================================

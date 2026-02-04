@@ -22,6 +22,7 @@ class IntentType(str, Enum):
     CREATE = "create"
     SUMMARIZE = "summarize"
     IDENTIFY_GAPS = "identify_gaps"
+    CONVERSATIONAL = "conversational"  # Greetings, thanks, casual chat
 
 
 class IntentResult(BaseModel):
@@ -42,9 +43,12 @@ class IntentAgent:
         {"query": "Compare paper A with paper B", "intent": "compare"},
         {"query": "What are the research gaps?", "intent": "identify_gaps"},
         {"query": "Summarize the findings", "intent": "summarize"},
+        {"query": "Hello, how are you?", "intent": "conversational"},
+        {"query": "안녕하세요", "intent": "conversational"},
     ]
 
-    SYSTEM_PROMPT = """Classify queries into: search, explore, explain, compare, summarize, identify_gaps.
+    SYSTEM_PROMPT = """Classify queries into: search, explore, explain, compare, summarize, identify_gaps, conversational.
+Use 'conversational' for greetings, thanks, or casual chat (e.g., "hello", "안녕", "thanks").
 Respond with JSON: {"intent": "<type>", "confidence": 0.0-1.0, "keywords": [], "reasoning": "brief"}"""
 
     def __init__(self, llm_provider=None):
@@ -82,7 +86,23 @@ Respond with JSON: {"intent": "<type>", "confidence": 0.0-1.0, "keywords": [], "
 
     def _classify_with_keywords(self, query: str) -> IntentResult:
         """Fallback keyword-based classification."""
-        q = query.lower()
+        q = query.lower().strip()
+
+        # Detect conversational/greeting patterns FIRST (before other classifications)
+        conversational_patterns = [
+            "안녕", "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+            "thanks", "thank you", "bye", "goodbye", "how are you", "what's up",
+            "nice to meet", "help me", "can you help",
+        ]
+        # Short queries (< 5 chars) or greetings should be conversational
+        if len(q) < 5 or any(p in q for p in conversational_patterns):
+            return IntentResult(
+                intent=IntentType.CONVERSATIONAL,
+                confidence=0.95,
+                keywords=[],
+                reasoning="Detected greeting or conversational query"
+            )
+
         mappings = [
             (IntentType.COMPARE, ["compare", "versus", "vs", "difference"]),
             (IntentType.EXPLAIN, ["explain", "what is", "define", "meaning"]),
