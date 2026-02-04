@@ -2,7 +2,7 @@
 
 > 이 문서는 코드 리뷰, 기능 구현, 버그 수정 등에서 발견된 액션 아이템을 추적합니다.
 >
-> **마지막 업데이트**: 2026-01-21
+> **마지막 업데이트**: 2026-02-04
 > **관리자**: Claude Code
 
 ---
@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 15 | 15 | 0 | 0 |
-| 🟡 Medium | 16 | 16 | 0 | 0 |
-| 🟢 Low | 4 | 4 | 0 | 0 |
-| **Total** | **35** | **35** | **0** | **0** |
+| 🔴 High | 19 | 19 | 0 | 0 |
+| 🟡 Medium | 20 | 20 | 0 | 0 |
+| 🟢 Low | 5 | 5 | 0 | 0 |
+| **Total** | **44** | **44** | **0** | **0** |
 
 ---
 
@@ -27,6 +27,108 @@
 ## 🟡 Medium Priority (Short-term)
 
 *모든 Medium Priority 항목이 완료되어 Archive 섹션으로 이동되었습니다.*
+
+---
+
+## 📝 v0.4.0 Release - Completed Items (2026-02-04)
+
+### BUG-041: AI Chat Returns Research Analysis for Greetings
+- **Source**: 사용자 피드백 2026-02-04
+- **Status**: ✅ Completed
+- **Priority**: 🔴 High
+- **Files**:
+  - `backend/agents/intent_agent.py` - CONVERSATIONAL intent 추가
+  - `backend/agents/orchestrator.py` - 조기 반환 로직 추가
+- **Description**: "안녕" 입력 시 친근한 인사 대신 연구 갭 분석 결과 반환
+- **Root Cause**: Intent Agent가 인사를 SEARCH로 분류 → 빈 검색 결과 → Gap 분석 반환
+- **Solution Applied**:
+  - [x] `CONVERSATIONAL` intent type 추가
+  - [x] 인사 패턴 감지 (안녕, hello, hi, thanks 등)
+  - [x] Orchestrator에서 조기 반환으로 친근한 응답 제공
+- **Completed**: 2026-02-04
+- **Commit**: 2b5c1ec
+
+---
+
+### BUG-042: Node Jitter on Hover/Highlight
+- **Source**: UI 테스트 2026-02-04
+- **Status**: ✅ Completed
+- **Priority**: 🔴 High
+- **Files**:
+  - `frontend/components/graph/Graph3D.tsx` - dependency 수정
+  - `frontend/next.config.js` - Three.js webpack alias
+- **Description**: 노드에 마우스 올리거나 하이라이트 시 그래프 전체가 흔들림
+- **Root Cause**: `nodeThreeObject`의 dependency에 `hoveredNode` 포함 → 모든 노드 재생성 → 시뮬레이션 재시작
+- **Solution Applied**:
+  - [x] `hoveredNode`를 dependency에서 제거
+  - [x] `cooldownTicks` 50 → 0으로 변경 (비초기 렌더)
+  - [x] CSS cursor로 hover 피드백 대체
+  - [x] Three.js 다중 인스턴스 경고 수정
+- **Completed**: 2026-02-04
+- **Commit**: 2b5c1ec
+
+---
+
+### BUG-043: Filter Buttons Not Reactive
+- **Source**: UI 테스트 2026-02-04
+- **Status**: ✅ Completed
+- **Priority**: 🟡 Medium
+- **Files**:
+  - `frontend/components/graph/KnowledgeGraph3D.tsx` - useMemo dependency 추가
+- **Description**: Filter 버튼 클릭해도 그래프가 업데이트되지 않음
+- **Root Cause**: `filters` 상태가 `displayData` useMemo dependency에 누락
+- **Solution Applied**:
+  - [x] `filters`를 useGraphStore subscription에 추가
+  - [x] `filters`를 displayData useMemo dependency에 추가
+- **Completed**: 2026-02-04
+- **Commit**: 2b5c1ec
+
+---
+
+### FUNC-015: Bridge Creation Feature Implementation
+- **Source**: 기능 요청 2026-02-04
+- **Status**: ✅ Completed
+- **Priority**: 🟢 Low
+- **Files**:
+  - `backend/routers/graph.py` - create-bridge endpoint
+  - `frontend/lib/api.ts` - createBridge() method
+  - `frontend/components/graph/GapPanel.tsx` - handler UI
+- **Description**: Gap 분석에서 Bridge 가설 수락 시 실제 관계 생성
+- **Solution Applied**:
+  - [x] `POST /api/graph/gaps/{gap_id}/create-bridge` endpoint
+  - [x] `BRIDGES_GAP` relationship 생성 로직
+  - [x] Frontend API client method
+  - [x] Loading state 및 결과 알림 UI
+- **Completed**: 2026-02-04
+- **Commit**: 2b5c1ec
+
+---
+
+### PERF-011: Memory Optimization for 512MB Render Starter
+- **Source**: Render OOM 에러 2026-02-04
+- **Status**: ✅ Completed
+- **Priority**: 🔴 High
+- **Files**:
+  - `backend/llm/cohere_embeddings.py` - singleton 제거, close() 추가
+  - `backend/llm/openai_embeddings.py` - singleton 제거, close() 추가
+  - `backend/llm/groq_provider.py` - close() method
+  - `backend/llm/claude_provider.py` - close() method
+  - `backend/llm/openai_provider.py` - close() method
+  - `backend/main.py` - periodic cleanup, shutdown cleanup
+  - `backend/agents/orchestrator.py` - context TTL
+- **Description**: Render Starter 512MB 메모리 제한에서 OOM 발생
+- **Root Cause**:
+  - Embedding/LLM provider singleton 패턴으로 클라이언트 누적
+  - 캐시 정리 없이 무한 성장
+  - 대화 컨텍스트 무한 저장
+- **Solution Applied**:
+  - [x] Embedding provider: singleton → factory + close()
+  - [x] LLM provider: close() methods 추가
+  - [x] 주기적 캐시 정리 (5분마다)
+  - [x] 대화 컨텍스트 TTL (24시간, 최대 50개)
+- **Memory Impact**: ~100MB+ 절감 (450-512MB → 320-400MB)
+- **Completed**: 2026-02-04
+- **Commit**: bce2f13
 
 ---
 
