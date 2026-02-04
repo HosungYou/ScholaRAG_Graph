@@ -1,7 +1,7 @@
 # CLAUDE.md - ScholaRAG_Graph Project Instructions
 
 > **Last Updated**: 2026-02-04
-> **Version**: 3.2.0 (v0.7.0 Continuous Documentation)
+> **Version**: 3.3.0 (v0.8.0 InfraNodus UI/UX Parity)
 
 ## Project Overview
 
@@ -679,6 +679,35 @@ When making architectural changes:
 
 ---
 
+## 📊 v0.8.0 Release Notes
+
+> **Version**: 0.8.0 | **Date**: 2026-02-04
+> **Full Notes**: See `RELEASE_NOTES_v0.8.0.md`
+
+### Added
+- **Label Visibility Toggle**: Toolbar button cycles none/important/all modes
+- **Node Removal Preview**: Visual preview before applying slicing
+- **InsightHUD Repositioning**: Moved to right-side (InfraNodus-style)
+
+### Fixed
+- **EdgeContextModal Accessibility**: ESC key, focus trap, ARIA attributes
+- **Evidence API Stability**: Table existence check prevents 500 errors
+- **Cluster Color Stability**: Hash-based assignment for consistent colors
+
+### Technical
+- `hashClusterId()` function for deterministic color mapping
+- `LabelVisibility` type with `cycleLabelVisibility()` store action
+- Dynamic panel stacking for InsightHUD positioning
+
+### Planned (v0.9.0)
+- Entity Extraction V2 (all 8 entity types)
+- AI Chat data-based fallback
+- Adaptive gap detection threshold
+- Semantic diversity metrics
+- Next.js 14.2+ security upgrade
+
+---
+
 ## 📊 v0.7.0 Release Notes
 
 > **Version**: 0.7.0 | **Date**: 2026-02-04
@@ -699,10 +728,3 @@ When making architectural changes:
 - Pinned Three.js ecosystem to stable versions
 - webpack NormalModuleReplacementPlugin for ESM paths
 - npm overrides for transitive dependencies
-
-### Planned (v0.8.0)
-- Entity Extraction V2 (all 8 entity types)
-- AI Chat data-based fallback
-- Adaptive gap detection threshold
-- Semantic diversity metrics
-- Next.js 14.2+ security upgrade
