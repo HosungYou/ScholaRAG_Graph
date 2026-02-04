@@ -683,7 +683,7 @@ class ApiClient {
     normalized_entropy: number;
     modularity: number;
     bias_score: number;
-    diversity_rating: 'high' | 'medium' | 'low';
+    diversity_rating: 'high' | 'medium' | 'low' | 'focused';  // v0.6.0: Added 'focused'
     cluster_sizes: number[];
     dominant_cluster_ratio: number;
     gini_coefficient: number;

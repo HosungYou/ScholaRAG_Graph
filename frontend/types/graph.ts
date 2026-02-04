@@ -422,7 +422,7 @@ export interface DiversityMetrics {
   shannon_entropy: number;
   modularity: number;
   bias_score: number;
-  diversity_rating: 'high' | 'medium' | 'low';
+  diversity_rating: 'high' | 'medium' | 'low' | 'focused';  // v0.6.0: Added 'focused'
   cluster_sizes: number[];
 }
 

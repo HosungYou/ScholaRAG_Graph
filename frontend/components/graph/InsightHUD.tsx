@@ -19,7 +19,7 @@ interface DiversityMetrics {
   normalized_entropy: number;
   modularity: number;
   bias_score: number;
-  diversity_rating: 'high' | 'medium' | 'low';
+  diversity_rating: 'high' | 'medium' | 'low' | 'focused';  // v0.6.0: Added 'focused'
   cluster_sizes: number[];
   dominant_cluster_ratio: number;
   gini_coefficient: number;
@@ -56,7 +56,7 @@ function MetricBar({ label, value, color, tooltip }: MetricBarProps) {
 
 // Circular Diversity Gauge Component (Phase 4)
 interface DiversityGaugeProps {
-  rating: 'high' | 'medium' | 'low';
+  rating: 'high' | 'medium' | 'low' | 'focused';  // v0.6.0: Added 'focused'
   entropy: number;
   biasScore: number;
 }
@@ -64,10 +64,12 @@ interface DiversityGaugeProps {
 function DiversityGauge({ rating, entropy, biasScore }: DiversityGaugeProps) {
   // Determine colors based on rating
   // v0.5.0: Changed "Low Diversity" → "Focused" for research context clarity
+  // v0.6.0: Backend now returns 'focused' instead of 'low' - keep both for compatibility
   const colors = {
     high: { primary: '#10B981', bg: '#10B981/20', label: 'Diverse Topics', desc: 'Broad coverage' },
     medium: { primary: '#F59E0B', bg: '#F59E0B/20', label: 'Balanced', desc: 'Mixed focus' },
-    low: { primary: '#6366F1', bg: '#6366F1/20', label: 'Focused', desc: 'Specialized' }, // Changed from red to indigo
+    low: { primary: '#6366F1', bg: '#6366F1/20', label: 'Focused', desc: 'Specialized' }, // Legacy - kept for compatibility
+    focused: { primary: '#6366F1', bg: '#6366F1/20', label: 'Focused', desc: 'Specialized' }, // v0.6.0: New rating from backend
   };
 
   const { primary, label, desc } = colors[rating];
@@ -233,7 +235,7 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
                   onClick={() => setShowDiversityPanel(!showDiversityPanel)}
                 >
                   <DiversityGauge
-                    rating={diversityMetrics.diversity_rating as 'high' | 'medium' | 'low'}
+                    rating={diversityMetrics.diversity_rating}
                     entropy={diversityMetrics.normalized_entropy}
                     biasScore={diversityMetrics.bias_score}
                   />
