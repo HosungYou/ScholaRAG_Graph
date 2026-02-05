@@ -87,6 +87,16 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
   Limitation: '#F97316',
 };
 
+// v0.9.0: InfraNodus-style labeling configuration
+const LABEL_CONFIG = {
+  minFontSize: 10,
+  maxFontSize: 28,
+  minOpacity: 0.3,
+  maxOpacity: 1.0,
+  alwaysVisiblePercentile: 0.8,  // Top 20% always show labels
+  hoverRevealPercentile: 0.5,     // Top 50% on hover
+};
+
 export interface Graph3DProps {
   nodes: GraphEntity[];
   edges: GraphEdge[];
@@ -100,8 +110,6 @@ export interface Graph3DProps {
   onBackgroundClick?: () => void;
   // UI-011: Edge click handler for Relationship Evidence
   onEdgeClick?: (edge: GraphEdge) => void;
-  showParticles?: boolean;
-  particleSpeed?: number;
   // Ghost Edge props (InfraNodus-style)
   showGhostEdges?: boolean;
   potentialEdges?: PotentialEdge[];
@@ -140,8 +148,6 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   onNodeHover,
   onBackgroundClick,
   onEdgeClick,  // UI-011: Edge click handler for Relationship Evidence
-  showParticles = false,  // Disabled by default - particles have no academic meaning in knowledge graphs
-  particleSpeed = 0.005,
   showGhostEdges = false,
   potentialEdges = [],
   bloomEnabled = false,
@@ -235,8 +241,25 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     return sortedCentralities[top20Index] || 0;
   }, [centralityMetrics]);
 
-  // Helper function: Create text sprite for node labels
-  const createTextSprite = useCallback((text: string, color: string, fontSize: number = 14) => {
+  // v0.9.0: Centrality percentile map for InfraNodus-style labeling
+  const centralityPercentileMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (centralityMetrics.length === 0) {
+      // No centrality data - assign default percentile
+      nodes.forEach(n => map.set(n.id, 0.5));
+      return map;
+    }
+    const sorted = [...centralityMetrics].sort(
+      (a, b) => a.betweenness_centrality - b.betweenness_centrality
+    );
+    sorted.forEach((m, i) => {
+      map.set(m.concept_id, i / (sorted.length - 1 || 1));
+    });
+    return map;
+  }, [centralityMetrics, nodes]);
+
+  // Helper function: Create text sprite for node labels (InfraNodus-style)
+  const createTextSprite = useCallback((text: string, color: string, fontSize: number = 14, opacity: number = 1.0) => {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     if (!context) return null;
@@ -247,24 +270,20 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     canvas.height = 64 * scale;
     context.scale(scale, scale);
 
-    // Text styling
+    // v0.9.0: Text styling with shadow (no background box - InfraNodus style)
     context.font = `bold ${fontSize}px Arial, sans-serif`;
+
+    // Shadow for readability (instead of background box)
+    context.shadowColor = 'rgba(0, 0, 0, 0.9)';
+    context.shadowBlur = 6;
+    context.shadowOffsetX = 1;
+    context.shadowOffsetY = 2;
+
+    // Draw text with opacity
     context.fillStyle = color;
+    context.globalAlpha = opacity;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-
-    // Background for readability
-    const textWidth = context.measureText(text).width;
-    const padding = 8;
-    const bgX = (canvas.width / scale - textWidth) / 2 - padding;
-    const bgWidth = textWidth + padding * 2;
-
-    context.fillStyle = 'rgba(13, 17, 23, 0.85)';
-    context.roundRect(bgX, 12, bgWidth, 40, 4);
-    context.fill();
-
-    // Draw text
-    context.fillStyle = color;
     context.fillText(text, canvas.width / scale / 2, canvas.height / scale / 2);
 
     // Create sprite
@@ -572,18 +591,15 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       group.add(pinnedRing);
     }
 
-    // v0.7.0: Adaptive labeling based on zoom level and visibility mode
-    const adaptiveThreshold = calculateLabelThreshold(currentZoom);
-    const shouldShowLabel =
-      node.name && (
-        labelVisibility === 'all' ||
-        (labelVisibility === 'important' && (
-          nodeSize >= adaptiveThreshold ||
-          isHighlighted ||
-          isPinned ||  // v0.7.0: Pinned nodes always show labels
-          node.isBridge
-        ))
-      );
+    // v0.9.0: InfraNodus-style labeling based on centrality percentile
+    const nodePercentile = centralityPercentileMap.get(node.id) || 0.3;
+    const isTopPercentile = nodePercentile >= LABEL_CONFIG.alwaysVisiblePercentile;
+
+    const shouldShowLabel = node.name && (
+      labelVisibility === 'all' ||
+      (labelVisibility === 'important' && (isTopPercentile || isHighlighted || isPinned || node.isBridge)) ||
+      (labelVisibility === 'none' && (isHighlighted || isPinned))
+    );
 
     if (shouldShowLabel) {
       // Truncate long names
@@ -592,31 +608,35 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         ? node.name.substring(0, maxLabelLength - 2) + '..'
         : node.name;
 
-      // v0.7.0: Scale font size by node size (InfraNodus style: bigger nodes = bigger labels)
-      // Use adaptiveThreshold as baseline for normalization
-      const minFontSize = 10;
-      const maxFontSize = 24;
-      const sizeNormalized = Math.min(1, (nodeSize - adaptiveThreshold) / 10);
-      const fontSize = Math.round(minFontSize + (maxFontSize - minFontSize) * sizeNormalized);
+      // v0.9.0: Font size proportional to centrality percentile (InfraNodus style)
+      const fontSize = Math.round(
+        LABEL_CONFIG.minFontSize +
+        (LABEL_CONFIG.maxFontSize - LABEL_CONFIG.minFontSize) * nodePercentile
+      );
+
+      // v0.9.0: Opacity proportional to centrality (highlighted/pinned override to 1.0)
+      const labelOpacity = isHighlighted || isPinned ? 1.0 :
+        LABEL_CONFIG.minOpacity +
+        (LABEL_CONFIG.maxOpacity - LABEL_CONFIG.minOpacity) * nodePercentile;
 
       // InfraNodus style: Label color matches cluster color
-      // Highlighted nodes get gold, pinned nodes get cyan, otherwise use node's cluster color
+      // Highlighted nodes get gold, pinned nodes get cyan
       const labelColor = isHighlighted ? '#FFD700' : isPinned ? '#00E5FF' : (node.color || '#FFFFFF');
-      const labelSprite = createTextSprite(displayName, labelColor, fontSize);
+      const labelSprite = createTextSprite(displayName, labelColor, fontSize, labelOpacity);
 
       if (labelSprite) {
         // Position label above the node - scale position with font size
-        const labelOffset = nodeSize + 4 + (fontSize - minFontSize) * 0.2;
+        const labelOffset = nodeSize + 4 + (fontSize - LABEL_CONFIG.minFontSize) * 0.2;
         labelSprite.position.set(0, labelOffset, 0);
         group.add(labelSprite);
       }
     }
 
     return group;
-  }, [nodeStyleMap, bloomEnabled, bloomIntensity, glowSize, createTextSprite, currentZoom, labelVisibility, calculateLabelThreshold]);
+  }, [nodeStyleMap, bloomEnabled, bloomIntensity, glowSize, createTextSprite, labelVisibility, centralityPercentileMap]);
   // ⚠️ CRITICAL FIX: hoveredNode removed from dependencies to prevent full graph rebuild on hover
   // Hover effect is now handled via CSS cursor only (see container div style below)
-  // v0.7.0: Added currentZoom, labelVisibility, calculateLabelThreshold to dependencies for adaptive labels
+  // v0.9.0: Replaced currentZoom/calculateLabelThreshold with centralityPercentileMap for InfraNodus-style labeling
 
   // Link width based on weight
   // UI-010 FIX: Uses edgeStyleMap for highlight state
@@ -995,10 +1015,6 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         linkOpacity={0.6}
         linkThreeObject={linkThreeObject as never}
         linkPositionUpdate={linkPositionUpdate as never}
-        linkDirectionalParticles={showParticles ? 2 : 0}
-        linkDirectionalParticleSpeed={particleSpeed}
-        linkDirectionalParticleWidth={1.5}
-        linkDirectionalParticleColor={() => '#FFD700'}
         backgroundColor="#0d1117"
         onNodeClick={handleNodeClick}
         onNodeRightClick={handleNodeRightClick}  // Right-click also focuses camera on node
@@ -1028,21 +1044,20 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
           }
         }}
         onNodeDragEnd={(node) => {
-          // CRITICAL: Keep node pinned after drag - this prevents snap-back!
-          // Setting fx/fy/fz to current position locks the node in place
-          node.fx = node.x;
-          node.fy = node.y;
-          node.fz = node.z;
-          // Save final position to ref for persistence
+          // v0.9.0: Release node to physics after drag (user can re-drag to reposition)
+          node.fx = undefined;
+          node.fy = undefined;
+          node.fz = undefined;
+          // Save position but don't pin
           const nodeId = String(node.id);
           if (nodeId && node.x !== undefined && node.y !== undefined && node.z !== undefined) {
             nodePositionsRef.current.set(nodeId, {
               x: node.x,
               y: node.y,
               z: node.z,
-              fx: node.fx,
-              fy: node.fy,
-              fz: node.fz,
+              fx: undefined,
+              fy: undefined,
+              fz: undefined,
             });
           }
         }}
@@ -1050,14 +1065,12 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         // Problem: Nodes vibrate rapidly, rubber-banding effect, struggling to settle
         // Solution: HIGH damping + MODERATE cooling = stable without being sluggish
         //
-        // UI-010 FIX: Use isInitialRenderRef to determine warmup/cooldown behavior
-        // - Initial render: More warmup for stable layout
-        // - Subsequent renders: Minimal warmup to prevent simulation restart
-        warmupTicks={isInitialRenderRef.current ? 50 : 0}
-        cooldownTicks={isInitialRenderRef.current ? 200 : 0}  // 0 prevents simulation restart on highlight changes
-        d3AlphaDecay={0.02}         // Slower cooldown (0.02 instead of 0.05) for smoother settling
-        d3VelocityDecay={0.9}       // Very high damping (0.9 = strong friction, kills oscillation)
-        d3AlphaMin={0.001}          // Lower threshold for finer settling
+        // v0.9.0: Physics parameters optimized for natural floating feel
+        warmupTicks={50}
+        cooldownTicks={1000}           // Sufficient stabilization time
+        d3AlphaDecay={0.0228}          // D3 default
+        d3VelocityDecay={0.4}          // Natural floating feel
+        d3AlphaMin={0.001}             // Lower threshold for finer settling
         // CRITICAL: Disable auto-refresh of simulation when data changes
         // This prevents the "explosion" effect when highlighting changes
         enableNodeDrag={true}

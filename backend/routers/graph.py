@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from enum import Enum
+import asyncpg.exceptions
 
 from database import db
 from graph.graph_store import GraphStore
@@ -52,6 +53,8 @@ class RelationshipEvidenceResponse(BaseModel):
     relationship_type: str
     evidence_chunks: List[EvidenceChunkResponse]
     total_evidence: int
+    # v0.9.0: Error code for graceful degradation
+    error_code: Optional[str] = None  # "table_missing", "permission_denied", "query_failed"
 
 
 def _parse_json_field(value) -> dict:
@@ -90,6 +93,13 @@ def _parse_embedding(value) -> list:
         return list(value)
     except (TypeError, ValueError):
         return []
+
+
+def escape_sql_like(s: str) -> str:
+    """Escape special characters for SQL LIKE queries."""
+    if not s:
+        return s
+    return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_').replace("'", "''")
 
 
 router = APIRouter()
@@ -872,6 +882,8 @@ class GapAnalysisResponse(BaseModel):
     centrality_metrics: List[CentralityMetricsResponse]
     total_concepts: int
     total_relationships: int
+    # v0.9.0: Reason code when gaps is empty
+    no_gaps_reason: Optional[str] = None  # "no_clusters", "not_analyzed", "well_connected"
 
 
 @router.get("/gaps/{project_id}/analysis", response_model=GapAnalysisResponse)
@@ -995,12 +1007,21 @@ async def get_gap_analysis(
             str(project_id),
         )
 
+        # v0.9.0: Determine reason when no gaps found
+        no_gaps_reason = None
+        if len(gaps) == 0:
+            if len(clusters) < 2:
+                no_gaps_reason = "no_clusters"
+            else:
+                no_gaps_reason = "well_connected"  # Clusters exist but all are well-connected
+
         return GapAnalysisResponse(
             clusters=clusters,
             gaps=gaps,
             centrality_metrics=centrality_metrics,
             total_concepts=concept_count or 0,
             total_relationships=relationship_count or 0,
+            no_gaps_reason=no_gaps_reason,
         )
 
     except HTTPException:
@@ -1045,6 +1066,7 @@ async def refresh_gap_analysis(
                 centrality_metrics=[],
                 total_concepts=0,
                 total_relationships=0,
+                no_gaps_reason="not_analyzed",
             )
 
         # Get relationships
@@ -2567,8 +2589,8 @@ async def get_relationship_evidence(
                 LIMIT 5
                 """,
                 str(project_id),
-                f"%{source_name}%",
-                f"%{target_name}%",
+                f"%{escape_sql_like(source_name)}%",
+                f"%{escape_sql_like(target_name)}%",
             )
 
         evidence_chunks = [
@@ -2598,9 +2620,40 @@ async def get_relationship_evidence(
 
     except HTTPException:
         raise
+    except asyncpg.exceptions.UndefinedTableError as e:
+        logger.warning(f"Relationship evidence table missing: {e}")
+        return RelationshipEvidenceResponse(
+            relationship_id=relationship_id,
+            source_name=relationship["source_name"] if relationship else "Unknown",
+            target_name=relationship["target_name"] if relationship else "Unknown",
+            relationship_type=relationship["relationship_type"] if relationship else "RELATED_TO",
+            evidence_chunks=[],
+            total_evidence=0,
+            error_code="table_missing",
+        )
+    except asyncpg.exceptions.InsufficientPrivilegeError as e:
+        logger.error(f"RLS permission denied for relationship evidence: {e}")
+        return RelationshipEvidenceResponse(
+            relationship_id=relationship_id,
+            source_name=relationship["source_name"] if relationship else "Unknown",
+            target_name=relationship["target_name"] if relationship else "Unknown",
+            relationship_type=relationship["relationship_type"] if relationship else "RELATED_TO",
+            evidence_chunks=[],
+            total_evidence=0,
+            error_code="permission_denied",
+        )
     except Exception as e:
         logger.error(f"Failed to get relationship evidence: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get relationship evidence")
+        # Return empty response with error code instead of 500
+        return RelationshipEvidenceResponse(
+            relationship_id=relationship_id,
+            source_name=relationship["source_name"] if relationship else "Unknown",
+            target_name=relationship["target_name"] if relationship else "Unknown",
+            relationship_type=relationship["relationship_type"] if relationship else "RELATED_TO",
+            evidence_chunks=[],
+            total_evidence=0,
+            error_code="query_failed",
+        )
 
 
 # ============================================

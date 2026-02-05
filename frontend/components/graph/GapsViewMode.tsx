@@ -160,7 +160,6 @@ export const GapsViewMode = forwardRef<Graph3DRef, GapsViewModeProps>(({
         onNodeClick={onNodeClick}
         onBackgroundClick={onBackgroundClick}
         onEdgeClick={onEdgeClick}
-        showParticles={false}
         showGhostEdges={selectedGap !== null && potentialEdges.length > 0}
         potentialEdges={potentialEdges}
         bloomEnabled={bloomEnabled}

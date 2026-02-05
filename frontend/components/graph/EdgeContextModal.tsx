@@ -491,13 +491,38 @@ export function EdgeContextModal({
 
           {!isLoading && !error && evidence && (
             <>
-              {/* Evidence count */}
-              <div className="flex items-center gap-2 mb-4">
-                <BookOpen className="w-4 h-4 text-accent-teal" />
-                <span className="font-mono text-xs text-muted">
-                  {evidence.total_evidence} source{evidence.total_evidence !== 1 ? 's' : ''} found
-                </span>
-              </div>
+              {/* v0.9.0: Error code based user-friendly messages */}
+              {evidence.error_code === 'table_missing' && (
+                <div className="bg-accent-amber/10 border border-accent-amber/20 p-4 mb-4">
+                  <p className="text-sm text-accent-amber">
+                    Evidence feature is not yet configured for this project.
+                  </p>
+                </div>
+              )}
+              {evidence.error_code === 'permission_denied' && (
+                <div className="bg-accent-red/10 border border-accent-red/20 p-4 mb-4">
+                  <p className="text-sm text-accent-red">
+                    You don&apos;t have permission to view evidence for this relationship.
+                  </p>
+                </div>
+              )}
+              {evidence.error_code === 'query_failed' && (
+                <div className="bg-accent-amber/10 border border-accent-amber/20 p-4 mb-4">
+                  <p className="text-sm text-accent-amber">
+                    Evidence query encountered an error. Please try again later.
+                  </p>
+                </div>
+              )}
+
+              {/* Only show evidence count if no error and has evidence */}
+              {!evidence.error_code && (
+                <div className="flex items-center gap-2 mb-4">
+                  <BookOpen className="w-4 h-4 text-accent-teal" />
+                  <span className="font-mono text-xs text-muted">
+                    {evidence.total_evidence} source{evidence.total_evidence !== 1 ? 's' : ''} found
+                  </span>
+                </div>
+              )}
 
               {/* Evidence list */}
               {evidence.evidence_chunks.length > 0 ? (

@@ -51,8 +51,6 @@ export type LabelVisibility = 'none' | 'important' | 'all';
  */
 export interface View3DState {
   mode: '2d' | '3d';
-  showParticles: boolean;
-  particleSpeed: number;
   backgroundColor: string;
   lodEnabled: boolean;
   currentZoom: number;
@@ -80,8 +78,6 @@ interface Graph3DStore {
 
   // Actions
   setViewMode: (mode: '2d' | '3d') => void;
-  toggleParticles: () => void;
-  setParticleSpeed: (speed: number) => void;
   setBackgroundColor: (color: string) => void;
   toggleLOD: () => void;
   setCurrentZoom: (zoom: number) => void;
@@ -113,8 +109,6 @@ export const useGraph3DStore = create<Graph3DStore>((set, get) => ({
   // Initial 3D View State
   view3D: {
     mode: '3d',
-    showParticles: true,
-    particleSpeed: 0.005,
     backgroundColor: '#0d1117',
     lodEnabled: true,
     currentZoom: 1.0,
@@ -148,18 +142,6 @@ export const useGraph3DStore = create<Graph3DStore>((set, get) => ({
   setViewMode: (mode) => {
     set(state => ({
       view3D: { ...state.view3D, mode },
-    }));
-  },
-
-  toggleParticles: () => {
-    set(state => ({
-      view3D: { ...state.view3D, showParticles: !state.view3D.showParticles },
-    }));
-  },
-
-  setParticleSpeed: (speed) => {
-    set(state => ({
-      view3D: { ...state.view3D, particleSpeed: speed },
     }));
   },
 

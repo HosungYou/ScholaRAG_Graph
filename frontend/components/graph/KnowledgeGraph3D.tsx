@@ -25,8 +25,6 @@ import {
   Info,
   RotateCcw,
   Layers,
-  Zap,
-  ZapOff,
   Scissors,
   BarChart3,
   PieChart,
@@ -94,7 +92,6 @@ export function KnowledgeGraph3D({
     centrality,
     fetchCentrality,
     getVisiblePercentage,
-    toggleParticles,
     toggleBloom,
     cycleLabelVisibility,
   } = useGraph3DStore();
@@ -308,8 +305,6 @@ export function KnowledgeGraph3D({
           onNodeClick={handleNodeClick}
           onBackgroundClick={handleBackgroundClick}
           onEdgeClick={handleEdgeClick}  // UI-011: Relationship Evidence
-          showParticles={view3D.showParticles}
-          particleSpeed={view3D.particleSpeed}
           bloomEnabled={view3D.bloom.enabled}
           bloomIntensity={view3D.bloom.intensity}
           glowSize={view3D.bloom.glowSize}
@@ -369,29 +364,12 @@ export function KnowledgeGraph3D({
       <div className="absolute top-4 right-4 flex gap-2">
         <div className="bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 p-1 flex gap-1">
           {/* 3D Mode Indicator */}
-          <div className="p-2 bg-accent-teal text-white relative">
+          <div className="p-2 bg-accent-teal text-white relative" title="3D Graph View - Drag nodes to explore, scroll to zoom">
             <Box className="w-4 h-4" />
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white" />
           </div>
 
           <div className="w-px bg-ink/10 dark:bg-paper/10" />
-
-          {/* Particle Toggle */}
-          <button
-            onClick={toggleParticles}
-            className={`p-2 transition-colors ${
-              view3D.showParticles
-                ? 'bg-accent-amber/10 text-accent-amber'
-                : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
-            }`}
-            title={view3D.showParticles ? 'Hide particles' : 'Show particles'}
-          >
-            {view3D.showParticles ? (
-              <Zap className="w-4 h-4" />
-            ) : (
-              <ZapOff className="w-4 h-4" />
-            )}
-          </button>
 
           {/* Bloom/Glow Toggle */}
           <button
@@ -401,7 +379,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-yellow-500/10 text-yellow-500'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title={view3D.bloom.enabled ? 'Disable glow effect' : 'Enable glow effect'}
+            title={view3D.bloom.enabled ? 'Disable node glow effect' : 'Enable node glow effect (highlights important nodes)'}
           >
             {view3D.bloom.enabled ? (
               <Sun className="w-4 h-4" />
@@ -420,7 +398,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title={`Labels: ${view3D.labelVisibility} (click to cycle)`}
+            title={`Labels: ${view3D.labelVisibility === 'all' ? 'All nodes labeled' : view3D.labelVisibility === 'important' ? 'Top 20% nodes labeled' : 'Labels hidden'} (click to cycle)`}
           >
             {view3D.labelVisibility === 'all' ? (
               <Tags className="w-4 h-4" />
@@ -437,7 +415,7 @@ export function KnowledgeGraph3D({
           <button
             onClick={handleResetCamera}
             className="p-2 hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper transition-colors"
-            title="Reset camera"
+            title="Reset camera to default view"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -450,7 +428,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle legend"
+            title="Toggle entity type legend"
           >
             <Info className="w-4 h-4" />
           </button>
@@ -463,7 +441,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-amber/10 text-accent-amber'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle gap panel"
+            title="Toggle research gaps panel (structural holes in knowledge)"
           >
             <Sparkles className="w-4 h-4" />
           </button>
@@ -476,7 +454,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle node slicing panel"
+            title="Toggle node importance panel (remove high-centrality bridges)"
           >
             <Scissors className="w-4 h-4" />
           </button>
@@ -489,7 +467,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-violet/10 text-accent-violet'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle cluster panel"
+            title="Toggle topic clusters panel (adjust grouping)"
           >
             <Layers className="w-4 h-4" />
           </button>
@@ -502,7 +480,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle insight HUD"
+            title="Toggle graph analytics HUD (diversity, modularity)"
           >
             <BarChart3 className="w-4 h-4" />
           </button>
@@ -515,7 +493,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-violet/10 text-accent-violet'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle main topics"
+            title="Toggle main topics panel (dominant themes)"
           >
             <PieChart className="w-4 h-4" />
           </button>
@@ -532,7 +510,7 @@ export function KnowledgeGraph3D({
                   ? 'bg-accent-teal text-white'
                   : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
               }`}
-              title="3D Graph View"
+              title="3D Graph View - Full knowledge graph exploration with physics"
             >
               <Box className="w-4 h-4" />
               <span className="font-mono text-xs uppercase tracking-wider">3D</span>
@@ -546,7 +524,7 @@ export function KnowledgeGraph3D({
                   ? 'bg-accent-purple text-white'
                   : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
               }`}
-              title="Topic View (InfraNodus-style clusters)"
+              title="Topic View - Clusters and communities visualization"
             >
               <Grid2X2 className="w-4 h-4" />
               <span className="font-mono text-xs uppercase tracking-wider">Topics</span>
@@ -560,7 +538,7 @@ export function KnowledgeGraph3D({
                   ? 'bg-accent-amber text-white'
                   : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
               }`}
-              title="Gaps View (Structural gap exploration)"
+              title="Gaps View - Research gap identification and bridge hypotheses"
             >
               <Sparkles className="w-4 h-4" />
               <span className="font-mono text-xs uppercase tracking-wider">Gaps</span>

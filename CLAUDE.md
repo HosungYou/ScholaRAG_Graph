@@ -1,7 +1,7 @@
 # CLAUDE.md - ScholaRAG_Graph Project Instructions
 
 > **Last Updated**: 2026-02-04
-> **Version**: 3.3.0 (v0.8.0 InfraNodus UI/UX Parity)
+> **Version**: 3.4.0 (v0.9.0 Graph Physics & UX Critical Fixes)
 
 ## Project Overview
 
@@ -679,6 +679,33 @@ When making architectural changes:
 
 ---
 
+## 📊 v0.9.0 Release Notes
+
+> **Version**: 0.9.0 | **Date**: 2026-02-04
+> **Full Notes**: See `RELEASE_NOTES_v0.9.0.md`
+
+### Added
+- **InfraNodus-Style Labeling**: Centrality-based visibility (top 20% always visible), dynamic font sizing (10-28px), opacity gradient (0.3-1.0)
+- **Improved Tooltips**: All 14 toolbar buttons have descriptive Korean tooltips
+
+### Fixed
+- **Graph Shrinkage**: Reduced velocity decay 0.9→0.4, increased cooldown 200→1000
+- **Node Drag Release**: Nodes now float back naturally after dragging
+- **AI Explain UUID**: Uses concept names instead of raw UUIDs
+- **No Gaps Detected**: Auto-refresh + stronger min_gaps enforcement
+- **Evidence 500 Errors**: SQL escaping + classified error handling
+
+### Removed
+- **Particle Effects**: Lightning toggle and particle rendering completely removed
+
+### Planned (v0.10.0)
+- Entity Extraction V2 (all 8 entity types)
+- AI Chat data-based fallback
+- Semantic diversity metrics
+- Next.js 14.2+ security upgrade
+
+---
+
 ## 📊 v0.8.0 Release Notes
 
 > **Version**: 0.8.0 | **Date**: 2026-02-04
@@ -698,13 +725,6 @@ When making architectural changes:
 - `hashClusterId()` function for deterministic color mapping
 - `LabelVisibility` type with `cycleLabelVisibility()` store action
 - Dynamic panel stacking for InsightHUD positioning
-
-### Planned (v0.9.0)
-- Entity Extraction V2 (all 8 entity types)
-- AI Chat data-based fallback
-- Adaptive gap detection threshold
-- Semantic diversity metrics
-- Next.js 14.2+ security upgrade
 
 ---
 

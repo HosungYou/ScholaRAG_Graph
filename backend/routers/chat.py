@@ -842,9 +842,32 @@ async def explain_node(
 
     orchestrator = get_orchestrator()
 
-    # Build context for explanation
-    node_name = request.node_name if request else node_id
-    node_type = request.node_type if request else "Entity"
+    # v0.9.0: Build context for explanation with DB fallback
+    node_name = None
+    node_type = "Concept"
+
+    if request and request.node_name:
+        node_name = request.node_name
+        node_type = request.node_type or "Concept"
+
+    # DB fallback if node_name not provided
+    if not node_name:
+        try:
+            entity = await db.fetchrow(
+                "SELECT name, entity_type FROM entities WHERE id = $1",
+                UUID(node_id)
+            )
+            if entity:
+                node_name = entity["name"]
+                node_type = entity["entity_type"] or "Concept"
+            else:
+                # Fallback to prevent UUID exposure
+                node_name = "this concept"
+                logger.warning(f"Entity not found for explain: {node_id}")
+        except Exception as e:
+            logger.warning(f"DB lookup failed for explain: {e}")
+            node_name = "this concept"
+
     properties = request.node_properties if request else {}
 
     # Generate explanation using orchestrator

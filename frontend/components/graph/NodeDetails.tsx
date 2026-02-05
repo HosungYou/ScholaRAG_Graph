@@ -89,7 +89,13 @@ export function NodeDetails({
   const handleGetExplanation = async () => {
     setIsLoadingExplanation(true);
     try {
-      const result = await api.explainNode(node.id, projectId);
+      // v0.9.0: Pass node name and type to avoid UUID in AI response
+      const result = await api.explainNode(
+        node.id,
+        projectId,
+        node.name,
+        node.entity_type
+      );
       setAiExplanation(result.explanation);
     } catch (error) {
       console.error('Failed to get AI explanation:', error);

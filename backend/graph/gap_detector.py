@@ -339,9 +339,19 @@ class GapDetector:
             # Filter gaps using adaptive threshold
             filtered_gaps = [g for g in all_gap_candidates if g.gap_strength < adaptive_threshold]
 
-            # Ensure minimum number of gaps is returned
-            if len(filtered_gaps) < min_gaps:
+            # v0.9.0: Ensure minimum number of gaps is returned (stronger enforcement)
+            # If adaptive threshold is too strict, always return at least min_gaps from candidates
+            if len(filtered_gaps) < min_gaps and len(all_gap_candidates) >= min_gaps:
+                # Threshold was too strict - return top min_gaps regardless
                 filtered_gaps = all_gap_candidates[:min_gaps]
+                logger.info(
+                    f"Adaptive threshold too strict ({adaptive_threshold:.2f}), "
+                    f"returning top {min_gaps} gaps instead"
+                )
+            elif len(filtered_gaps) < min_gaps and len(all_gap_candidates) > 0:
+                # Have some candidates but less than min_gaps
+                filtered_gaps = all_gap_candidates
+                logger.info(f"Only {len(all_gap_candidates)} gap candidates available")
 
             gaps = filtered_gaps[:max_gaps]
 

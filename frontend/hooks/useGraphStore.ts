@@ -228,7 +228,20 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   fetchGapAnalysis: async (projectId: string) => {
     set({ isGapLoading: true });
     try {
-      const analysis = await api.getGapAnalysis(projectId);
+      let analysis = await api.getGapAnalysis(projectId);
+
+      // v0.9.0: Auto-refresh when no gaps but clusters exist
+      // This handles the case where gap analysis wasn't computed yet
+      if (analysis.gaps.length === 0 && analysis.clusters.length > 1) {
+        console.log('[GapAnalysis] No gaps found with multiple clusters, triggering refresh...');
+        try {
+          analysis = await api.refreshGapAnalysis(projectId);
+        } catch (refreshError) {
+          console.warn('[GapAnalysis] Refresh failed:', refreshError);
+          // Continue with original analysis
+        }
+      }
+
       set({
         gaps: analysis.gaps,
         clusters: analysis.clusters,

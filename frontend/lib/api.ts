@@ -245,11 +245,23 @@ class ApiClient {
     return this.request<{ messages: ChatResponse[] }>(`/api/chat/history/${projectId}`);
   }
 
-  async explainNode(nodeId: string, projectId: string): Promise<{ explanation: string }> {
+  async explainNode(
+    nodeId: string,
+    projectId: string,
+    nodeName?: string,
+    nodeType?: string
+  ): Promise<{ explanation: string }> {
+    // v0.9.0: Send node name/type to avoid UUID in response
+    const body = nodeName ? {
+      node_name: nodeName,
+      node_type: nodeType || 'Concept',
+    } : undefined;
+
     return this.request<{ explanation: string }>(
       `/api/chat/explain/${nodeId}?project_id=${projectId}`,
       {
         method: 'POST',
+        ...(body && { body: JSON.stringify(body) }),
       }
     );
   }
