@@ -197,6 +197,8 @@ class GapDetector:
             # Generate cluster name from top keywords
             if cluster.keywords:
                 cluster.name = " / ".join(cluster.keywords[:3])
+            else:
+                cluster.name = f"Cluster {cluster_id + 1}"
 
             result.append(cluster)
 

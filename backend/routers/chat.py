@@ -624,6 +624,37 @@ async def chat_query(
         highlighted_edges = result.highlighted_edges or []
         suggested_follow_ups = result.suggested_follow_ups or []
 
+        # v0.11.0: Generate graph-context follow-ups if orchestrator didn't provide any
+        if not suggested_follow_ups:
+            try:
+                top_concepts_rows = await db.fetch(
+                    """
+                    SELECT name FROM entities
+                    WHERE project_id = $1 AND entity_type = 'Concept'
+                    ORDER BY centrality_betweenness DESC NULLS LAST
+                    LIMIT 5
+                    """,
+                    str(request.project_id)
+                )
+                gap_count_val = await db.fetchval(
+                    "SELECT COUNT(*) FROM structural_gaps WHERE project_id = $1",
+                    str(request.project_id)
+                )
+
+                if top_concepts_rows:
+                    names = [r["name"] for r in top_concepts_rows]
+                    suggested_follow_ups = [
+                        f"How are {names[0]} and {names[min(1, len(names)-1)]} related in this research?",
+                        f"What are the key findings about {names[0]}?",
+                        "Which research methodologies are most commonly used?",
+                    ]
+                    if gap_count_val and gap_count_val > 0:
+                        suggested_follow_ups.append(
+                            f"There are {gap_count_val} research gaps detected. What are the main opportunities?"
+                        )
+            except Exception as e:
+                logger.debug(f"Failed to generate graph-context follow-ups: {e}")
+
         # Convert research gaps to response format
         research_gaps = [
             ResearchGapSummary(

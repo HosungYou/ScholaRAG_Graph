@@ -870,6 +870,14 @@ class ConceptCentricScholarAGImporter:
 
         logger.info(f"Storing {len(clusters)} concept clusters")
 
+        def _get_cluster_label(c):
+            """Get meaningful cluster label, avoiding UUIDs."""
+            if c.name and len(c.name) < 100 and not (len(c.name) == 36 and c.name.count('-') == 4):
+                return c.name
+            if c.keywords:
+                return " / ".join(c.keywords[:3])
+            return f"Cluster {c.id + 1}"
+
         for cluster in clusters:
             try:
                 await self.db.execute(
@@ -881,7 +889,7 @@ class ConceptCentricScholarAGImporter:
                     """,
                     cluster.id,
                     project_id,
-                    cluster.name[:255],
+                    _get_cluster_label(cluster)[:255],
                     cluster.color,
                     len(cluster.concept_ids),
                     cluster.keywords[:10],

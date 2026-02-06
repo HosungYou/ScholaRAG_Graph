@@ -1024,6 +1024,14 @@ class ZoteroRDFImporter:
                         relationships=relationships_for_gap,
                     )
 
+                    def _get_cluster_label(c):
+                        """Get meaningful cluster label, avoiding UUIDs."""
+                        if c.name and len(c.name) < 100 and not (len(c.name) == 36 and c.name.count('-') == 4):
+                            return c.name
+                        if c.keywords:
+                            return " / ".join(c.keywords[:3])
+                        return f"Cluster {c.id + 1}"
+
                     # Store clusters
                     for cluster in gap_analysis.get("clusters", []):
                         try:
@@ -1037,7 +1045,7 @@ class ZoteroRDFImporter:
                                 cluster.id,
                                 project_id if isinstance(project_id, __import__('uuid').UUID)
                                 else __import__('uuid').UUID(str(project_id)),
-                                cluster.name[:255],
+                                _get_cluster_label(cluster)[:255],
                                 cluster.color,
                                 len(cluster.concept_ids),
                                 cluster.keywords[:10],
