@@ -39,11 +39,11 @@ interface Edge {
 }
 
 const COLORS = {
-  teal: '#2EC4B6',
-  amber: '#F4A261',
-  red: '#E63946',
-  purple: '#9B5DE5',
-  cyan: '#00BBF9',
+  cyan: '#22d3ee',
+  violet: '#a78bfa',
+  purple: '#c084fc',
+  pink: '#f472b6',
+  indigo: '#818cf8',
 };
 
 const NODE_TYPES: Node['type'][] = ['hexagon', 'diamond', 'pentagon', 'square'];
