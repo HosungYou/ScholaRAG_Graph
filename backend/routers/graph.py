@@ -839,7 +839,7 @@ async def get_entity(
 # ============================================
 
 class ConceptClusterResponse(BaseModel):
-    cluster_id: int
+    cluster_id: Optional[int] = None
     concepts: List[str]
     concept_names: List[str]
     size: int
@@ -2597,7 +2597,7 @@ async def get_relationship_evidence(
                         pm.id as paper_id,
                         pm.title as paper_title,
                         pm.authors as paper_authors,
-                        pm.publication_year as paper_year,
+                        pm.year as paper_year,
                         re.relevance_score,
                         re.context_snippet
                     FROM relationship_evidence re
@@ -2631,7 +2631,7 @@ async def get_relationship_evidence(
                     pm.id as paper_id,
                     pm.title as paper_title,
                     pm.authors as paper_authors,
-                    pm.publication_year as paper_year,
+                    pm.year as paper_year,
                     0.5 as relevance_score,
                     NULL as context_snippet
                 FROM semantic_chunks sc
