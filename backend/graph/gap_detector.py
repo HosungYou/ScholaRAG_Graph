@@ -11,6 +11,7 @@ Reference: InfraNodus content gap analysis methodology
 """
 
 import logging
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
@@ -812,6 +813,9 @@ Return ONLY the research questions, one per line, without numbering or bullets.
                 gap, a_names, b_names
             )
 
+        # Generate LLM-summarized cluster labels (if LLM available)
+        clusters = await self.generate_cluster_labels(clusters)
+
         # Generate summary
         summary = self._generate_summary(clusters, gaps)
 
@@ -853,3 +857,46 @@ Return ONLY the research questions, one per line, without numbering or bullets.
                 lines.append(f"- Gap between '{a_name}' and '{b_name}' (connectivity: {gap.gap_strength:.1%})")
 
         return "\n".join(lines)
+
+    async def generate_cluster_labels(
+        self,
+        clusters: list[ConceptCluster],
+        timeout_per_label: float = 3.0,
+        total_timeout: float = 15.0,
+    ) -> list[ConceptCluster]:
+        """Generate LLM-summarized 3-5 word topic labels for clusters.
+
+        Processes sequentially within total timeout budget. Falls back to
+        existing keyword-join name on LLM failure.
+        """
+        if not self.llm:
+            return clusters
+
+        import time
+        start = time.monotonic()
+
+        for cluster in clusters:
+            if time.monotonic() - start > total_timeout:
+                logger.warning("Total label timeout budget exceeded, using fallback for remaining")
+                break
+
+            if not cluster.keywords:
+                continue
+
+            try:
+                prompt = (
+                    "Summarize these academic concepts into a 3-5 word topic label:\n"
+                    f"{', '.join(cluster.keywords[:10])}\n\n"
+                    "Respond with ONLY the label, nothing else."
+                )
+                label = await asyncio.wait_for(
+                    self.llm.generate(prompt=prompt, max_tokens=20, temperature=0.0),
+                    timeout=timeout_per_label,
+                )
+                result = label.strip().strip('"').strip("'")
+                if 3 <= len(result) <= 60:
+                    cluster.name = result
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"LLM label generation failed for cluster {cluster.id}: {e}")
+
+        return clusters

@@ -1080,7 +1080,13 @@ async def refresh_gap_analysis(
         ]
 
         # Run gap detection
-        gap_detector = GapDetector()
+        # Get LLM provider for cluster label generation
+        from routers.import_ import get_llm_provider
+        try:
+            llm = get_llm_provider()
+        except Exception:
+            llm = None
+        gap_detector = GapDetector(llm_provider=llm)
         analysis = await gap_detector.analyze_graph(concepts, relationships)
 
         # Store results
@@ -1116,7 +1122,7 @@ async def refresh_gap_analysis(
                 cluster_concept_names,  # Derived from concept_ids
                 len(cluster.concept_ids),  # Computed size
                 0.0,  # Default density (can be calculated if needed)
-                cluster.name or f"Cluster {cluster.id + 1}",  # Use 'name' or generate label
+                cluster.name or f"Cluster {cluster.id + 1}",
             )
 
         # Store gaps
@@ -1428,6 +1434,202 @@ async def generate_gap_questions(
     except Exception as e:
         logger.error(f"Failed to generate gap questions: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate questions")
+
+
+# ============================================================
+# Paper Recommendations for Research Gaps
+# ============================================================
+
+class RecommendedPaperResponse(BaseModel):
+    title: str
+    year: Optional[int] = None
+    citation_count: int = 0
+    url: Optional[str] = None
+    abstract_snippet: str = ""
+
+
+class GapRecommendationsResponse(BaseModel):
+    gap_id: str
+    query_used: str
+    papers: List[RecommendedPaperResponse]
+    error: Optional[str] = None
+
+
+@router.get("/gaps/{project_id}/recommendations", response_model=GapRecommendationsResponse)
+async def get_gap_recommendations(
+    project_id: UUID,
+    gap_id: UUID = Query(..., description="Gap UUID from analysis"),
+    limit: int = Query(5, ge=1, le=10),
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Recommend papers that could bridge a research gap."""
+    await verify_project_access(database, project_id, current_user, "access")
+
+    gap = await database.fetchrow(
+        """SELECT bridge_candidates, cluster_a_names, cluster_b_names
+           FROM structural_gaps
+           WHERE id = $1 AND project_id = $2""",
+        str(gap_id), str(project_id),
+    )
+    if not gap:
+        raise HTTPException(404, "Gap not found")
+
+    bridge = (gap["bridge_candidates"] or [])[:3]
+    kw_a = (gap["cluster_a_names"] or [])[:2]
+    kw_b = (gap["cluster_b_names"] or [])[:2]
+    query = " ".join(bridge + kw_a + kw_b)
+
+    if not query.strip():
+        return GapRecommendationsResponse(gap_id=str(gap_id), query_used="", papers=[])
+
+    try:
+        import asyncio
+        from integrations.semantic_scholar import SemanticScholarClient
+        async with SemanticScholarClient() as client:
+            papers = await asyncio.wait_for(
+                client.search_papers(query=query, limit=limit),
+                timeout=15.0,
+            )
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Semantic Scholar search failed: {e}")
+        return GapRecommendationsResponse(
+            gap_id=str(gap_id), query_used=query, papers=[],
+            error="Paper search temporarily unavailable. Please try again later.",
+        )
+
+    return GapRecommendationsResponse(
+        gap_id=str(gap_id),
+        query_used=query,
+        papers=[
+            RecommendedPaperResponse(
+                title=p.title,
+                year=p.year,
+                citation_count=p.citation_count,
+                url=f"https://doi.org/{p.doi}" if p.doi else
+                    (f"https://arxiv.org/abs/{p.arxiv_id}" if p.arxiv_id else None),
+                abstract_snippet=(p.abstract or "")[:200],
+            )
+            for p in papers
+        ],
+    )
+
+
+# ============================================================
+# Gap Analysis Report Export
+# ============================================================
+
+@router.get("/gaps/{project_id}/export")
+async def export_gap_report(
+    project_id: UUID,
+    format: str = Query("markdown", pattern="^(markdown)$"),
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Export gap analysis as downloadable Markdown report."""
+    await verify_project_access(database, project_id, current_user, "access")
+
+    from fastapi.responses import StreamingResponse
+    from datetime import datetime
+    import io
+
+    project = await database.fetchrow(
+        "SELECT name, research_question FROM projects WHERE id = $1",
+        project_id,
+    )
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    cluster_rows = await database.fetch(
+        """SELECT cluster_id, label, size, concept_names
+           FROM concept_clusters WHERE project_id = $1
+           ORDER BY cluster_id""",
+        str(project_id),
+    )
+
+    gap_rows = await database.fetch(
+        """SELECT cluster_a_id, cluster_b_id, cluster_a_names, cluster_b_names,
+                  gap_strength, bridge_candidates, research_questions
+           FROM structural_gaps WHERE project_id = $1
+           ORDER BY gap_strength DESC""",
+        str(project_id),
+    )
+
+    if not cluster_rows and not gap_rows:
+        raise HTTPException(404, "No gap analysis data. Run gap detection first.")
+
+    # Build cluster label lookup
+    cluster_labels = {}
+    for row in cluster_rows:
+        cluster_labels[row["cluster_id"]] = row["label"] or f"Cluster {row['cluster_id'] + 1}"
+
+    # Build Markdown report
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        f"# Gap Analysis Report",
+        f"",
+        f"**Project**: {project['name']}",
+    ]
+    if project.get("research_question"):
+        lines.append(f"**Research Question**: {project['research_question']}")
+    lines.extend([
+        f"**Generated**: {now}",
+        f"**Clusters**: {len(cluster_rows)} | **Gaps**: {len(gap_rows)}",
+        "",
+        "---",
+        "",
+        "## Cluster Overview",
+        "",
+        "| # | Label | Size | Top Concepts |",
+        "|---|-------|------|-------------|",
+    ])
+
+    for row in cluster_rows:
+        cid = row["cluster_id"]
+        label = cluster_labels.get(cid, f"Cluster {cid + 1}")
+        concepts = ", ".join((row["concept_names"] or [])[:5])
+        lines.append(f"| {cid + 1} | {label} | {row['size']} | {concepts} |")
+
+    lines.extend(["", "---", "", "## Structural Gaps", ""])
+
+    for i, row in enumerate(gap_rows, 1):
+        a_label = cluster_labels.get(row["cluster_a_id"], f"Cluster {row['cluster_a_id'] + 1}")
+        b_label = cluster_labels.get(row["cluster_b_id"], f"Cluster {row['cluster_b_id'] + 1}")
+        strength_pct = f"{row['gap_strength'] * 100:.0f}%"
+
+        lines.extend([
+            f"### Gap {i}: {a_label} ↔ {b_label}",
+            f"",
+            f"- **Connectivity**: {strength_pct}",
+            f"- **Cluster A concepts**: {', '.join((row['cluster_a_names'] or [])[:5])}",
+            f"- **Cluster B concepts**: {', '.join((row['cluster_b_names'] or [])[:5])}",
+        ])
+
+        if row.get("bridge_candidates"):
+            lines.append(f"- **Bridge candidates**: {', '.join(row['bridge_candidates'][:5])}")
+
+        if row.get("research_questions"):
+            lines.extend(["", "**Research Questions**:", ""])
+            for q in row["research_questions"]:
+                lines.append(f"- {q}")
+
+        lines.append("")
+
+    lines.extend([
+        "---",
+        "",
+        f"*Report generated by ScholaRAG Graph v0.12.0*",
+    ])
+
+    report = "\n".join(lines)
+
+    safe_name = project["name"].replace(" ", "_")[:30]
+    buffer = io.BytesIO(report.encode("utf-8"))
+    return StreamingResponse(
+        buffer,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="gap_analysis_{safe_name}.md"'},
+    )
 
 
 # ============================================================
