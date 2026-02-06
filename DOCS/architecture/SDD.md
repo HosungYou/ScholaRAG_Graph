@@ -86,7 +86,7 @@ ScholaRAG_Graph is an AGENTiGraph-style **Concept-Centric Knowledge Graph** plat
 ### 1.5 Runtime Stability Focus (v0.11.1)
 
 Render Starter 환경에서 관찰된 `memory limit exceeded` 이슈 대응을 위해,
-아래 3개를 단기 안정화 우선순위로 정의한다.
+아래 5개를 단기 안정화 우선순위로 정의한다.
 
 1. **Request shaping**
 - `/api/graph/visualization/{project_id}`에 edge 상한(`max_edges`)을 적용해
