@@ -516,6 +516,55 @@ class ApiClient {
     );
   }
 
+  // Paper Recommendations for Gaps
+  async getGapRecommendations(
+    projectId: string,
+    gapId: string,
+    limit: number = 5
+  ): Promise<{
+    gap_id: string;
+    query_used: string;
+    papers: Array<{
+      title: string;
+      year: number | null;
+      citation_count: number;
+      url: string | null;
+      abstract_snippet: string;
+    }>;
+    error: string | null;
+  }> {
+    const params = new URLSearchParams({
+      gap_id: gapId,
+      limit: limit.toString(),
+    });
+    return this.request(
+      `/api/graph/gaps/${projectId}/recommendations?${params}`
+    );
+  }
+
+  // Gap Analysis Report Export
+  async exportGapReport(projectId: string): Promise<void> {
+    const authHeaders = await this.getAuthHeaders();
+    const response = await fetch(
+      `${this.baseUrl}/api/graph/gaps/${projectId}/export?format=markdown`,
+      { headers: { ...authHeaders } }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `Export failed: ${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = response.headers.get('content-disposition')
+      ?.split('filename=')[1]?.replace(/"/g, '') || 'gap_analysis.md';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
   // Centrality Analysis
   async getCentrality(
     projectId: string,
