@@ -1,7 +1,7 @@
 # Test Design Document (TDD)
 
 **Project**: ScholaRAG_Graph
-**Version**: 0.11.0
+**Version**: 0.11.1
 **Last Updated**: 2026-02-06  
 **Status**: Active  
 **Document Type**: Test Design & Verification Specification
@@ -213,20 +213,75 @@
 
 ---
 
+### 5.7 v0.11.1 Production Bug Fix Regression Design
+
+#### 5.7.1 Backend
+
+1. GraphStore initialization + gap analysis agent
+- 대상: `backend/routers/chat.py`, `backend/agents/query_execution_agent.py`
+- 목적: GraphStore 초기화 실패 시 상세 로깅 확인, 갭 분석이 실제 DB 쿼리 기반으로 동작 확인
+- 전략:
+  - GraphStore 초기화 예외 시 `logger.error` + traceback 출력 확인
+  - `_execute_gap_analysis()`가 `structural_gaps` 테이블에서 갭 조회 확인
+  - `entities` + `relationships` JOIN으로 저빈도 개념 조회 확인
+  - `entity_type = 'Method'` 필터로 방법론 갭 조회 확인
+  - 갭 데이터 기반 맞춤 추천 생성 확인 (하드코딩 아님)
+
+2. Embedding TF-IDF fallback
+- 대상: `backend/importers/zotero_rdf_importer.py`, `backend/routers/graph.py`
+- 목적: 임베딩 없을 때 TF-IDF 폴백으로 갭 탐지 가능 확인
+- 전략:
+  - 임베딩 실패 시 `logger.error` 격상 확인
+  - `concepts_for_gap < 10` 시 TF-IDF 벡터 생성 확인
+  - `TfidfVectorizer(max_features=100)` 기반 pseudo-embedding 생성 확인
+  - TF-IDF 폴백 경로에서 갭 새로고침 정상 동작 확인
+  - `no_gaps_reason` 필드가 `"insufficient_concepts"` 또는 `"embedding_unavailable"` 반환 확인
+
+#### 5.7.2 Frontend
+
+1. Topics 탭 가시성
+- 대상: `frontend/components/graph/KnowledgeGraph3D.tsx`
+- 목적: 탭 바가 시각적으로 명확하게 보이는지 확인
+- 전략:
+  - 탭 바 배경 `bg-ink/15` + `border border-ink/20` 적용 확인
+  - 비활성 탭 텍스트 `text-ink/70 dark:text-paper/70` 적용 확인
+  - 3D/Topics/Gaps 탭 전환 정상 동작 확인
+
+2. 노드 호버 떨림 제거
+- 대상: `frontend/components/graph/Graph3D.tsx`
+- 목적: 시뮬레이션 안정화 후 노드 움직임 완전 정지 확인
+- 전략:
+  - `cooldownTicks=200` 설정 확인
+  - `d3VelocityDecay=0.75` 설정 확인
+  - `onEngineStop`에서 모든 노드 `fx/fy/fz` 고정 확인
+  - 안정화 후 호버 시 시뮬레이션 재가열 미발생 확인
+
+3. DraggablePanel 드래그 이동
+- 대상: `frontend/components/ui/DraggablePanel.tsx`, 래핑된 패널들
+- 목적: 패널 드래그 이동 및 위치 저장 확인
+- 전략:
+  - mousedown → mousemove → mouseup 드래그 동작 확인
+  - 화면 경계 밖으로 이동 불가 확인 (viewport clamping)
+  - `localStorage` 키 `panel-pos-{projectId}-{panelId}` 저장 확인
+  - 페이지 새로고침 후 위치 복원 확인
+  - GapPanel, InsightHUD에 DragHandle 표시 확인
+
+---
+
 ## 6. Test Execution Policy
 
 ### Required Local Checks (for release candidates)
 
 ```bash
-# Backend syntax (v0.11.0)
-python3 -m py_compile backend/routers/graph.py backend/importers/zotero_rdf_importer.py
+# Backend syntax (v0.11.1)
+python3 -m py_compile backend/routers/graph.py backend/routers/chat.py backend/importers/zotero_rdf_importer.py backend/agents/query_execution_agent.py
 
 # Backend regression tests
 pytest -q backend/tests/test_graph_router.py backend/tests/test_zotero_rdf_importer.py
 
-# Frontend changed-file lint (v0.11.0)
+# Frontend changed-file lint (v0.11.1)
 cd frontend
-npm run -s lint -- --file components/graph/GapPanel.tsx --file components/graph/EdgeContextModal.tsx --file components/chat/ChatInterface.tsx --file components/graph/Graph3D.tsx --file components/graph/KnowledgeGraph3D.tsx --file components/graph/GapQueryPanel.tsx
+npm run -s lint -- --file components/graph/GapPanel.tsx --file components/graph/Graph3D.tsx --file components/graph/KnowledgeGraph3D.tsx --file components/graph/InsightHUD.tsx --file components/ui/DraggablePanel.tsx
 ```
 
 ### Recommended Extended Checks
@@ -285,5 +340,6 @@ Release note 작성 전 최소 충족 조건:
 - `DOCS/architecture/SDD.md`
 - `backend/tests/README.md`
 - `DOCS/testing/infranodus-e2e-test-cases.md`
+- `RELEASE_NOTES_v0.11.1.md`
 - `RELEASE_NOTES_v0.11.0.md`
 - `RELEASE_NOTES_v0.10.2.md`

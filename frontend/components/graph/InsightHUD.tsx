@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { DragHandle } from '../ui/DraggablePanel';
 
 interface GraphMetrics {
   modularity: number;
@@ -177,7 +178,7 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
 
   if (isLoading) {
     return (
-      <div className={`absolute z-20 ${positionClass}`}>
+      <div>
         <div className="bg-[#161b22]/90 backdrop-blur-sm border border-white/10 rounded-lg p-3 w-48">
           <div className="animate-pulse space-y-2">
             <div className="h-3 bg-white/10 rounded w-20" />
@@ -195,8 +196,9 @@ export function InsightHUD({ projectId, className = '' }: InsightHUDProps) {
   }
 
   return (
-    <div className={`absolute z-20 ${positionClass}`}>
+    <div>
       <div className="bg-[#161b22]/90 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden w-52">
+        <DragHandle />
         {/* Header */}
         <button
           className="w-full px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors"

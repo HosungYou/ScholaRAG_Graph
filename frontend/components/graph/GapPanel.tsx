@@ -22,6 +22,7 @@ import {
 import type { StructuralGap, ConceptCluster, GraphEntity, BridgeHypothesis, BridgeGenerationResult } from '@/types';
 import { api } from '@/lib/api';
 import { BridgeHypothesisList } from './BridgeHypothesisCard';
+import { DragHandle } from '../ui/DraggablePanel';
 
 /* ============================================================
    GapPanel - VS Design Diverge Style
@@ -243,11 +244,12 @@ export function GapPanel({
 
   return (
     <div
-      className={`absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 ${
+      className={`bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 ${
         isMinimized ? 'w-12' : ''
       }`}
       style={!isMinimized ? { width: panelWidth } : undefined}
     >
+      <DragHandle />
       {/* Decorative corner accent - only show when not minimized */}
       {!isMinimized && (
         <div className="absolute top-0 right-0 w-16 h-16 bg-accent-amber/10 transform rotate-45 translate-x-8 -translate-y-8" />

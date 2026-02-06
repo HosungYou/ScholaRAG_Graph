@@ -1052,6 +1052,7 @@ async def refresh_gap_analysis(
         from graph.gap_detector import GapDetector
 
         # Get all concepts with embeddings
+        # Try to get concepts with embeddings first
         concept_rows = await database.fetch(
             """
             SELECT id, name, properties, embedding
@@ -1063,15 +1064,60 @@ async def refresh_gap_analysis(
             str(project_id),
         )
 
-        if not concept_rows:
-            return GapAnalysisResponse(
-                clusters=[],
-                gaps=[],
-                centrality_metrics=[],
-                total_concepts=0,
-                total_relationships=0,
-                no_gaps_reason="not_analyzed",
+        use_tfidf_fallback = False
+
+        if not concept_rows or len(concept_rows) < 10:
+            # TF-IDF fallback: fetch all concepts regardless of embedding status
+            logger.warning(f"Only {len(concept_rows) if concept_rows else 0} concepts with embeddings. Using TF-IDF fallback.")
+            all_concept_rows = await database.fetch(
+                """
+                SELECT id, name, properties
+                FROM entities
+                WHERE project_id = $1
+                AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
+                """,
+                str(project_id),
             )
+
+            if not all_concept_rows or len(all_concept_rows) < 3:
+                return GapAnalysisResponse(
+                    clusters=[],
+                    gaps=[],
+                    centrality_metrics=[],
+                    total_concepts=len(all_concept_rows) if all_concept_rows else 0,
+                    total_relationships=0,
+                    no_gaps_reason="insufficient_concepts",
+                )
+
+            # Generate TF-IDF pseudo-embeddings
+            try:
+                from sklearn.feature_extraction.text import TfidfVectorizer
+
+                concept_names = [r["name"] for r in all_concept_rows]
+                vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+                tfidf_matrix = vectorizer.fit_transform(concept_names)
+
+                # Create synthetic concept_rows with TF-IDF embeddings
+                concept_rows = []
+                for i, row in enumerate(all_concept_rows):
+                    concept_rows.append({
+                        "id": row["id"],
+                        "name": row["name"],
+                        "properties": row["properties"],
+                        "embedding": tfidf_matrix[i].toarray()[0].tolist(),
+                    })
+                use_tfidf_fallback = True
+                logger.info(f"TF-IDF fallback: generated pseudo-embeddings for {len(concept_rows)} concepts")
+            except Exception as e:
+                logger.error(f"TF-IDF fallback failed: {e}")
+                return GapAnalysisResponse(
+                    clusters=[],
+                    gaps=[],
+                    centrality_metrics=[],
+                    total_concepts=len(all_concept_rows),
+                    total_relationships=0,
+                    no_gaps_reason="embedding_unavailable",
+                )
 
         # Get relationships
         relationship_rows = await database.fetch(
@@ -1084,15 +1130,18 @@ async def refresh_gap_analysis(
         )
 
         # Convert to format expected by GapDetector
-        concepts = [
-            {
+        concepts = []
+        for row in concept_rows:
+            if use_tfidf_fallback:
+                embedding = row["embedding"]  # Already a list from TF-IDF
+            else:
+                embedding = _parse_embedding(row["embedding"]) or None
+            concepts.append({
                 "id": str(row["id"]),
                 "name": row["name"],
-                "embedding": _parse_embedding(row["embedding"]) or None,
-                "properties": row["properties"] or {},
-            }
-            for row in concept_rows
-        ]
+                "embedding": embedding,
+                "properties": row.get("properties") or {},
+            })
 
         relationships = [
             {

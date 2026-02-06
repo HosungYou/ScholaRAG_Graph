@@ -1,7 +1,7 @@
 # Software Design Document (SDD)
 
 **Project**: ScholaRAG_Graph
-**Version**: 0.11.0
+**Version**: 0.11.1
 **Last Updated**: 2026-02-06
 **Status**: Production-Ready
 **Document Type**: Architecture & Design Specification
@@ -1166,7 +1166,27 @@ app.add_middleware(
 
 ## 7. Change Log
 
-### Version 0.11.0 (2026-02-06) - Current
+### Version 0.11.1 (2026-02-06) - Current
+
+**Production Bug Fix Release (5 issues)**:
+
+*CRITICAL (P0)*:
+- GraphStore initialization: Enhanced error logging with traceback in `chat.py`; gap analysis agent rewritten with real DB queries (`structural_gaps`, `entities`, `relationships` tables)
+- Embedding/Gap detection: TF-IDF fallback when embeddings unavailable (sklearn `TfidfVectorizer`); explicit error reporting on embedding failure; gap refresh endpoint with TF-IDF path
+
+*HIGH (P1)*:
+- Topics tab visibility: Tab bar contrast improved (`bg-ink/15` + border), inactive tab text `text-ink/70`
+- Node hover jitter: Physics simulation freeze after stabilization (`cooldownTicks` 1000→200, `d3VelocityDecay` 0.4→0.75, `onEngineStop` pins all nodes via `fx/fy/fz`)
+
+*MEDIUM (P2)*:
+- Draggable panels: New `DraggablePanel` component with localStorage persistence, viewport clamping; applied to GapPanel, CentralityPanel, ClusterPanel, InsightHUD
+
+*Memory Stabilization (carried from earlier patch)*:
+- Visualization edge cap (`max_edges` default 15000)
+- Centrality cache LRU bounding (max 20 entries)
+- Gap auto-refresh single-attempt per session
+
+### Version 0.11.0 (2026-02-06)
 
 **Comprehensive Bug Fix & UX Enhancement Release (11 issues)**:
 

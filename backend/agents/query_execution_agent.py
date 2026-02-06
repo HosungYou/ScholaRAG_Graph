@@ -355,8 +355,8 @@ class QueryExecutionAgent:
     async def _execute_gap_analysis(self, params: dict) -> dict:
         """
         Find research gaps by analyzing the knowledge graph structure.
+        Queries structural_gaps and entities tables for real gap data.
         """
-        min_papers = params.get("min_papers", 3)
         project_id = params.get("project_id")
 
         gaps = {
@@ -368,20 +368,116 @@ class QueryExecutionAgent:
 
         if not self.graph_store or not project_id:
             gaps["status"] = "graph_store_unavailable"
-            gaps["recommendations"].append("Import more papers to enable gap analysis")
+            gaps["message"] = "Knowledge graph is not initialized. Please import papers first."
             return gaps
 
         try:
-            # Get concepts with low paper counts
-            # This would require graph traversal - simplified implementation
-            gaps["recommendations"].extend([
-                "Consider exploring concepts with fewer than 3 papers",
-                "Look for methodological approaches not yet applied to your domain",
-                "Identify recent trends that lack comprehensive coverage",
-            ])
+            db = self.graph_store.db
+
+            # 1. Query structural_gaps table for detected gaps
+            gap_rows = await db.fetch(
+                """
+                SELECT cluster_a_names, cluster_b_names, gap_strength,
+                       bridge_candidates, research_questions
+                FROM structural_gaps
+                WHERE project_id = $1
+                ORDER BY gap_strength ASC
+                LIMIT 10
+                """,
+                str(project_id),
+            )
+
+            for row in gap_rows:
+                a_names = row.get("cluster_a_names") or []
+                b_names = row.get("cluster_b_names") or []
+                strength = row.get("gap_strength", 0)
+                questions = row.get("research_questions") or []
+
+                gaps["identified_gaps"].append({
+                    "cluster_a": a_names[:3],
+                    "cluster_b": b_names[:3],
+                    "gap_strength": round(strength, 3),
+                    "research_questions": questions[:3],
+                })
+
+            # 2. Query underexplored concepts (low degree entities)
+            underexplored_rows = await db.fetch(
+                """
+                SELECT e.name, e.entity_type::text as entity_type,
+                       COUNT(r.id) as rel_count
+                FROM entities e
+                LEFT JOIN relationships r ON (r.source_id = e.id OR r.target_id = e.id)
+                WHERE e.project_id = $1
+                  AND e.entity_type::text IN ('Concept', 'Method', 'Finding')
+                GROUP BY e.id, e.name, e.entity_type
+                HAVING COUNT(r.id) <= 2
+                ORDER BY COUNT(r.id) ASC
+                LIMIT 10
+                """,
+                str(project_id),
+            )
+
+            for row in underexplored_rows:
+                gaps["underexplored_concepts"].append({
+                    "name": row["name"],
+                    "type": row["entity_type"],
+                    "connection_count": row["rel_count"],
+                })
+
+            # 3. Check for methodology gaps
+            method_rows = await db.fetch(
+                """
+                SELECT e.name, COUNT(r.id) as usage_count
+                FROM entities e
+                LEFT JOIN relationships r ON (r.source_id = e.id OR r.target_id = e.id)
+                WHERE e.project_id = $1
+                  AND e.entity_type::text = 'Method'
+                GROUP BY e.id, e.name
+                ORDER BY COUNT(r.id) ASC
+                LIMIT 5
+                """,
+                str(project_id),
+            )
+
+            for row in method_rows:
+                gaps["methodology_gaps"].append({
+                    "method": row["name"],
+                    "usage_count": row["usage_count"],
+                })
+
+            # 4. Generate contextual recommendations
+            if gaps["identified_gaps"]:
+                for g in gaps["identified_gaps"][:3]:
+                    a = ", ".join(g["cluster_a"][:2])
+                    b = ", ".join(g["cluster_b"][:2])
+                    gaps["recommendations"].append(
+                        f"Explore the connection between {a} and {b} (gap strength: {g['gap_strength']:.1%})"
+                    )
+
+            if gaps["underexplored_concepts"]:
+                names = [c["name"] for c in gaps["underexplored_concepts"][:3]]
+                gaps["recommendations"].append(
+                    f"These concepts need more research coverage: {', '.join(names)}"
+                )
+
+            if gaps["methodology_gaps"]:
+                methods = [m["method"] for m in gaps["methodology_gaps"][:2]]
+                gaps["recommendations"].append(
+                    f"Consider applying underutilized methods: {', '.join(methods)}"
+                )
+
+            if not gaps["identified_gaps"] and not gaps["underexplored_concepts"]:
+                gaps["recommendations"].append(
+                    "No structural gaps detected. Consider refreshing gap analysis from the graph panel."
+                )
+
             gaps["status"] = "analysis_complete"
+            gaps["total_gaps"] = len(gaps["identified_gaps"])
+            gaps["total_underexplored"] = len(gaps["underexplored_concepts"])
+
         except Exception as e:
-            logger.warning(f"Gap analysis failed: {e}")
-            gaps["status"] = "partial"
+            logger.error(f"Gap analysis query failed: {e}")
+            gaps["status"] = "error"
+            gaps["message"] = f"Gap analysis encountered an error: {str(e)}"
 
         return gaps

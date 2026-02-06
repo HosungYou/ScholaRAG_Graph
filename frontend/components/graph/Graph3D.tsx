@@ -1147,9 +1147,9 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         //
         // v0.9.0: Physics parameters optimized for natural floating feel
         warmupTicks={50}
-        cooldownTicks={1000}           // Sufficient stabilization time
+        cooldownTicks={200}            // Fast stabilization, freeze after
         d3AlphaDecay={0.0228}          // D3 default
-        d3VelocityDecay={0.4}          // Natural floating feel
+        d3VelocityDecay={0.75}         // Strong damping, minimal drift
         d3AlphaMin={0.001}             // Lower threshold for finer settling
         // CRITICAL: Disable auto-refresh of simulation when data changes
         // This prevents the "explosion" effect when highlighting changes
@@ -1157,15 +1157,19 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
         onEngineStop={() => {
           // Mark initial render as complete
           isInitialRenderRef.current = false;
-          // Save all positions when simulation stops
+          // Freeze all nodes in place to prevent micro-drift
           if (fgRef.current) {
             const currentNodes = fgRef.current.graphData()?.nodes;
             if (currentNodes) {
               currentNodes.forEach((n: ForceGraphNode) => {
                 if (n.x !== undefined && n.y !== undefined && n.z !== undefined) {
+                  // Pin nodes at their final positions
+                  n.fx = n.x;
+                  n.fy = n.y;
+                  n.fz = n.z;
                   nodePositionsRef.current.set(n.id, {
                     x: n.x, y: n.y, z: n.z,
-                    fx: n.fx, fy: n.fy, fz: n.fz,
+                    fx: n.x, fy: n.y, fz: n.z,
                   });
                 }
               });

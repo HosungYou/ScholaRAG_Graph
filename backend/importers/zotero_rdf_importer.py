@@ -927,12 +927,13 @@ class ZoteroRDFImporter:
         # Create embeddings (optional - may fail if Cohere API unavailable)
         embeddings_created = 0
         if self.graph_store and self.progress.concepts_extracted > 0:
-            self._update_progress("embeddings", 0.85, "임베딩 생성 중 (Cohere)...")
+            self._update_progress("embeddings", 0.85, "임베딩 생성 중...")
             try:
                 embeddings_created = await self.graph_store.create_embeddings(project_id=project_id)
                 logger.info(f"Created {embeddings_created} embeddings")
             except Exception as e:
-                logger.warning(f"Embedding creation failed (continuing with co-occurrence relationships): {e}")
+                logger.error(f"Embedding creation failed: {e}. Gap detection will use TF-IDF fallback.")
+                self._update_progress("embeddings", 0.87, "임베딩 실패 - TF-IDF 폴백 사용 예정")
 
         # Build relationships - ALWAYS build co-occurrence, optionally build semantic
         if extract_concepts and self.graph_store:
@@ -975,6 +976,9 @@ class ZoteroRDFImporter:
 
                 gap_detector = GapDetector()
 
+                pid = project_id if isinstance(project_id, __import__('uuid').UUID) \
+                    else __import__('uuid').UUID(project_id)
+
                 # Fetch Concept entities with embeddings from DB
                 concept_rows = await self.db.fetch(
                     """
@@ -983,8 +987,7 @@ class ZoteroRDFImporter:
                     WHERE project_id = $1 AND entity_type::text = 'Concept'
                     AND embedding IS NOT NULL
                     """,
-                    project_id if isinstance(project_id, __import__('uuid').UUID)
-                    else __import__('uuid').UUID(project_id)
+                    pid
                 )
 
                 concepts_for_gap = []
@@ -1003,6 +1006,42 @@ class ZoteroRDFImporter:
                             "name": r["name"],
                             "embedding": emb_list,
                         })
+
+                # TF-IDF fallback: if no embeddings available, generate pseudo-embeddings
+                if len(concepts_for_gap) < 10:
+                    logger.warning(
+                        f"Only {len(concepts_for_gap)} concepts with embeddings "
+                        f"(need 10+). Using TF-IDF fallback for clustering."
+                    )
+                    # Fetch ALL concepts (including those without embeddings)
+                    all_concept_rows = await self.db.fetch(
+                        """
+                        SELECT id::text, name
+                        FROM entities
+                        WHERE project_id = $1 AND entity_type::text = 'Concept'
+                        """,
+                        pid
+                    )
+
+                    if len(all_concept_rows) >= 10:
+                        try:
+                            from sklearn.feature_extraction.text import TfidfVectorizer
+
+                            concept_names = [r["name"] for r in all_concept_rows]
+                            vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+                            tfidf_matrix = vectorizer.fit_transform(concept_names)
+
+                            concepts_for_gap = []
+                            for i, r in enumerate(all_concept_rows):
+                                tfidf_vec = tfidf_matrix[i].toarray()[0].tolist()
+                                concepts_for_gap.append({
+                                    "id": r["id"],
+                                    "name": r["name"],
+                                    "embedding": tfidf_vec,
+                                })
+                            logger.info(f"TF-IDF fallback: generated {len(concepts_for_gap)} pseudo-embeddings")
+                        except Exception as tfidf_err:
+                            logger.error(f"TF-IDF fallback failed: {tfidf_err}")
 
                 # Fetch relationships
                 rel_rows = await self.db.fetch(

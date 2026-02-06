@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { Graph3D, Graph3DRef } from './Graph3D';
 import { GapPanel } from './GapPanel';
+import { DraggablePanel, DragHandle } from '../ui/DraggablePanel';
 import { CentralityPanel } from './CentralityPanel';
 import { ClusterPanel } from './ClusterPanel';
 import { GraphLegend } from './GraphLegend';
@@ -505,14 +506,14 @@ export function KnowledgeGraph3D({
           <div className="w-px bg-ink/10 dark:bg-paper/10" />
 
           {/* UI-012: View Mode Toggle - 3 modes: 3D, Topic, Gaps */}
-          <div className="flex items-center bg-ink/5 dark:bg-paper/5 rounded-lg p-1 gap-1">
+          <div className="flex items-center bg-ink/15 dark:bg-paper/15 rounded-lg p-1 gap-1 border border-ink/20 dark:border-paper/20">
             {/* 3D Mode */}
             <button
               onClick={() => setViewMode('3d')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all ${
                 viewMode === '3d'
                   ? 'bg-accent-teal text-white shadow-sm'
-                  : 'text-muted hover:text-ink dark:hover:text-paper hover:bg-surface/10'
+                  : 'text-ink/70 dark:text-paper/70 hover:text-ink dark:hover:text-paper hover:bg-ink/10 dark:hover:bg-paper/10'
               }`}
               title="3D 그래프 뷰 - 물리 시뮬레이션 기반 지식 그래프"
             >
@@ -526,7 +527,7 @@ export function KnowledgeGraph3D({
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all ${
                 viewMode === 'topic'
                   ? 'bg-accent-purple text-white shadow-sm'
-                  : 'text-muted hover:text-ink dark:hover:text-paper hover:bg-surface/10'
+                  : 'text-ink/70 dark:text-paper/70 hover:text-ink dark:hover:text-paper hover:bg-ink/10 dark:hover:bg-paper/10'
               }`}
               title="토픽 뷰 - 클러스터 및 커뮤니티 시각화"
             >
@@ -540,7 +541,7 @@ export function KnowledgeGraph3D({
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all ${
                 viewMode === 'gaps'
                   ? 'bg-accent-amber text-white shadow-sm'
-                  : 'text-muted hover:text-ink dark:hover:text-paper hover:bg-surface/10'
+                  : 'text-ink/70 dark:text-paper/70 hover:text-ink dark:hover:text-paper hover:bg-ink/10 dark:hover:bg-paper/10'
               }`}
               title="갭 뷰 - 연구 공백 및 브릿지 가설 탐색"
             >
@@ -553,6 +554,7 @@ export function KnowledgeGraph3D({
 
       {/* Gap Panel - Hidden in Gaps mode (GapsViewMode has integrated gap list) */}
       {showGapPanel && viewMode !== 'gaps' && (
+        <DraggablePanel panelId="gap" projectId={projectId} defaultPosition={{ x: 16, y: 16 }}>
         <GapPanel
           projectId={projectId}
           gaps={gaps}
@@ -566,11 +568,13 @@ export function KnowledgeGraph3D({
           isMinimized={isGapPanelMinimized}
           onToggleMinimize={() => setIsGapPanelMinimized(!isGapPanelMinimized)}
         />
+        </DraggablePanel>
       )}
 
       {/* Right-side panels - stacked */}
       {(showCentralityPanel || showClusterPanel) && (
-        <div className="absolute top-20 right-4 z-10 flex flex-col gap-2 max-h-[calc(100vh-120px)] overflow-y-auto">
+        <DraggablePanel panelId="right-stack" projectId={projectId} defaultPosition={{ x: window?.innerWidth ? window.innerWidth - 300 : 900, y: 80 }}>
+        <div className="flex flex-col gap-2 max-h-[calc(100vh-120px)] overflow-y-auto">
           {showCentralityPanel && (
             <CentralityPanel
               projectId={projectId}
@@ -585,6 +589,7 @@ export function KnowledgeGraph3D({
             />
           )}
         </div>
+        </DraggablePanel>
       )}
 
       {/* Legend */}
@@ -610,18 +615,16 @@ export function KnowledgeGraph3D({
       {/* Insight HUD - v0.8.0: Repositioned to right side (InfraNodus-style Analytics) */}
       {/* Dynamic positioning: below CentralityPanel and ClusterPanel if visible */}
       {showInsightHUD && (
+        <DraggablePanel
+          panelId="insight-hud"
+          projectId={projectId}
+          defaultPosition={{ x: window?.innerWidth ? window.innerWidth - 220 : 900, y: showCentralityPanel || showClusterPanel ? 400 : 80 }}
+          zIndex={15}
+        >
         <InsightHUD
           projectId={projectId}
-          className={`right-4 ${
-            showCentralityPanel && showClusterPanel
-              ? 'top-[580px]'  // Below both panels
-              : showCentralityPanel
-              ? 'top-[340px]'  // Below CentralityPanel only
-              : showClusterPanel
-              ? 'top-[340px]'  // Below ClusterPanel only
-              : 'top-20'       // Just below top controls
-          }`}
         />
+        </DraggablePanel>
       )}
 
       {/* Main Topics Panel - Bottom Left (InsightHUD moved to right side) */}

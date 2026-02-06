@@ -17,6 +17,7 @@ Storage:
 import os
 import json
 import logging
+import traceback
 from typing import List, Optional
 from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, Depends
@@ -551,7 +552,7 @@ def get_orchestrator() -> AgentOrchestrator:
                 graph_store = GraphStore(db=db)
                 logger.info("Initialized GraphStore with DB connection")
         except Exception as e:
-            logger.warning(f"Failed to initialize GraphStore: {e}")
+            logger.error(f"Failed to initialize GraphStore: {e}\n{traceback.format_exc()}")
 
         # Create orchestrator with all dependencies
         _orchestrator = AgentOrchestrator(
