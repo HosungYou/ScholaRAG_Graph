@@ -74,8 +74,28 @@ Confidence: {reasoning_result.confidence}"""
             json_str = response.strip().replace("```json", "").replace("```", "").strip()
             data = json.loads(json_str)
 
+            answer = data.get("answer", reasoning_result.final_conclusion)
+
+            # Guard against LLM hallucination about graph initialization
+            hallucination_phrases = [
+                "not being initialized", "not initialized", "currently unavailable",
+                "graph is unavailable", "no data available", "knowledge graph is empty",
+                "unable to access the knowledge graph"
+            ]
+            if any(phrase in answer.lower() for phrase in hallucination_phrases):
+                logger.warning(f"LLM hallucinated unavailability: {answer[:100]}...")
+                # Use the reasoning result's conclusion which is based on actual data
+                answer = reasoning_result.final_conclusion
+                if reasoning_result.research_gaps:
+                    answer += "\n\n**Research Gaps Found:**\n"
+                    for gap in reasoning_result.research_gaps:
+                        answer += f"- {gap.gap_description}\n"
+                        if gap.suggested_questions:
+                            for q in gap.suggested_questions[:2]:
+                                answer += f"  - {q}\n"
+
             return ResponseResult(
-                answer=data.get("answer", reasoning_result.final_conclusion),
+                answer=answer,
                 citations=[],
                 highlighted_nodes=reasoning_result.supporting_nodes,
                 highlighted_edges=reasoning_result.supporting_edges,

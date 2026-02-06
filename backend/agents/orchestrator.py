@@ -222,7 +222,7 @@ class AgentOrchestrator:
             if intent_result.intent == IntentType.CONVERSATIONAL:
                 logger.info("[CONVERSATIONAL] Returning friendly greeting response")
                 return OrchestratorResult(
-                    content="안녕하세요! ScholaRAG 연구 어시스턴트입니다. 문헌 검색, 연구 갭 분석, 개념 탐색에 대해 질문해 주세요.\n\nHello! I'm ScholaRAG's research assistant. I can help you with:\n• **Literature search** - Find papers on specific topics\n• **Research gap analysis** - Discover unexplored research areas\n• **Concept exploration** - Understand relationships between concepts\n\nHow can I assist with your research today?",
+                    content="Hello! I'm ScholaRAG's research assistant. I can help you with:\n• **Literature search** - Find papers on specific topics\n• **Research gap analysis** - Discover unexplored research areas\n• **Concept exploration** - Understand relationships between concepts\n\nHow can I assist with your research today?",
                     intent="conversational",
                     confidence=intent_result.confidence,
                     suggested_follow_ups=[

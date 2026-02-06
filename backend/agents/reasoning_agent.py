@@ -57,6 +57,11 @@ You analyze a concept-centric knowledge graph where:
 - Papers and Authors are metadata attached to concepts (not visible as separate nodes)
 - Relationships show how concepts relate across the literature
 
+CRITICAL RULES:
+- If research gap data is provided in the context below, you MUST analyze and present it. NEVER claim the graph is unavailable or not initialized when data is present.
+- Base your response ONLY on the provided data. Do not fabricate error messages.
+- If data shows gaps between clusters, describe them clearly with the cluster names.
+
 Apply step-by-step reasoning to answer the user's question.
 When relevant, identify research gaps - areas where concept clusters have weak connections.
 
@@ -192,14 +197,16 @@ Data: {results_summary[:3]}"""
         # Add gap context if available
         if gap_context and gap_context.get("gaps"):
             gap_text = "\n".join([
-                f"- Gap between '{g['cluster_a'][:2]}...' and '{g['cluster_b'][:2]}...' (strength: {g['strength']:.2f})"
-                for g in gap_context["gaps"][:3]
+                f"- Gap between clusters [{', '.join(g['cluster_a'])}] and [{', '.join(g['cluster_b'])}] (strength: {g['strength']:.2f})"
+                + (f"\n  Suggested questions: {'; '.join(g.get('questions', []))}" if g.get('questions') else "")
+                + (f"\n  Bridge concepts: {', '.join(g.get('bridges', []))}" if g.get('bridges') else "")
+                for g in gap_context["gaps"][:5]
             ])
-            context += f"\n\nResearch Gaps Detected:\n{gap_text}"
+            context += f"\n\nResearch Gaps Detected ({gap_context.get('total', 0)} total):\n{gap_text}"
 
         prompt = f"Analyze this research query and results:\n{context}"
         response = await self.llm.generate(
-            prompt=prompt, system_prompt=self.SYSTEM_PROMPT, max_tokens=1500, temperature=0.3
+            prompt=prompt, system_prompt=self.SYSTEM_PROMPT, max_tokens=1500, temperature=0.1
         )
 
         try:
