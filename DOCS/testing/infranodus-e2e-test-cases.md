@@ -309,3 +309,109 @@
 
 **Tested by**: _______________
 **Date**: _______________
+
+---
+
+## Test Suite 7: LLM Cluster Labels (v0.12.0 Phase 1)
+
+### TC-7.1: LLM Label Generation
+
+**Steps:**
+1. 프로젝트에 20개 이상 노드가 있는 상태에서 Gap Analysis 새로고침
+2. 클러스터 레이블이 3-5 단어로 요약되는지 확인
+
+**Expected Results:**
+- [ ] 클러스터 레이블이 keyword-join이 아닌 요약된 형태
+- [ ] 레이블 길이 3-60자
+- [ ] Gap Panel에서 짧은 레이블 표시
+
+### TC-7.2: LLM Fallback
+
+**Steps:**
+1. LLM API 키 없이 Gap Analysis 새로고침
+2. 클러스터 레이블 확인
+
+**Expected Results:**
+- [ ] keyword-join 형태 fallback 레이블 ("concept1 / concept2 / concept3")
+- [ ] 에러 없이 정상 동작
+
+### TC-7.3: Timeout Budget
+
+**Steps:**
+1. 10개 이상 클러스터가 있는 프로젝트에서 Gap Analysis 새로고침
+2. 전체 처리 시간 확인
+
+**Expected Results:**
+- [ ] 전체 15초 이내 완료
+- [ ] 타임아웃된 클러스터는 fallback 레이블 사용
+
+---
+
+## Test Suite 8: Paper Recommendations (v0.12.0 Phase 2)
+
+### TC-8.1: Find Papers 버튼
+
+**Steps:**
+1. Gap Panel에서 갭 확장
+2. "Find Papers" 버튼 클릭
+3. 결과 확인
+
+**Expected Results:**
+- [ ] 로딩 스피너 표시
+- [ ] 논문 카드 5개 표시
+- [ ] 각 카드에 제목, 연도, 인용 수, 초록 스니펫 표시
+- [ ] 제목 클릭 시 외부 링크 열림
+
+### TC-8.2: 세션 캐싱
+
+**Steps:**
+1. TC-8.1 수행 후 다른 갭 클릭
+2. 원래 갭으로 돌아와서 결과 확인
+
+**Expected Results:**
+- [ ] 이전 결과가 즉시 표시됨 (재요청 없음)
+- [ ] 버튼이 "N Papers Found"로 변경됨
+
+### TC-8.3: 에러 처리
+
+**Steps:**
+1. 네트워크 연결 끊기
+2. "Find Papers" 클릭
+
+**Expected Results:**
+- [ ] 에러 메시지 표시 ("Paper search temporarily unavailable...")
+- [ ] 빈 결과 상태와 에러 상태가 구분됨
+
+### TC-8.4: UUID 유효성 검증
+
+**Steps:**
+1. API 직접 호출: `GET /api/graph/gaps/{pid}/recommendations?gap_id=invalid`
+
+**Expected Results:**
+- [ ] 422 Validation Error 반환
+
+---
+
+## Test Suite 9: Report Export (v0.12.0 Phase 3)
+
+### TC-9.1: Markdown Export
+
+**Steps:**
+1. Gap Analysis가 있는 프로젝트에서 "Export Report" 클릭
+2. 다운로드된 파일 확인
+
+**Expected Results:**
+- [ ] .md 파일 다운로드됨
+- [ ] 파일명: `gap_analysis_{project_name}.md`
+- [ ] 프로젝트 정보 포함 (이름, 연구 질문)
+- [ ] Cluster Overview 테이블 포함
+- [ ] Structural Gaps 섹션 포함
+- [ ] Research Questions 포함
+
+### TC-9.2: 빈 데이터 처리
+
+**Steps:**
+1. Gap Analysis가 없는 프로젝트에서 Export API 호출
+
+**Expected Results:**
+- [ ] 404 에러 반환 ("No gap analysis data. Run gap detection first.")

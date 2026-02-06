@@ -379,3 +379,61 @@ const bridges = await api.generateBridgeHypotheses(gapId, {
   max_hypotheses: 3
 });
 ```
+
+---
+
+## Gap-Based Paper Recommendations (v0.12.0)
+
+### GET `/api/graph/gaps/{project_id}/recommendations`
+
+Search Semantic Scholar for papers that could bridge a research gap.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `project_id` | path | UUID | Yes | Project UUID |
+| `gap_id` | query | UUID | Yes | Gap UUID from analysis |
+| `limit` | query | int | No | Number of papers (1-10, default 5) |
+
+**Response (200):**
+```json
+{
+  "gap_id": "550e8400-e29b-41d4-a716-446655440000",
+  "query_used": "bridge_concept cluster_a_kw cluster_b_kw",
+  "papers": [
+    {
+      "title": "Paper Title",
+      "year": 2024,
+      "citation_count": 42,
+      "url": "https://doi.org/10.1234/example",
+      "abstract_snippet": "First 200 characters of abstract..."
+    }
+  ],
+  "error": null
+}
+```
+
+**Error Responses:**
+- `404`: Gap not found
+- `422`: Invalid UUID format
+
+---
+
+## Gap Analysis Report Export (v0.12.0)
+
+### GET `/api/graph/gaps/{project_id}/export`
+
+Download gap analysis as a Markdown report.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `project_id` | path | UUID | Yes | Project UUID |
+| `format` | query | string | No | `markdown` (default, only option) |
+
+**Response (200):** Markdown file download with `Content-Disposition: attachment` header.
+
+**Error Responses:**
+- `404`: Project not found or no gap analysis data
