@@ -182,10 +182,10 @@ class ZoteroRDFImporter:
 
         except ET.ParseError as e:
             logger.error(f"RDF parse error: {e}")
-            self.progress.errors.append(f"RDF 파싱 오류: {e}")
+            self.progress.errors.append(f"RDF parsing error: {e}")
         except Exception as e:
             logger.error(f"Error parsing RDF: {e}")
-            self.progress.errors.append(f"RDF 처리 오류: {e}")
+            self.progress.errors.append(f"RDF processing error: {e}")
 
         return items
 
@@ -973,8 +973,13 @@ class ZoteroRDFImporter:
             self._update_progress("analyzing", 0.97, "클러스터링 및 갭 분석 중...")
             try:
                 from graph.gap_detector import GapDetector
+                import numpy as np
+                from sklearn.feature_extraction.text import TfidfVectorizer
 
                 gap_detector = GapDetector()
+                min_concepts_for_gap = 10
+                max_concepts_for_gap = 1200
+                max_tfidf_features = 64
 
                 pid = project_id if isinstance(project_id, __import__('uuid').UUID) \
                     else __import__('uuid').UUID(project_id)
@@ -986,8 +991,11 @@ class ZoteroRDFImporter:
                     FROM entities
                     WHERE project_id = $1 AND entity_type::text = 'Concept'
                     AND embedding IS NOT NULL
+                    ORDER BY id
+                    LIMIT $2
                     """,
-                    pid
+                    pid,
+                    max_concepts_for_gap,
                 )
 
                 concepts_for_gap = []
@@ -1008,10 +1016,10 @@ class ZoteroRDFImporter:
                         })
 
                 # TF-IDF fallback: if no embeddings available, generate pseudo-embeddings
-                if len(concepts_for_gap) < 10:
+                if len(concepts_for_gap) < min_concepts_for_gap:
                     logger.warning(
                         f"Only {len(concepts_for_gap)} concepts with embeddings "
-                        f"(need 10+). Using TF-IDF fallback for clustering."
+                        f"(need {min_concepts_for_gap}+). Using TF-IDF fallback for clustering."
                     )
                     # Fetch ALL concepts (including those without embeddings)
                     all_concept_rows = await self.db.fetch(
@@ -1019,27 +1027,42 @@ class ZoteroRDFImporter:
                         SELECT id::text, name
                         FROM entities
                         WHERE project_id = $1 AND entity_type::text = 'Concept'
+                        ORDER BY id
+                        LIMIT $2
                         """,
-                        pid
+                        pid,
+                        max_concepts_for_gap,
                     )
 
-                    if len(all_concept_rows) >= 10:
+                    if len(all_concept_rows) >= min_concepts_for_gap:
                         try:
-                            from sklearn.feature_extraction.text import TfidfVectorizer
-
-                            concept_names = [r["name"] for r in all_concept_rows]
-                            vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+                            concept_names = [(r["name"] or "").strip() for r in all_concept_rows]
+                            concept_names = [n if n else "unknown concept" for n in concept_names]
+                            vectorizer = TfidfVectorizer(
+                                max_features=max_tfidf_features,
+                                stop_words='english',
+                                dtype=np.float32,
+                            )
                             tfidf_matrix = vectorizer.fit_transform(concept_names)
+                            feature_count = tfidf_matrix.shape[1]
+                            if feature_count == 0:
+                                raise ValueError("TF-IDF produced zero features")
 
                             concepts_for_gap = []
                             for i, r in enumerate(all_concept_rows):
-                                tfidf_vec = tfidf_matrix[i].toarray()[0].tolist()
+                                tfidf_vec = tfidf_matrix.getrow(i).toarray().astype(np.float32, copy=False).ravel().tolist()
                                 concepts_for_gap.append({
                                     "id": r["id"],
                                     "name": r["name"],
                                     "embedding": tfidf_vec,
                                 })
-                            logger.info(f"TF-IDF fallback: generated {len(concepts_for_gap)} pseudo-embeddings")
+                            logger.info(
+                                "TF-IDF fallback: generated %d pseudo-embeddings "
+                                "(features=%d, concept_cap=%d)",
+                                len(concepts_for_gap),
+                                feature_count,
+                                max_concepts_for_gap,
+                            )
                         except Exception as tfidf_err:
                             logger.error(f"TF-IDF fallback failed: {tfidf_err}")
 
@@ -1057,7 +1080,7 @@ class ZoteroRDFImporter:
                     for r in rel_rows
                 ]
 
-                if len(concepts_for_gap) >= 10:
+                if len(concepts_for_gap) >= min_concepts_for_gap:
                     gap_analysis = await gap_detector.analyze_graph(
                         concepts=concepts_for_gap,
                         relationships=relationships_for_gap,

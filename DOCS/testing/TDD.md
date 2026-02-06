@@ -222,6 +222,7 @@
 - 목적: GraphStore 초기화 실패 시 상세 로깅 확인, 갭 분석이 실제 DB 쿼리 기반으로 동작 확인
 - 전략:
   - GraphStore 초기화 예외 시 `logger.error` + traceback 출력 확인
+  - `graph_store` 미초기화 상태에서도 direct DB fallback 경로로 갭 질의가 수행되는지 확인
   - `_execute_gap_analysis()`가 `structural_gaps` 테이블에서 갭 조회 확인
   - `entities` + `relationships` JOIN으로 저빈도 개념 조회 확인
   - `entity_type = 'Method'` 필터로 방법론 갭 조회 확인
@@ -233,7 +234,8 @@
 - 전략:
   - 임베딩 실패 시 `logger.error` 격상 확인
   - `concepts_for_gap < 10` 시 TF-IDF 벡터 생성 확인
-  - `TfidfVectorizer(max_features=100)` 기반 pseudo-embedding 생성 확인
+  - `TfidfVectorizer(max_features=64, dtype=float32)` 기반 pseudo-embedding 생성 확인
+  - TF-IDF 경로에서 concept cap(1200) 적용 확인
   - TF-IDF 폴백 경로에서 갭 새로고침 정상 동작 확인
   - `no_gaps_reason` 필드가 `"insufficient_concepts"` 또는 `"embedding_unavailable"` 반환 확인
 

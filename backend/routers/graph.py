@@ -1050,6 +1050,12 @@ async def refresh_gap_analysis(
 
     try:
         from graph.gap_detector import GapDetector
+        import numpy as np
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        min_concepts_for_embedding_path = 10
+        max_concepts_for_gap = 1200
+        max_tfidf_features = 64
 
         # Get all concepts with embeddings
         # Try to get concepts with embeddings first
@@ -1060,23 +1066,33 @@ async def refresh_gap_analysis(
             WHERE project_id = $1
             AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
             AND embedding IS NOT NULL
+            ORDER BY id
+            LIMIT $2
             """,
             str(project_id),
+            max_concepts_for_gap,
         )
 
         use_tfidf_fallback = False
 
-        if not concept_rows or len(concept_rows) < 10:
+        if not concept_rows or len(concept_rows) < min_concepts_for_embedding_path:
             # TF-IDF fallback: fetch all concepts regardless of embedding status
-            logger.warning(f"Only {len(concept_rows) if concept_rows else 0} concepts with embeddings. Using TF-IDF fallback.")
+            logger.warning(
+                "Only %d concepts with embeddings (need %d+). Using TF-IDF fallback.",
+                len(concept_rows) if concept_rows else 0,
+                min_concepts_for_embedding_path,
+            )
             all_concept_rows = await database.fetch(
                 """
                 SELECT id, name, properties
                 FROM entities
                 WHERE project_id = $1
                 AND entity_type IN ('Concept', 'Method', 'Finding', 'Problem', 'Dataset', 'Metric', 'Innovation', 'Limitation')
+                ORDER BY id
+                LIMIT $2
                 """,
                 str(project_id),
+                max_concepts_for_gap,
             )
 
             if not all_concept_rows or len(all_concept_rows) < 3:
@@ -1091,11 +1107,17 @@ async def refresh_gap_analysis(
 
             # Generate TF-IDF pseudo-embeddings
             try:
-                from sklearn.feature_extraction.text import TfidfVectorizer
-
-                concept_names = [r["name"] for r in all_concept_rows]
-                vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+                concept_names = [(r["name"] or "").strip() for r in all_concept_rows]
+                concept_names = [n if n else "unknown concept" for n in concept_names]
+                vectorizer = TfidfVectorizer(
+                    max_features=max_tfidf_features,
+                    stop_words='english',
+                    dtype=np.float32,
+                )
                 tfidf_matrix = vectorizer.fit_transform(concept_names)
+                feature_count = tfidf_matrix.shape[1]
+                if feature_count == 0:
+                    raise ValueError("TF-IDF produced zero features")
 
                 # Create synthetic concept_rows with TF-IDF embeddings
                 concept_rows = []
@@ -1104,10 +1126,16 @@ async def refresh_gap_analysis(
                         "id": row["id"],
                         "name": row["name"],
                         "properties": row["properties"],
-                        "embedding": tfidf_matrix[i].toarray()[0].tolist(),
+                        "embedding": tfidf_matrix.getrow(i).toarray().astype(np.float32, copy=False).ravel().tolist(),
                     })
                 use_tfidf_fallback = True
-                logger.info(f"TF-IDF fallback: generated pseudo-embeddings for {len(concept_rows)} concepts")
+                logger.info(
+                    "TF-IDF fallback: generated pseudo-embeddings for %d concepts "
+                    "(features=%d, concept_cap=%d)",
+                    len(concept_rows),
+                    feature_count,
+                    max_concepts_for_gap,
+                )
             except Exception as e:
                 logger.error(f"TF-IDF fallback failed: {e}")
                 return GapAnalysisResponse(

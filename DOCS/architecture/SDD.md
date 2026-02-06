@@ -100,6 +100,14 @@ Render Starter 환경에서 관찰된 `memory limit exceeded` 이슈 대응을 �
 - 프론트의 gap auto-refresh를 project 단위 single-attempt로 제한해
   “프로젝트 재진입 시 refresh 재실행” 패턴을 차단한다.
 
+4. **Gap analysis DB fallback path**
+- GraphStore 초기화 실패 시에도 QueryExecutionAgent가 direct DB connection으로
+  gap 질의를 수행하도록 fallback 경로를 유지해 핵심 질의 기능 중단을 방지한다.
+
+5. **TF-IDF fallback memory guard**
+- TF-IDF fallback 경로에 concept cap(1200), feature cap(64), `float32` 변환을 적용해
+  임베딩 부재 환경에서의 메모리 피크를 제한한다.
+
 ---
 
 ## 2. Architecture Overview
@@ -1185,6 +1193,8 @@ app.add_middleware(
 - Visualization edge cap (`max_edges` default 15000)
 - Centrality cache LRU bounding (max 20 entries)
 - Gap auto-refresh single-attempt per session
+- QueryExecutionAgent DB fallback when GraphStore is unavailable
+- TF-IDF fallback guardrails (concept cap 1200, feature cap 64, float32 vectors)
 
 ### Version 0.11.0 (2026-02-06)
 

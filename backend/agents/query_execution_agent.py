@@ -366,13 +366,32 @@ class QueryExecutionAgent:
             "recommendations": [],
         }
 
-        if not self.graph_store or not project_id:
-            gaps["status"] = "graph_store_unavailable"
-            gaps["message"] = "Knowledge graph is not initialized. Please import papers first."
+        if not project_id:
+            gaps["status"] = "invalid_request"
+            gaps["message"] = "Project ID is required for gap analysis."
             return gaps
 
         try:
-            db = self.graph_store.db
+            # Prefer GraphStore DB but fall back to direct DB connection.
+            db = None
+            if self.graph_store and getattr(self.graph_store, "db", None):
+                db = self.graph_store.db
+            elif self.db:
+                db = self.db
+
+            if db is None:
+                gaps["status"] = "db_unavailable"
+                gaps["message"] = (
+                    "Database connection is unavailable. "
+                    "Please retry after service health is restored."
+                )
+                return gaps
+
+            if not self.graph_store:
+                logger.warning(
+                    "Gap analysis running without GraphStore for project %s; using direct DB fallback.",
+                    project_id,
+                )
 
             # 1. Query structural_gaps table for detected gaps
             gap_rows = await db.fetch(
