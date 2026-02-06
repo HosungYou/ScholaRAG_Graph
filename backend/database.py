@@ -4,7 +4,9 @@ Database connection management using asyncpg.
 Provides connection pooling and helper methods for PostgreSQL operations.
 """
 
+import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
@@ -33,6 +35,14 @@ class Database:
     def __init__(self, dsn: Optional[str] = None):
         self.dsn = dsn or settings.database_url
         self._pool: Optional[asyncpg.Pool] = None
+        # Health snapshot cache to avoid frequent DB probes from /health endpoint.
+        self._health_cache_ttl = 15.0
+        self._health_cache = {
+            "checked_at": 0.0,
+            "db_ok": False,
+            "pgvector_ok": False,
+        }
+        self._health_lock = asyncio.Lock()
 
     @property
     def is_connected(self) -> bool:
@@ -81,6 +91,8 @@ class Database:
                 statement_cache_size=0,
             )
             logger.info(f"Database connected (pool: {min_size}-{max_size})")
+            # Force fresh health probe after reconnect.
+            self._health_cache["checked_at"] = 0.0
         except Exception as e:
             # Log exception type and message for debugging (DSN is not logged)
             logger.error(f"Failed to connect to database: {type(e).__name__}: {e}")
@@ -91,7 +103,79 @@ class Database:
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
+            self._health_cache = {
+                "checked_at": time.monotonic(),
+                "db_ok": False,
+                "pgvector_ok": False,
+            }
             logger.info("Database disconnected")
+
+    async def get_health_snapshot(self, force_refresh: bool = False) -> dict[str, bool]:
+        """
+        Return cached DB health + pgvector status.
+
+        Uses a short TTL cache because infrastructure health checks can call
+        this endpoint very frequently (e.g., every 15-30s on hosting platforms).
+        """
+        now = time.monotonic()
+        cache_age = now - float(self._health_cache["checked_at"])
+        if not force_refresh and cache_age < self._health_cache_ttl:
+            return {
+                "db_ok": bool(self._health_cache["db_ok"]),
+                "pgvector_ok": bool(self._health_cache["pgvector_ok"]),
+            }
+
+        async with self._health_lock:
+            # Re-check cache inside lock to prevent thundering-herd refreshes.
+            now = time.monotonic()
+            cache_age = now - float(self._health_cache["checked_at"])
+            if not force_refresh and cache_age < self._health_cache_ttl:
+                return {
+                    "db_ok": bool(self._health_cache["db_ok"]),
+                    "pgvector_ok": bool(self._health_cache["pgvector_ok"]),
+                }
+
+            if self._pool is None:
+                self._health_cache = {
+                    "checked_at": now,
+                    "db_ok": False,
+                    "pgvector_ok": False,
+                }
+                return {"db_ok": False, "pgvector_ok": False}
+
+            try:
+                async with self.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT
+                            1 AS db_ok,
+                            EXISTS(
+                                SELECT 1
+                                FROM pg_extension
+                                WHERE extname = 'vector'
+                            ) AS pgvector_ok
+                        """
+                    )
+
+                db_ok = bool(row and row["db_ok"] == 1)
+                pgvector_ok = bool(row and row["pgvector_ok"])
+                self._health_cache = {
+                    "checked_at": now,
+                    "db_ok": db_ok,
+                    "pgvector_ok": pgvector_ok,
+                }
+            except Exception:
+                logger.error("Database health snapshot check failed")
+                self._health_cache = {
+                    "checked_at": now,
+                    "db_ok": False,
+                    "pgvector_ok": False,
+                }
+
+            return {
+                "db_ok": bool(self._health_cache["db_ok"]),
+                "pgvector_ok": bool(self._health_cache["pgvector_ok"]),
+            }
 
     @asynccontextmanager
     async def acquire(self):
@@ -146,23 +230,13 @@ class Database:
 
     async def health_check(self) -> bool:
         """Check if database is accessible."""
-        try:
-            result = await self.fetchval("SELECT 1")
-            return result == 1
-        except Exception:
-            logger.error("Database health check failed")
-            return False
+        status = await self.get_health_snapshot()
+        return status["db_ok"]
 
     async def check_pgvector(self) -> bool:
         """Check if pgvector extension is available."""
-        try:
-            result = await self.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')"
-            )
-            return result
-        except Exception:
-            logger.error("pgvector extension check failed")
-            return False
+        status = await self.get_health_snapshot()
+        return status["pgvector_ok"]
 
 
 # Global database instance

@@ -1,7 +1,7 @@
 # CLAUDE.md - ScholaRAG_Graph Project Instructions
 
-> **Last Updated**: 2026-02-05
-> **Version**: 3.5.0 (v0.10.0 Entity Type V2, Test Infrastructure, Visual Enhancements)
+> **Last Updated**: 2026-02-06
+> **Version**: 3.5.1 (v0.10.1 Reopen Stability + DB Health Probe Optimization)
 
 ## Project Overview
 
@@ -676,6 +676,23 @@ When making architectural changes:
 | Container Diagram | `DOCS/architecture/diagrams/container-diagram.mmd` | Internal architecture |
 | Overview | `DOCS/architecture/overview.md` | Detailed architecture |
 | ADRs | `DOCS/.meta/decisions/` | Decision records |
+
+---
+
+## 📊 v0.10.1 Release Notes
+
+> **Version**: 0.10.1 | **Date**: 2026-02-06
+> **Full Notes**: See `RELEASE_NOTES_v0.10.1.md`
+
+### Fixed
+- **Repeated Project Reopen Instability**: Removed duplicate graph fetch on project page re-entry path
+- **Health Check DB Churn**: Added cached health snapshot (TTL 15s) and single-query DB/pgvector probe
+- **Connection Pressure Reduction**: `/health` now uses cached snapshot instead of repeated DB checks
+
+### Technical
+- `backend/database.py`: `get_health_snapshot()` + `asyncio.Lock` + TTL cache
+- `backend/main.py`: `/health` now reads snapshot once
+- `frontend/app/projects/[id]/page.tsx`: removed redundant `fetchGraphData(projectId)` effect
 
 ---
 

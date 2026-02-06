@@ -316,9 +316,10 @@ async def health_check():
     db_error = None
 
     try:
-        if await db.health_check():
+        health_snapshot = await db.get_health_snapshot()
+        if health_snapshot["db_ok"]:
             db_status = "connected"
-        if await db.check_pgvector():
+        if health_snapshot["pgvector_ok"]:
             pgvector_status = "available"
     except Exception as e:
         db_error = str(e)

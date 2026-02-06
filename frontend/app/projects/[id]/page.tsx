@@ -114,7 +114,6 @@ export default function ProjectDetailPage() {
     resetFilters,
     clearHighlights,
     expandNode,
-    fetchGraphData,
   } = useGraphStore();
 
   // Fetch project details
@@ -122,11 +121,6 @@ export default function ProjectDetailPage() {
     queryKey: ['project', projectId],
     queryFn: () => api.getProject(projectId),
   });
-
-  // Fetch graph data on mount
-  useEffect(() => {
-    fetchGraphData(projectId);
-  }, [projectId, fetchGraphData]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
