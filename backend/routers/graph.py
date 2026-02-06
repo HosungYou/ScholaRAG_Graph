@@ -55,6 +55,8 @@ class RelationshipEvidenceResponse(BaseModel):
     total_evidence: int
     # v0.9.0: Error code for graceful degradation
     error_code: Optional[str] = None  # "table_missing", "permission_denied", "query_failed"
+    # v0.11.0: AI-generated explanation when no text evidence
+    ai_explanation: Optional[str] = None
 
 
 def _parse_json_field(value) -> dict:
@@ -366,7 +368,7 @@ async def get_edges(
 async def get_visualization_data(
     project_id: UUID,
     entity_types: Optional[List[str]] = Query(None),
-    max_nodes: int = Query(200, le=500),
+    max_nodes: int = Query(1000, le=5000),
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
@@ -391,10 +393,9 @@ async def get_visualization_data(
             WHERE project_id = $1 {type_filter}
             ORDER BY
                 CASE entity_type::text
-                    WHEN 'Paper' THEN 1
-                    WHEN 'Concept' THEN 2
-                    WHEN 'Author' THEN 3
-                    ELSE 4
+                    WHEN 'Paper' THEN 5
+                    WHEN 'Author' THEN 5
+                    ELSE 1
                 END,
                 created_at DESC
             LIMIT $2
@@ -2529,6 +2530,7 @@ async def get_relationship_evidence(
         )
 
         evidence_rows = []
+        ai_explanation = None
 
         if table_exists:
             # Try to get evidence from relationship_evidence table
@@ -2593,6 +2595,32 @@ async def get_relationship_evidence(
                 f"%{escape_sql_like(target_name)}%",
             )
 
+        # v0.11.0: AI explanation fallback for CO_OCCURS_WITH and no-evidence relationships
+        if not evidence_rows:
+            rel_type = relationship["relationship_type"]
+            source_name = relationship["source_name"]
+            target_name = relationship["target_name"]
+
+            # For CO_OCCURS_WITH, provide co-occurrence based explanation
+            if rel_type == "CO_OCCURS_WITH":
+                ai_explanation = (
+                    f"'{source_name}' and '{target_name}' frequently co-occur across multiple papers "
+                    f"in this collection. This co-occurrence relationship was detected through "
+                    f"statistical analysis of concept mentions within the same documents."
+                )
+            else:
+                # Try LLM-based explanation if available
+                try:
+                    from llm.base import get_llm_provider
+                    llm = get_llm_provider()
+                    if llm:
+                        ai_explanation = await llm.generate(
+                            f"Explain the academic relationship between '{source_name}' and '{target_name}' "
+                            f"in the context of research. Keep it to 2-3 sentences."
+                        )
+                except Exception as e:
+                    logger.warning(f"LLM explanation generation failed: {e}")
+
         evidence_chunks = [
             EvidenceChunkResponse(
                 evidence_id=str(row["evidence_id"]),
@@ -2616,6 +2644,7 @@ async def get_relationship_evidence(
             relationship_type=relationship["relationship_type"],
             evidence_chunks=evidence_chunks,
             total_evidence=len(evidence_chunks),
+            ai_explanation=ai_explanation,
         )
 
     except HTTPException:

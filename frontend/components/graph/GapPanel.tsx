@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -80,6 +80,40 @@ export function GapPanel({
   const [generatingBridgeFor, setGeneratingBridgeFor] = useState<string | null>(null);
   const [showBridgeFor, setShowBridgeFor] = useState<string | null>(null);
 
+  // v0.11.0: Resizable panel
+  const [panelWidth, setPanelWidth] = useState(320);
+  const isResizing = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(320);
+
+  // Handle resize drag
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    startX.current = e.clientX;
+    startWidth.current = panelWidth;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const delta = e.clientX - startX.current;
+      const newWidth = Math.max(256, Math.min(500, startWidth.current + delta));
+      setPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [panelWidth]);
+
   // Sort gaps by strength (highest first)
   const sortedGaps = [...gaps].sort((a, b) => b.gap_strength - a.gap_strength);
   const displayedGaps = showAllGaps ? sortedGaps : sortedGaps.slice(0, 5);
@@ -87,9 +121,12 @@ export function GapPanel({
   // Get cluster label or generate one
   const getClusterLabel = useCallback((clusterId: number) => {
     const cluster = clusters.find(c => c.cluster_id === clusterId);
-    if (cluster?.label) return cluster.label;
+    // v0.11.0: Skip UUID-like labels, prefer concept names
+    if (cluster?.label && !/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(cluster.label)) {
+      return cluster.label;
+    }
     if (cluster?.concept_names && cluster.concept_names.length > 0) {
-      return cluster.concept_names.slice(0, 2).join(', ');
+      return cluster.concept_names.slice(0, 3).join(' / ');
     }
     return `Cluster ${clusterId + 1}`;
   }, [clusters]);
@@ -205,9 +242,12 @@ export function GapPanel({
   }, [selectedGap, creatingBridge, onRefresh]);
 
   return (
-    <div className={`absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 ${
-      isMinimized ? 'w-12' : 'w-64'
-    }`}>
+    <div
+      className={`absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 ${
+        isMinimized ? 'w-12' : ''
+      }`}
+      style={!isMinimized ? { width: panelWidth } : undefined}
+    >
       {/* Decorative corner accent - only show when not minimized */}
       {!isMinimized && (
         <div className="absolute top-0 right-0 w-16 h-16 bg-accent-amber/10 transform rotate-45 translate-x-8 -translate-y-8" />
@@ -226,6 +266,15 @@ export function GapPanel({
             <ChevronLeft className="w-3 h-3 text-muted" />
           )}
         </button>
+      )}
+
+      {/* Resize Handle */}
+      {!isMinimized && (
+        <div
+          className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent-teal/30 active:bg-accent-teal/50 transition-colors z-30"
+          onMouseDown={handleResizeStart}
+          title="Drag to resize"
+        />
       )}
 
       {/* Minimized State - Icon only */}
@@ -610,7 +659,7 @@ export function GapPanel({
                   <div
                     key={cluster.cluster_id}
                     className="flex items-center gap-1 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5"
-                    title={`Cluster ${cluster.cluster_id + 1}: ${cluster.size} concepts`}
+                    title={`${getClusterLabel(cluster.cluster_id)}: ${cluster.size} concepts`}
                   >
                     <div
                       className="w-2 h-2 flex-shrink-0"

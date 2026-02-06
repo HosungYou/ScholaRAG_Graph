@@ -1,7 +1,7 @@
 # Test Design Document (TDD)
 
-**Project**: ScholaRAG_Graph  
-**Version**: 0.10.2  
+**Project**: ScholaRAG_Graph
+**Version**: 0.11.0
 **Last Updated**: 2026-02-06  
 **Status**: Active  
 **Document Type**: Test Design & Verification Specification
@@ -65,6 +65,12 @@
 | Frontend Graph UX | 3D 렌더/상태 갱신 | Unit (component) | `frontend/__tests__/components/graph/Graph3D.test.tsx` |
 | Auth/Policy | 접근 제어 | Unit/Integration | `backend/tests/test_auth.py`, `backend/tests/test_auth_policies.py` |
 | InfraNodus Features | Gap/Evidence/Temporal UX | E2E | `DOCS/testing/infranodus-e2e-test-cases.md` |
+| Visualization API | max_nodes 확대/ORDER BY 우선순위 | Integration | `backend/tests/test_graph_router.py` |
+| Zotero Gap Detection | import 후 clustering/gap/centrality | Integration | `backend/tests/test_zotero_rdf_importer.py` |
+| Evidence AI Fallback | LLM 기반 관계 설명 생성 | Unit/Integration | `backend/tests/test_graph_router.py` |
+| Gap Panel UX | 리사이즈/UUID 라벨 처리 | Unit (component) | `frontend/__tests__/components/graph/GapPanel.test.tsx` |
+| Chat Dynamic Questions | 그래프 데이터 기반 질문 생성 | Unit (component) | `frontend/__tests__/components/chat/ChatInterface.test.tsx` |
+| Hover Debounce | 50ms 디바운스/ref 기반 최적화 | Unit (component) | `frontend/__tests__/components/graph/Graph3D.test.tsx` |
 
 ---
 
@@ -115,20 +121,87 @@
 
 ---
 
+### 5.5 v0.11.0 Regression Design
+
+#### 5.5.1 Backend
+
+1. Visualization API max_nodes + ORDER BY
+- 대상: `backend/routers/graph.py` (visualization endpoint)
+- 목적: 기본 max_nodes=1000 동작 확인, academic entity 우선 ORDER BY 검증
+- 전략:
+  - 기본 호출 시 7개 entity type 반환 확인
+  - Paper/Author가 Concept/Method/Finding보다 후순위인지 검증
+  - max_nodes=5000 상한 동작 확인
+
+2. Zotero importer gap detection
+- 대상: `backend/importers/zotero_rdf_importer.py`
+- 목적: import 완료 후 gap analysis 자동 실행 확인
+- 전략:
+  - 10개 이상 concept 추출 시 GapDetector 호출 확인
+  - concept_clusters 테이블에 클러스터 저장 확인
+  - structural_gaps 테이블에 gap 저장 확인
+  - centrality 메트릭(degree, betweenness, pagerank) 업데이트 확인
+
+3. Relationship evidence AI fallback
+- 대상: `backend/routers/graph.py` (evidence endpoint)
+- 목적: text evidence 없을 때 AI explanation 생성 확인
+- 전략:
+  - CO_OCCURS_WITH 관계에 대해 통계 기반 설명 반환 확인
+  - LLM provider 사용 가능 시 AI explanation 생성 확인
+  - ai_explanation 필드가 응답에 포함되는지 확인
+
+#### 5.5.2 Frontend
+
+1. Gap Panel resize
+- 대상: `frontend/components/graph/GapPanel.tsx`
+- 목적: 드래그 리사이즈 동작 검증
+- 전략:
+  - 마우스 드래그로 패널 너비 변경 가능 확인 (256-500px 범위)
+  - 최소화/복원 시 너비 유지 확인
+
+2. Chat dynamic questions
+- 대상: `frontend/components/chat/ChatInterface.tsx`
+- 목적: graphStats 기반 동적 질문 생성 확인
+- 전략:
+  - graphStats prop 전달 시 맥락 기반 질문 표시 확인
+  - topConcepts 정보 활용 여부 확인
+
+3. Hover debounce
+- 대상: `frontend/components/graph/Graph3D.tsx`
+- 목적: 노드 호버 시 jitter 제거 확인
+- 전략:
+  - 빠른 호버 이동 시 50ms 디바운스 동작 확인
+  - hoveredNodeRef를 통한 중복 업데이트 방지 확인
+
+4. View mode tab UI + panel layout
+- 대상: `frontend/components/graph/KnowledgeGraph3D.tsx`
+- 목적: 탭 스타일 뷰 전환 및 패널 겹침 방지
+- 전략:
+  - 3D/Topics/Gaps 탭 전환 동작 확인
+  - 우측 패널들이 flex 레이아웃으로 겹침 없이 표시 확인
+
+5. Cluster label UUID detection
+- 대상: `frontend/components/graph/GapPanel.tsx`, `GapQueryPanel.tsx`
+- 목적: UUID 형태 라벨을 키워드 이름으로 대체 확인
+- 전략:
+  - UUID 패턴 감지 시 concept_names fallback 동작 확인
+
+---
+
 ## 6. Test Execution Policy
 
 ### Required Local Checks (for release candidates)
 
 ```bash
-# Backend syntax
-python3 -m py_compile backend/main.py backend/routers/import_.py
+# Backend syntax (v0.11.0)
+python3 -m py_compile backend/routers/graph.py backend/importers/zotero_rdf_importer.py
 
-# Targeted backend regression tests
-pytest -q backend/tests/test_importer.py
+# Backend regression tests
+pytest -q backend/tests/test_graph_router.py backend/tests/test_zotero_rdf_importer.py
 
-# Frontend changed-file lint
+# Frontend changed-file lint (v0.11.0)
 cd frontend
-npm run -s lint -- --file components/import/ImportProgress.tsx --file components/graph/StatusBar.tsx --file components/graph/Graph3D.tsx
+npm run -s lint -- --file components/graph/GapPanel.tsx --file components/graph/EdgeContextModal.tsx --file components/chat/ChatInterface.tsx --file components/graph/Graph3D.tsx --file components/graph/KnowledgeGraph3D.tsx --file components/graph/GapQueryPanel.tsx
 ```
 
 ### Recommended Extended Checks
@@ -185,5 +258,6 @@ Release note 작성 전 최소 충족 조건:
 - `DOCS/architecture/SDD.md`
 - `backend/tests/README.md`
 - `DOCS/testing/infranodus-e2e-test-cases.md`
+- `RELEASE_NOTES_v0.11.0.md`
 - `RELEASE_NOTES_v0.10.2.md`
 

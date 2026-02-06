@@ -395,6 +395,7 @@ export interface RelationshipEvidence {
   evidence_chunks: EvidenceChunk[];
   total_evidence: number;
   error_code?: string | null;  // "table_missing", "permission_denied", "query_failed"
+  ai_explanation?: string;  // v0.11.0: AI-generated explanation when no text evidence found
 }
 
 // ============================================

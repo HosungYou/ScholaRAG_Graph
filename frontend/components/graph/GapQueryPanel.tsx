@@ -39,10 +39,16 @@ export function GapQueryPanel({
   const [result, setResult] = useState<BridgeGenerationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Get cluster names
+  // v0.11.0: Skip UUID-like labels
   const getClusterName = useCallback((clusterId: number) => {
     const cluster = clusters.find(c => c.cluster_id === clusterId);
-    return cluster?.label || `Cluster ${clusterId + 1}`;
+    if (cluster?.label && !/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(cluster.label)) {
+      return cluster.label;
+    }
+    if (cluster?.concept_names && cluster.concept_names.length > 0) {
+      return cluster.concept_names.slice(0, 3).join(' / ');
+    }
+    return `Cluster ${clusterId + 1}`;
   }, [clusters]);
 
   // Get cluster concepts (first 5)
@@ -241,7 +247,16 @@ export function GapQueryPanel({
             {/* Error */}
             {error && (
               <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-sm text-red-400">
-                {error}
+                <p className="font-medium mb-1">Bridge generation failed</p>
+                <p className="text-xs text-red-400/80">
+                  {error.includes('LLM') || error.includes('provider')
+                    ? 'LLM provider is not available. Check your API key configuration.'
+                    : error.includes('404') || error.includes('not found')
+                    ? 'This gap was not found. Try refreshing the gap analysis.'
+                    : error.includes('network') || error.includes('fetch')
+                    ? 'Network error. Please check your connection and try again.'
+                    : error}
+                </p>
               </div>
             )}
 

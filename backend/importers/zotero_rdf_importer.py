@@ -967,6 +967,145 @@ class ZoteroRDFImporter:
             self.progress.relationships_created = total_relationships
             results["relationships_created"] = total_relationships
 
+        # Phase: Clustering + Gap Detection + Centrality (v0.11.0)
+        if self.graph_store and results.get("concepts_extracted", 0) >= 10:
+            self._update_progress("analyzing", 0.97, "클러스터링 및 갭 분석 중...")
+            try:
+                from graph.gap_detector import GapDetector
+
+                gap_detector = GapDetector()
+
+                # Fetch Concept entities with embeddings from DB
+                concept_rows = await self.db.fetch(
+                    """
+                    SELECT id::text, name, embedding
+                    FROM entities
+                    WHERE project_id = $1 AND entity_type::text = 'Concept'
+                    AND embedding IS NOT NULL
+                    """,
+                    project_id if isinstance(project_id, __import__('uuid').UUID)
+                    else __import__('uuid').UUID(project_id)
+                )
+
+                concepts_for_gap = []
+                for r in concept_rows:
+                    emb = r["embedding"]
+                    if emb is not None:
+                        # Handle pgvector embedding format
+                        if isinstance(emb, str):
+                            emb_list = [float(x) for x in emb.strip("[]").split(",")]
+                        elif isinstance(emb, (list, tuple)):
+                            emb_list = [float(x) for x in emb]
+                        else:
+                            continue
+                        concepts_for_gap.append({
+                            "id": r["id"],
+                            "name": r["name"],
+                            "embedding": emb_list,
+                        })
+
+                # Fetch relationships
+                rel_rows = await self.db.fetch(
+                    """
+                    SELECT source_id::text, target_id::text FROM relationships
+                    WHERE project_id = $1
+                    """,
+                    project_id if isinstance(project_id, __import__('uuid').UUID)
+                    else __import__('uuid').UUID(project_id)
+                )
+                relationships_for_gap = [
+                    {"source_id": r["source_id"], "target_id": r["target_id"]}
+                    for r in rel_rows
+                ]
+
+                if len(concepts_for_gap) >= 10:
+                    gap_analysis = await gap_detector.analyze_graph(
+                        concepts=concepts_for_gap,
+                        relationships=relationships_for_gap,
+                    )
+
+                    # Store clusters
+                    for cluster in gap_analysis.get("clusters", []):
+                        try:
+                            await self.db.execute(
+                                """
+                                INSERT INTO concept_clusters (
+                                    id, project_id, name, color, concept_count, keywords
+                                ) VALUES ($1, $2, $3, $4, $5, $6)
+                                ON CONFLICT (id) DO NOTHING
+                                """,
+                                cluster.id,
+                                project_id if isinstance(project_id, __import__('uuid').UUID)
+                                else __import__('uuid').UUID(str(project_id)),
+                                cluster.name[:255],
+                                cluster.color,
+                                len(cluster.concept_ids),
+                                cluster.keywords[:10],
+                            )
+                            # Update entities with cluster_id
+                            for concept_id in cluster.concept_ids:
+                                await self.db.execute(
+                                    "UPDATE entities SET cluster_id = $1 WHERE id = $2",
+                                    cluster.id,
+                                    concept_id if isinstance(concept_id, __import__('uuid').UUID)
+                                    else __import__('uuid').UUID(concept_id),
+                                )
+                        except Exception as e:
+                            logger.warning(f"Failed to store cluster: {e}")
+
+                    # Store gaps
+                    for gap in gap_analysis.get("gaps", []):
+                        try:
+                            await self.db.execute(
+                                """
+                                INSERT INTO structural_gaps (
+                                    id, project_id, cluster_a_id, cluster_b_id,
+                                    gap_strength, concept_a_ids, concept_b_ids,
+                                    suggested_bridge_concepts, suggested_research_questions, status
+                                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                ON CONFLICT (id) DO NOTHING
+                                """,
+                                gap.id,
+                                project_id if isinstance(project_id, __import__('uuid').UUID)
+                                else __import__('uuid').UUID(str(project_id)),
+                                gap.cluster_a_id,
+                                gap.cluster_b_id,
+                                gap.gap_strength,
+                                gap.concept_a_ids,
+                                gap.concept_b_ids,
+                                gap.bridge_concepts,
+                                gap.suggested_research_questions,
+                                gap.status,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to store gap: {e}")
+
+                    # Update centrality metrics
+                    for metric in gap_analysis.get("centrality", []):
+                        try:
+                            await self.db.execute(
+                                """
+                                UPDATE entities SET
+                                    centrality_degree = $1,
+                                    centrality_betweenness = $2,
+                                    centrality_pagerank = $3
+                                WHERE id = $4
+                                """,
+                                metric.degree,
+                                metric.betweenness,
+                                metric.pagerank,
+                                metric.entity_id,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to update centrality: {e}")
+
+                    results["gaps_detected"] = len(gap_analysis.get("gaps", []))
+                    results["clusters_created"] = len(gap_analysis.get("clusters", []))
+                    logger.info(f"Gap analysis complete: {results.get('gaps_detected', 0)} gaps, {results.get('clusters_created', 0)} clusters")
+
+            except Exception as e:
+                logger.warning(f"Gap analysis failed (non-critical): {e}")
+
         self._update_progress("complete", 1.0, "Import 완료!")
 
         return results

@@ -368,7 +368,7 @@ export function KnowledgeGraph3D({
       <div className="absolute top-4 right-4 flex gap-2">
         <div className="bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 p-1 flex gap-1">
           {/* 3D Mode Indicator */}
-          <div className="p-2 bg-accent-teal text-white relative" title="3D Graph View - Drag nodes to explore, scroll to zoom">
+          <div className="p-2 bg-accent-teal text-white relative" title="3D 그래프 뷰 - 노드 드래그로 탐색, 스크롤로 줌">
             <Box className="w-4 h-4" />
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white" />
           </div>
@@ -383,7 +383,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-yellow-500/10 text-yellow-500'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title={view3D.bloom.enabled ? 'Disable node glow effect' : 'Enable node glow effect (highlights important nodes)'}
+            title={view3D.bloom.enabled ? '노드 발광 효과 끄기' : '노드 발광 효과 켜기 (중요 노드 강조)'}
           >
             {view3D.bloom.enabled ? (
               <Sun className="w-4 h-4" />
@@ -402,7 +402,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title={`Labels: ${view3D.labelVisibility === 'all' ? 'All nodes labeled' : view3D.labelVisibility === 'important' ? 'Top 20% nodes labeled' : 'Labels hidden'} (click to cycle)`}
+            title={`라벨 표시: ${view3D.labelVisibility === 'all' ? '모든 노드' : view3D.labelVisibility === 'important' ? '상위 20% 노드' : '숨김'} (클릭하여 전환)`}
           >
             {view3D.labelVisibility === 'all' ? (
               <Tags className="w-4 h-4" />
@@ -419,7 +419,7 @@ export function KnowledgeGraph3D({
           <button
             onClick={handleResetCamera}
             className="p-2 hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper transition-colors"
-            title="Reset camera to default view"
+            title="카메라 초기화"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -432,7 +432,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle entity type legend"
+            title="개체 타입 범례 표시/숨김"
           >
             <Info className="w-4 h-4" />
           </button>
@@ -445,7 +445,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-amber/10 text-accent-amber'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle research gaps panel (structural holes in knowledge)"
+            title="연구 갭 패널 표시/숨김 (지식 구조의 구멍)"
           >
             <Sparkles className="w-4 h-4" />
           </button>
@@ -458,7 +458,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle node importance panel (remove high-centrality bridges)"
+            title="노드 중요도 패널 표시/숨김 (고중심성 브릿지 제거)"
           >
             <Scissors className="w-4 h-4" />
           </button>
@@ -471,7 +471,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-violet/10 text-accent-violet'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle topic clusters panel (adjust grouping)"
+            title="토픽 클러스터 패널 표시/숨김 (그룹화 조정)"
           >
             <Layers className="w-4 h-4" />
           </button>
@@ -484,7 +484,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-teal/10 text-accent-teal'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle graph analytics HUD (diversity, modularity)"
+            title="그래프 분석 HUD 표시/숨김 (다양성, 모듈성)"
           >
             <BarChart3 className="w-4 h-4" />
           </button>
@@ -497,7 +497,7 @@ export function KnowledgeGraph3D({
                 ? 'bg-accent-violet/10 text-accent-violet'
                 : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
             }`}
-            title="Toggle main topics panel (dominant themes)"
+            title="주요 토픽 패널 표시/숨김 (지배적 주제)"
           >
             <PieChart className="w-4 h-4" />
           </button>
@@ -505,16 +505,16 @@ export function KnowledgeGraph3D({
           <div className="w-px bg-ink/10 dark:bg-paper/10" />
 
           {/* UI-012: View Mode Toggle - 3 modes: 3D, Topic, Gaps */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center bg-ink/5 dark:bg-paper/5 rounded-lg p-1 gap-1">
             {/* 3D Mode */}
             <button
               onClick={() => setViewMode('3d')}
-              className={`flex items-center gap-1.5 px-2 py-2 transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all ${
                 viewMode === '3d'
-                  ? 'bg-accent-teal text-white'
-                  : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+                  ? 'bg-accent-teal text-white shadow-sm'
+                  : 'text-muted hover:text-ink dark:hover:text-paper hover:bg-surface/10'
               }`}
-              title="3D Graph View - Full knowledge graph exploration with physics"
+              title="3D 그래프 뷰 - 물리 시뮬레이션 기반 지식 그래프"
             >
               <Box className="w-4 h-4" />
               <span className="font-mono text-xs uppercase tracking-wider">3D</span>
@@ -523,12 +523,12 @@ export function KnowledgeGraph3D({
             {/* Topic Mode */}
             <button
               onClick={() => setViewMode('topic')}
-              className={`flex items-center gap-1.5 px-2 py-2 transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all ${
                 viewMode === 'topic'
-                  ? 'bg-accent-purple text-white'
-                  : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+                  ? 'bg-accent-purple text-white shadow-sm'
+                  : 'text-muted hover:text-ink dark:hover:text-paper hover:bg-surface/10'
               }`}
-              title="Topic View - Clusters and communities visualization"
+              title="토픽 뷰 - 클러스터 및 커뮤니티 시각화"
             >
               <Grid2X2 className="w-4 h-4" />
               <span className="font-mono text-xs uppercase tracking-wider">Topics</span>
@@ -537,12 +537,12 @@ export function KnowledgeGraph3D({
             {/* Gaps Mode */}
             <button
               onClick={() => setViewMode('gaps')}
-              className={`flex items-center gap-1.5 px-2 py-2 transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all ${
                 viewMode === 'gaps'
-                  ? 'bg-accent-amber text-white'
-                  : 'hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper'
+                  ? 'bg-accent-amber text-white shadow-sm'
+                  : 'text-muted hover:text-ink dark:hover:text-paper hover:bg-surface/10'
               }`}
-              title="Gaps View - Research gap identification and bridge hypotheses"
+              title="갭 뷰 - 연구 공백 및 브릿지 가설 탐색"
             >
               <Sparkles className="w-4 h-4" />
               <span className="font-mono text-xs uppercase tracking-wider">Gaps</span>
@@ -568,23 +568,23 @@ export function KnowledgeGraph3D({
         />
       )}
 
-      {/* Centrality Panel - Right side below controls */}
-      {showCentralityPanel && (
-        <CentralityPanel
-          projectId={projectId}
-          className="absolute top-20 right-4 z-10"
-          onSlicingApplied={handleSlicingApplied}
-          onSlicingReset={handleSlicingReset}
-        />
-      )}
-
-      {/* Cluster Panel - Right side below Centrality Panel */}
-      {showClusterPanel && (
-        <ClusterPanel
-          projectId={projectId}
-          className={`absolute right-4 z-10 ${showCentralityPanel ? 'top-[340px]' : 'top-20'}`}
-          onFocusCluster={handleFocusCluster}
-        />
+      {/* Right-side panels - stacked */}
+      {(showCentralityPanel || showClusterPanel) && (
+        <div className="absolute top-20 right-4 z-10 flex flex-col gap-2 max-h-[calc(100vh-120px)] overflow-y-auto">
+          {showCentralityPanel && (
+            <CentralityPanel
+              projectId={projectId}
+              onSlicingApplied={handleSlicingApplied}
+              onSlicingReset={handleSlicingReset}
+            />
+          )}
+          {showClusterPanel && (
+            <ClusterPanel
+              projectId={projectId}
+              onFocusCluster={handleFocusCluster}
+            />
+          )}
+        </div>
       )}
 
       {/* Legend */}

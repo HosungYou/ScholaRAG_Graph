@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Loader2, Sparkles, Copy, Check, ArrowRight } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -36,6 +36,13 @@ interface ChatInterfaceProps {
   }>;
   onCitationClick?: (citation: string) => void;
   initialMessages?: Message[];
+  graphStats?: {
+    totalNodes?: number;
+    totalEdges?: number;
+    topConcepts?: string[];
+    clusterCount?: number;
+    gapCount?: number;
+  };
 }
 
 export function ChatInterface({
@@ -43,6 +50,7 @@ export function ChatInterface({
   onSendMessage,
   onCitationClick,
   initialMessages = [],
+  graphStats,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -123,13 +131,31 @@ export function ChatInterface({
     });
   };
 
-  // Suggested questions
-  const suggestedQuestions = [
-    'What are the main research methods?',
-    'Which concepts appear most frequently?',
-    'What are the key findings?',
-    'Identify research gaps',
-  ];
+  // v0.11.0: Dynamic suggested questions based on graph data
+  const suggestedQuestions = useMemo(() => {
+    const questions: string[] = [];
+
+    // Base questions that always apply
+    questions.push('What are the main research themes in this collection?');
+    questions.push('Which methodologies are most commonly used?');
+
+    // Graph-aware questions
+    if (graphStats?.topConcepts && graphStats.topConcepts.length >= 2) {
+      questions.push(
+        `How are "${graphStats.topConcepts[0]}" and "${graphStats.topConcepts[1]}" related?`
+      );
+    } else {
+      questions.push('What are the key findings across all papers?');
+    }
+
+    if (graphStats?.gapCount && graphStats.gapCount > 0) {
+      questions.push(`What research gaps exist between the ${graphStats.clusterCount || ''} concept clusters?`);
+    } else {
+      questions.push('Identify potential research gaps in this literature');
+    }
+
+    return questions;
+  }, [graphStats]);
 
   return (
     <div className="chat-container flex flex-col h-full bg-paper dark:bg-ink">

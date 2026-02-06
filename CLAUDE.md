@@ -1,7 +1,7 @@
 # CLAUDE.md - ScholaRAG_Graph Project Instructions
 
 > **Last Updated**: 2026-02-06
-> **Version**: 3.5.1 (v0.10.1 Reopen Stability + DB Health Probe Optimization)
+> **Version**: 3.6.0 (v0.11.0 Comprehensive Bug Fix & UX Enhancement)
 
 ## Project Overview
 
@@ -676,6 +676,39 @@ When making architectural changes:
 | Container Diagram | `DOCS/architecture/diagrams/container-diagram.mmd` | Internal architecture |
 | Overview | `DOCS/architecture/overview.md` | Detailed architecture |
 | ADRs | `DOCS/.meta/decisions/` | Decision records |
+
+---
+
+## 📊 v0.11.0 Release Notes
+
+> **Version**: 0.11.0 | **Date**: 2026-02-06
+> **Full Notes**: See `RELEASE_NOTES_v0.11.0.md`
+
+### Critical
+- **Visualization API**: `max_nodes` default 200→1000 (max 5000), ORDER BY prioritizes academic entities
+- **Zotero Gap Detection**: Full parity with ScholaRAG importer (clustering + gap analysis + centrality)
+
+### High
+- **AI Evidence Explanation**: LLM-generated relationship explanation when no text chunks exist
+- **Gap Panel Resize**: Drag-to-resize (256-500px), default 320px
+- **Dynamic Chat Questions**: Graph data-based suggested questions (replaces hardcoded)
+- **Bridge Ideas UX**: Categorized error messages (LLM/network/not-found) + UUID label detection
+- **Cluster Labels**: UUID regex detection with keyword-based fallback names
+
+### Medium
+- **Hover Debounce**: 50ms debounce eliminates node jitter (~90% fewer state updates)
+- **View Tab UI**: Tab-bar style view mode toggle (3D/Topics/Gaps)
+- **Panel Layout**: Flex-based stacking prevents overlap
+
+### Low
+- **Korean Tooltips**: All toolbar buttons translated to Korean
+
+### Technical
+- `backend/routers/graph.py`: max_nodes, ORDER BY, ai_explanation field
+- `backend/importers/zotero_rdf_importer.py`: Phase 6 gap detection
+- `frontend/components/graph/*`: GapPanel, Graph3D, KnowledgeGraph3D, EdgeContextModal, GapQueryPanel
+- `frontend/components/chat/ChatInterface.tsx`: graphStats prop, useMemo questions
+- `frontend/types/graph.ts`: ai_explanation field
 
 ---
 

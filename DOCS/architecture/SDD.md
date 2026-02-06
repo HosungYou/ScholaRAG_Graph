@@ -1,7 +1,7 @@
 # Software Design Document (SDD)
 
 **Project**: ScholaRAG_Graph
-**Version**: 0.10.2
+**Version**: 0.11.0
 **Last Updated**: 2026-02-06
 **Status**: Production-Ready
 **Document Type**: Architecture & Design Specification
@@ -12,8 +12,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Document Version** | 1.4.0 |
-| **Project Version** | 0.10.2 |
+| **Document Version** | 1.5.0 |
+| **Project Version** | 0.11.0 |
 | **Authors** | ScholaRAG_Graph Development Team |
 | **Classification** | Internal - Technical Documentation |
 | **Review Cycle** | Quarterly or on major releases |
@@ -67,6 +67,11 @@ ScholaRAG_Graph is an AGENTiGraph-style **Concept-Centric Knowledge Graph** plat
 | **Node Removal Preview** | Visual preview before applying centrality-based slicing | ✅ v0.8.0 |
 | **InsightHUD Repositioning** | Right-side InfraNodus-style positioning | ✅ v0.8.0 |
 | **Cluster Color Stability** | Hash-based cluster color assignment for consistent colors | ✅ v0.8.0 |
+| **Resizable Gap Panel** | Drag-to-resize gap analysis panel (256-500px) | ✅ v0.11.0 |
+| **AI Evidence Explanation** | LLM-generated relationship explanations when no text evidence | ✅ v0.11.0 |
+| **Dynamic Chat Questions** | Context-aware suggested questions based on graph data | ✅ v0.11.0 |
+| **Hover Debounce** | 50ms debounced node hover to eliminate jitter | ✅ v0.11.0 |
+| **Zotero Gap Detection** | Full gap detection parity in Zotero importer | ✅ v0.11.0 |
 
 ### 1.4 Success Metrics
 
@@ -289,6 +294,8 @@ Return ONLY valid JSON.
 5. Find bridge concepts using embedding similarity
 6. Generate research questions using LLM
 
+**v0.11.0 Enhancement**: Zotero RDF importer now includes full gap detection parity with ScholaRAG importer. After relationship building, the importer runs clustering, gap analysis, and centrality calculation automatically.
+
 #### 3.1.3 Import Pipeline
 
 **Purpose**: Import papers from multiple sources and construct knowledge graphs.
@@ -432,6 +439,11 @@ LABEL_CONFIG = {
   alwaysVisiblePercentile: 0.8,    // Top 20% always show
   hoverRevealPercentile: 0.5       // Top 50% on hover
 }
+
+// v0.11.0: Hover debounce
+- hoveredNodeRef: useRef for deduplication
+- hoverTimeoutRef: 50ms debounce before state update
+- ~90% reduction in React re-renders during hover
 
 // Rendering (v0.9.0 updated)
 - Node size: 5-15 (scaled by degree centrality)
@@ -920,6 +932,8 @@ Response: {
 }
 
 GET /api/graph/visualization/{project_id}
+Query: ?max_nodes=1000&max_nodes_le=5000  # v0.11.0: default 1000 (was 200)
+# ORDER BY prioritizes academic entities (Concept/Method/Finding=1) over Paper/Author(=5)
 Response: {
   nodes: [{ id, label, size, color, x, y, z }],
   edges: [{ source, target, opacity }],
@@ -1135,7 +1149,30 @@ app.add_middleware(
 
 ## 7. Change Log
 
-### Version 0.10.2 (2026-02-06) - Current
+### Version 0.11.0 (2026-02-06) - Current
+
+**Comprehensive Bug Fix & UX Enhancement Release (11 issues)**:
+
+*CRITICAL*:
+- Visualization API `max_nodes` default 200→1000 (max 5000), ORDER BY prioritizes academic entities
+- Zotero importer gap detection parity: clustering + gap analysis + centrality after import
+
+*HIGH*:
+- AI-powered relationship evidence: LLM explanation fallback when no text chunks exist
+- Gap Panel drag-to-resize (256-500px range)
+- Dynamic chat questions based on graph data (replaces hardcoded questions)
+- Bridge Ideas error categorization (LLM/network/not-found)
+- Cluster label UUID detection with keyword-based fallback names
+
+*MEDIUM*:
+- Node hover 50ms debounce eliminates jitter (~90% fewer state updates)
+- View mode toggle redesigned as tab-bar with rounded styling
+- Panel layout flex-based stacking prevents overlap
+
+*LOW*:
+- All toolbar tooltips translated to Korean
+
+### Version 0.10.2 (2026-02-06)
 
 **Stability / Memory Hardening**:
 - Import progress path now uses coalesced async update workers instead of per-callback fan-out tasks
@@ -1303,7 +1340,7 @@ app.add_middleware(
 | Entity Disambiguation | 1000 entities | ~5 sec | Embedding similarity, threshold 0.9 |
 | Gap Detection | 500 concepts | ~3 sec | K-means + connection matrix |
 | Graph Rendering (3D) | 100 nodes, 200 edges | ~1.5 sec | Three.js, 60 FPS |
-| Graph Rendering (3D) | 500 nodes, 1000 edges | ~4 sec | 30-40 FPS |
+| Graph Rendering (3D) | 500 nodes, 1000 edges | ~4 sec | 30-40 FPS (v0.11.0: jitter-free hover) |
 | Vector Search | 10K entities | ~10 ms | HNSW index, 10 results |
 | Query Response (6-Agent) | Average query | ~3 sec | Groq LLM, includes reasoning |
 
