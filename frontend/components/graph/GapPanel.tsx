@@ -18,6 +18,8 @@ import {
   Check,
   Hexagon,
   Zap,
+  BookOpen,
+  Download,
 } from 'lucide-react';
 import type { StructuralGap, ConceptCluster, GraphEntity, BridgeHypothesis, BridgeGenerationResult } from '@/types';
 import { api } from '@/lib/api';
@@ -79,6 +81,13 @@ export function GapPanel({
   const [bridgeResults, setBridgeResults] = useState<Record<string, BridgeGenerationResult>>({});
   const [generatingBridgeFor, setGeneratingBridgeFor] = useState<string | null>(null);
   const [showBridgeFor, setShowBridgeFor] = useState<string | null>(null);
+  // Paper Recommendations state (Phase 2)
+  const [recommendations, setRecommendations] = useState<Record<string, {
+    papers: Array<{ title: string; year: number | null; citation_count: number; url: string | null; abstract_snippet: string }>;
+    query_used: string;
+    error: string | null;
+  }>>({});
+  const [loadingRecsFor, setLoadingRecsFor] = useState<string | null>(null);
 
   // Sort gaps by strength (highest first)
   const sortedGaps = [...gaps].sort((a, b) => b.gap_strength - a.gap_strength);
@@ -203,6 +212,24 @@ export function GapPanel({
       setCreatingBridge(false);
     }
   }, [selectedGap, creatingBridge, onRefresh]);
+
+  // Find papers for a gap (Phase 2)
+  const handleFindPapers = useCallback(async (gapId: string) => {
+    if (loadingRecsFor || recommendations[gapId]) return;
+    setLoadingRecsFor(gapId);
+    try {
+      const result = await api.getGapRecommendations(projectId, gapId, 5);
+      setRecommendations(prev => ({ ...prev, [gapId]: result }));
+    } catch (error) {
+      console.error('Failed to fetch recommendations:', error);
+      setRecommendations(prev => ({
+        ...prev,
+        [gapId]: { papers: [], query_used: '', error: 'Failed to load recommendations' },
+      }));
+    } finally {
+      setLoadingRecsFor(null);
+    }
+  }, [loadingRecsFor, projectId, recommendations]);
 
   return (
     <div className={`absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 ${
@@ -479,6 +506,57 @@ export function GapPanel({
                           </div>
                         )}
 
+                        {/* Find Papers Button (Phase 2) */}
+                        <div className="pt-2 border-t border-ink/5 dark:border-paper/5">
+                          <button
+                            onClick={() => handleFindPapers(gap.id)}
+                            disabled={!!loadingRecsFor || !!recommendations[gap.id]}
+                            className="w-full py-2 px-4 font-mono text-xs uppercase tracking-wider
+                              bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal
+                              border border-accent-teal/30 transition-colors disabled:opacity-50
+                              flex items-center justify-center gap-2"
+                          >
+                            {loadingRecsFor === gap.id ? (
+                              <><Loader2 className="w-4 h-4 animate-spin" /> Searching...</>
+                            ) : recommendations[gap.id] ? (
+                              <><BookOpen className="w-4 h-4" /> {recommendations[gap.id].papers.length} Papers Found</>
+                            ) : (
+                              <><BookOpen className="w-4 h-4" /> Find Papers</>
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Recommendation Results (Phase 2) */}
+                        {recommendations[gap.id] && (
+                          <div className="space-y-2 mt-2">
+                            {recommendations[gap.id].error && (
+                              <p className="text-xs text-accent-red font-mono px-2">
+                                {recommendations[gap.id].error}
+                              </p>
+                            )}
+                            {!recommendations[gap.id].error && recommendations[gap.id].papers.length === 0 && (
+                              <p className="text-xs text-muted font-mono px-2">
+                                No matching papers found for this gap.
+                              </p>
+                            )}
+                            {recommendations[gap.id].papers.map((paper, idx) => (
+                              <div key={idx} className="p-3 border border-ink/10 dark:border-paper/10 bg-surface/5">
+                                <a href={paper.url || '#'} target="_blank" rel="noopener noreferrer"
+                                   className="text-xs font-medium text-accent-teal hover:underline block mb-1">
+                                  {paper.title}
+                                </a>
+                                <div className="flex items-center gap-3 font-mono text-xs text-muted">
+                                  {paper.year && <span>{paper.year}</span>}
+                                  <span>{paper.citation_count} citations</span>
+                                </div>
+                                {paper.abstract_snippet && (
+                                  <p className="text-xs text-muted mt-1 line-clamp-2">{paper.abstract_snippet}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         {/* Research Questions */}
                         {gap.research_questions.length > 0 && (
                           <div className="pt-4 mt-4 border-t border-ink/10 dark:border-paper/10">
@@ -627,6 +705,28 @@ export function GapPanel({
               </p>
             </div>
           )}
+
+            {/* Export Report Button (Phase 3) */}
+            {gaps.length > 0 && (
+              <div className="p-4 border-t border-ink/10 dark:border-paper/10">
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.exportGapReport(projectId);
+                    } catch (error) {
+                      console.error('Export failed:', error);
+                    }
+                  }}
+                  className="w-full py-2.5 px-3 bg-surface/10 hover:bg-surface/20
+                    font-mono text-xs text-ink dark:text-paper uppercase tracking-wider
+                    transition-colors flex items-center justify-center gap-2
+                    border border-ink/10 dark:border-paper/10"
+                >
+                  <Download className="w-4 h-4" />
+                  Export Report
+                </button>
+              </div>
+            )}
         </div>
       )}
         </>
