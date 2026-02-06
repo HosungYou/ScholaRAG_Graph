@@ -110,6 +110,49 @@ const entityTypeConfig: Record<string, {
     shape: <Triangle className="w-4 h-4" strokeWidth={2} />,
     description: 'Limitations',
   },
+  // TTO entities
+  Invention: {
+    color: '#F59E0B',
+    icon: <Lightbulb className="w-3 h-3" />,
+    shape: <Star className="w-4 h-4" strokeWidth={2} />,
+    description: 'Inventions',
+  },
+  Patent: {
+    color: '#6366F1',
+    icon: <FileText className="w-3 h-3" />,
+    shape: <Square className="w-4 h-4" strokeWidth={2} />,
+    description: 'Patents',
+  },
+  Inventor: {
+    color: '#8B5CF6',
+    icon: <User className="w-3 h-3" />,
+    shape: <Circle className="w-4 h-4" strokeWidth={2} />,
+    description: 'Inventors',
+  },
+  Technology: {
+    color: '#06B6D4',
+    icon: <Lightbulb className="w-3 h-3" />,
+    shape: <Hexagon className="w-4 h-4" strokeWidth={2} />,
+    description: 'Technologies',
+  },
+  License: {
+    color: '#10B981',
+    icon: <FileText className="w-3 h-3" />,
+    shape: <Diamond className="w-4 h-4" strokeWidth={2} />,
+    description: 'Licenses',
+  },
+  Grant: {
+    color: '#F97316',
+    icon: <Sparkles className="w-3 h-3" />,
+    shape: <Pentagon className="w-4 h-4" strokeWidth={2} />,
+    description: 'Grants',
+  },
+  Department: {
+    color: '#A855F7',
+    icon: <User className="w-3 h-3" />,
+    shape: <Octagon className="w-4 h-4" strokeWidth={2} />,
+    description: 'Departments',
+  },
 };
 
 // Edge relationship colors
@@ -121,6 +164,15 @@ const edgeTypeConfig: Record<string, { color: string; description: string }> = {
   CITES: { color: '#3B82F6', description: 'Paper cites paper' },
   CO_OCCURS_WITH: { color: '#EC4899', description: 'Concepts co-occur' },
   BRIDGES_GAP: { color: '#FFD700', description: 'Bridges research gap' },
+  // TTO relationship types
+  INVENTED_BY: { color: '#8B5CF6', description: 'Invented by' },
+  CITES_PRIOR_ART: { color: '#3B82F6', description: 'Cites prior art' },
+  USES_TECHNOLOGY: { color: '#06B6D4', description: 'Uses technology' },
+  LICENSED_TO: { color: '#10B981', description: 'Licensed to' },
+  FUNDED_BY: { color: '#F97316', description: 'Funded by' },
+  PATENT_OF: { color: '#6366F1', description: 'Patent of invention' },
+  DEVELOPED_IN: { color: '#A855F7', description: 'Developed in department' },
+  LICENSE_OF: { color: '#10B981', description: 'License of invention' },
 };
 
 export function GraphLegend({

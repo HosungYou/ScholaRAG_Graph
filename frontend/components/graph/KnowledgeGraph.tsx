@@ -52,6 +52,14 @@ const NODE_TYPES: NodeTypes = {
   metric: CircularNode,
   innovation: CircularNode,
   limitation: CircularNode,
+  // TTO node types
+  invention: CircularNode,
+  patent: CircularNode,
+  inventor: CircularNode,
+  technology: CircularNode,
+  license: CircularNode,
+  grant: CircularNode,
+  department: CircularNode,
 } as const;
 
 // Cluster color palette for minimap
@@ -75,6 +83,14 @@ const entityTypeColors: Record<string, string> = {
   Metric: '#EC4899',    // Pink
   Innovation: '#14B8A6', // Teal
   Limitation: '#F97316', // Orange
+  // TTO entities
+  Invention: '#F59E0B',
+  Patent: '#6366F1',
+  Inventor: '#8B5CF6',
+  Technology: '#06B6D4',
+  License: '#10B981',
+  Grant: '#F97316',
+  Department: '#A855F7',
 };
 
 function KnowledgeGraphInner({

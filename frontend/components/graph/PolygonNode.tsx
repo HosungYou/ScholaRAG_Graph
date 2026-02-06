@@ -2,7 +2,7 @@
 
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { Lightbulb, Beaker, Trophy, AlertCircle, Database, Target, Sparkles, AlertTriangle, FileText, User } from 'lucide-react';
+import { Lightbulb, Beaker, Trophy, AlertCircle, Database, Target, Sparkles, AlertTriangle, FileText, User, ScrollText, Cpu, Building2 } from 'lucide-react';
 import clsx from 'clsx';
 
 /* ============================================================
@@ -49,6 +49,14 @@ const iconMap: Record<string, React.ReactNode> = {
   Metric: <Target className="w-full h-full" />,
   Innovation: <Sparkles className="w-full h-full" />,
   Limitation: <AlertTriangle className="w-full h-full" />,
+  // TTO entities
+  Invention: <Lightbulb className="w-full h-full" />,
+  Patent: <ScrollText className="w-full h-full" />,
+  Inventor: <User className="w-full h-full" />,
+  Technology: <Cpu className="w-full h-full" />,
+  License: <FileText className="w-full h-full" />,
+  Grant: <Sparkles className="w-full h-full" />,
+  Department: <Building2 className="w-full h-full" />,
 };
 
 // Entity type colors (VS Design Diverge palette - Hybrid Mode)
@@ -65,6 +73,14 @@ const entityColors: Record<string, string> = {
   Metric: '#EC4899',     // Pink - Circle
   Innovation: '#14B8A6', // Teal - Star
   Limitation: '#F97316', // Orange - Triangle
+  // TTO entities
+  Invention: '#F59E0B',  // Amber - Star
+  Patent: '#6366F1',     // Indigo - Rectangle
+  Inventor: '#8B5CF6',   // Violet - Circle
+  Technology: '#06B6D4', // Cyan - Hexagon
+  License: '#10B981',    // Emerald - Diamond
+  Grant: '#F97316',      // Orange - Pentagon
+  Department: '#A855F7', // Purple - Octagon
 };
 
 // Cluster colors - high-contrast palette
@@ -170,6 +186,14 @@ const entityShapes: Record<string, string> = {
   Metric: 'circle',
   Innovation: 'star',
   Limitation: 'triangle',
+  // TTO entities
+  Invention: 'star',
+  Patent: 'rectangle',
+  Inventor: 'circle',
+  Technology: 'hexagon',
+  License: 'diamond',
+  Grant: 'pentagon',
+  Department: 'octagon',
 };
 
 /**

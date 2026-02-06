@@ -29,8 +29,17 @@ class ExtractionResult(BaseModel):
 class ConceptExtractionAgent:
     """Extracts and matches entities from user queries."""
 
-    SYSTEM_PROMPT = """Extract entities from user queries about a research knowledge graph.
-Entity types: Paper, Author, Concept, Method, Finding.
+    SYSTEM_PROMPT = """Extract entities from user queries about a research/technology transfer knowledge graph.
+Entity types: Paper, Author, Concept, Method, Finding, Invention, Patent, Inventor, Technology, License, Grant, Department.
+
+For technology transfer queries, use these entity types:
+- Invention: a novel creation or discovery
+- Patent: a patent filing or granted patent (includes patent numbers like "US 11,xxx,xxx")
+- Inventor: a person who created an invention
+- Technology: a technology area or domain (e.g., "Machine Learning", "Quantum Computing")
+- License: a licensing agreement
+- Grant: a research funding grant
+- Department: an academic department
 
 Respond with JSON:
 {

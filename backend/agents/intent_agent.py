@@ -22,6 +22,11 @@ class IntentType(str, Enum):
     CREATE = "create"
     SUMMARIZE = "summarize"
     IDENTIFY_GAPS = "identify_gaps"
+    # TTO-specific intents
+    PATENT_SEARCH = "patent_search"
+    INVENTOR_LOOKUP = "inventor_lookup"
+    TECHNOLOGY_TREND = "technology_trend"
+    LICENSE_STATUS = "license_status"
 
 
 class IntentResult(BaseModel):
@@ -42,9 +47,14 @@ class IntentAgent:
         {"query": "Compare paper A with paper B", "intent": "compare"},
         {"query": "What are the research gaps?", "intent": "identify_gaps"},
         {"query": "Summarize the findings", "intent": "summarize"},
+        # TTO-specific examples
+        {"query": "Find patents related to machine learning", "intent": "patent_search"},
+        {"query": "Who invented the quantum sensing device?", "intent": "inventor_lookup"},
+        {"query": "What technologies are most frequently patented?", "intent": "technology_trend"},
+        {"query": "Which inventions are currently licensed?", "intent": "license_status"},
     ]
 
-    SYSTEM_PROMPT = """Classify queries into: search, explore, explain, compare, summarize, identify_gaps.
+    SYSTEM_PROMPT = """Classify queries into: search, explore, explain, compare, summarize, identify_gaps, patent_search, inventor_lookup, technology_trend, license_status.
 Respond with JSON: {"intent": "<type>", "confidence": 0.0-1.0, "keywords": [], "reasoning": "brief"}"""
 
     def __init__(self, llm_provider=None):
@@ -84,6 +94,12 @@ Respond with JSON: {"intent": "<type>", "confidence": 0.0-1.0, "keywords": [], "
         """Fallback keyword-based classification."""
         q = query.lower()
         mappings = [
+            # TTO-specific intents (check first for specificity)
+            (IntentType.PATENT_SEARCH, ["patent", "patents", "filing", "prior art", "claims"]),
+            (IntentType.INVENTOR_LOOKUP, ["inventor", "invented", "who created", "who developed"]),
+            (IntentType.TECHNOLOGY_TREND, ["technology trend", "tech area", "most patented", "technology distribution"]),
+            (IntentType.LICENSE_STATUS, ["license", "licensed", "licensing", "commercialize"]),
+            # General intents
             (IntentType.COMPARE, ["compare", "versus", "vs", "difference"]),
             (IntentType.EXPLAIN, ["explain", "what is", "define", "meaning"]),
             (IntentType.IDENTIFY_GAPS, ["gap", "missing", "underresearched"]),

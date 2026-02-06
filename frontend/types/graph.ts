@@ -2,7 +2,7 @@
  * Core entity types for ScholaRAG Graph
  */
 
-// Entity Types (Hybrid Mode: Paper/Author + Concept-Centric)
+// Entity Types (Hybrid Mode: Paper/Author + Concept-Centric + TTO)
 export type EntityType =
   | 'Paper'      // Hybrid Mode - 논문 노드
   | 'Author'     // Hybrid Mode - 저자 노드
@@ -13,7 +13,15 @@ export type EntityType =
   | 'Dataset'    // Secondary - 데이터셋
   | 'Metric'     // Secondary - 측정 지표
   | 'Innovation' // Secondary - 혁신/기여
-  | 'Limitation'; // Secondary - 한계점
+  | 'Limitation' // Secondary - 한계점
+  // TTO (Technology Transfer Office) entities
+  | 'Invention'  // TTO - 발명
+  | 'Patent'     // TTO - 특허
+  | 'Inventor'   // TTO - 발명가
+  | 'Technology' // TTO - 기술 영역
+  | 'License'    // TTO - 라이선스
+  | 'Grant'      // TTO - 연구비
+  | 'Department'; // TTO - 학과
 
 // Relationship Types (Updated for Concept-Centric Design)
 export type RelationshipType =
@@ -28,7 +36,18 @@ export type RelationshipType =
   | 'PREREQUISITE_OF'
   | 'BRIDGES_GAP'
   | 'APPLIES_TO'
-  | 'ADDRESSES';
+  | 'ADDRESSES'
+  // TTO relationship types
+  | 'INVENTED_BY'
+  | 'CITES_PRIOR_ART'
+  | 'USES_TECHNOLOGY'
+  | 'LICENSED_TO'
+  | 'FUNDED_BY'
+  | 'PATENT_OF'
+  | 'DEVELOPED_IN'
+  | 'LICENSE_OF'
+  | 'ASSIGNED_TO'
+  | 'CLASSIFIED_AS';
 
 // Property types
 export interface PaperProperties {
@@ -77,12 +96,39 @@ export interface FindingProperties {
   [key: string]: unknown;
 }
 
+// TTO Property types
+export interface InventionProperties {
+  filing_date?: string;
+  status?: 'filed' | 'granted' | 'licensed' | 'expired';
+  department?: string;
+  abstract?: string;
+  license_status?: string;
+  licensee?: string;
+  [key: string]: unknown;
+}
+
+export interface PatentProperties {
+  patent_number?: string;
+  filing_date?: string;
+  grant_date?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface TechnologyProperties {
+  domain?: string;
+  description?: string;
+  patent_count?: number;
+  application_count?: number;
+  [key: string]: unknown;
+}
+
 // Base Entity interface
 export interface GraphEntity {
   id: string;
   entity_type: EntityType;
   name: string;
-  properties: PaperProperties | AuthorProperties | ConceptProperties | MethodProperties | FindingProperties;
+  properties: PaperProperties | AuthorProperties | ConceptProperties | MethodProperties | FindingProperties | InventionProperties | PatentProperties | TechnologyProperties;
   created_at?: string;
   updated_at?: string;
 }

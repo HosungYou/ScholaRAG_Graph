@@ -74,6 +74,35 @@ const entityTypeConfig: Record<string, { color: string; icon: React.ReactNode }>
     color: '#F97316', // Orange
     icon: <Pentagon className="w-3 h-3" strokeWidth={2} />
   },
+  // TTO entities
+  Invention: {
+    color: '#F59E0B',
+    icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
+  },
+  Patent: {
+    color: '#6366F1',
+    icon: <Square className="w-3 h-3" strokeWidth={2} />
+  },
+  Inventor: {
+    color: '#8B5CF6',
+    icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
+  },
+  Technology: {
+    color: '#06B6D4',
+    icon: <Hexagon className="w-3 h-3" strokeWidth={2} />
+  },
+  License: {
+    color: '#10B981',
+    icon: <Diamond className="w-3 h-3" strokeWidth={2} />
+  },
+  Grant: {
+    color: '#F97316',
+    icon: <Pentagon className="w-3 h-3" strokeWidth={2} />
+  },
+  Department: {
+    color: '#A855F7',
+    icon: <Octagon className="w-3 h-3" strokeWidth={2} />
+  },
 };
 
 // Data source badge styles

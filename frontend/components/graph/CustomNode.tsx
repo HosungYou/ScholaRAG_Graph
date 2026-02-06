@@ -18,6 +18,14 @@ const iconMap: Record<string, React.ReactNode> = {
   Concept: <Lightbulb className="w-4 h-4" />,
   Method: <Beaker className="w-4 h-4" />,
   Finding: <Trophy className="w-4 h-4" />,
+  // TTO entities
+  Invention: <Lightbulb className="w-4 h-4" />,
+  Patent: <FileText className="w-4 h-4" />,
+  Inventor: <User className="w-4 h-4" />,
+  Technology: <Lightbulb className="w-4 h-4" />,
+  License: <FileText className="w-4 h-4" />,
+  Grant: <Lightbulb className="w-4 h-4" />,
+  Department: <User className="w-4 h-4" />,
 };
 
 const colorMap: Record<string, { bg: string; border: string; text: string }> = {
@@ -45,6 +53,42 @@ const colorMap: Record<string, { bg: string; border: string; text: string }> = {
     bg: 'bg-red-50',
     border: 'border-red-400',
     text: 'text-red-700',
+  },
+  // TTO entities
+  Invention: {
+    bg: 'bg-amber-50',
+    border: 'border-amber-400',
+    text: 'text-amber-700',
+  },
+  Patent: {
+    bg: 'bg-indigo-50',
+    border: 'border-indigo-400',
+    text: 'text-indigo-700',
+  },
+  Inventor: {
+    bg: 'bg-violet-50',
+    border: 'border-violet-400',
+    text: 'text-violet-700',
+  },
+  Technology: {
+    bg: 'bg-cyan-50',
+    border: 'border-cyan-400',
+    text: 'text-cyan-700',
+  },
+  License: {
+    bg: 'bg-emerald-50',
+    border: 'border-emerald-400',
+    text: 'text-emerald-700',
+  },
+  Grant: {
+    bg: 'bg-orange-50',
+    border: 'border-orange-400',
+    text: 'text-orange-700',
+  },
+  Department: {
+    bg: 'bg-purple-50',
+    border: 'border-purple-400',
+    text: 'text-purple-700',
   },
 };
 
