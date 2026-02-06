@@ -188,6 +188,31 @@
 
 ---
 
+### 5.6 v0.11.1 Memory Stabilization Regression Design
+
+1. Visualization edge cap
+- 대상: `backend/routers/graph.py` (`/api/graph/visualization/{project_id}`)
+- 목적: 대규모/고밀도 그래프에서 응답 메모리 상한 확보
+- 전략:
+  - `max_edges` 기본값(15000) 적용 여부 검증
+  - `max_edges` 파라미터 조정 시 edge 개수 상한 준수 확인
+
+2. Centrality cache bound
+- 대상: `backend/graph/centrality_analyzer.py`
+- 목적: 프로젝트 수 증가 시 중앙성 캐시 무한 증가 방지
+- 전략:
+  - 20개 초과 cache key 입력 후 LRU eviction 동작 확인
+  - 동일 key 재호출 시 cache hit + recency 갱신 확인
+
+3. Gap auto-refresh single-attempt
+- 대상: `frontend/hooks/useGraphStore.ts`
+- 목적: 프로젝트 재진입 시 `/gaps/{id}/refresh` 과호출 방지
+- 전략:
+  - 동일 projectId에서 auto-refresh 1회만 실행되는지 검증
+  - gap refresh 실패 시에도 무한 재시도되지 않는지 확인
+
+---
+
 ## 6. Test Execution Policy
 
 ### Required Local Checks (for release candidates)
@@ -221,10 +246,12 @@ npm run -s test -- --runInBand __tests__/components/graph/Graph3D.test.tsx __tes
 1. Python dependency gap
 - 증상: 일부 backend 테스트 실행 시 `email-validator` 누락 오류
 - 영향: `backend/tests/test_graph_router.py` 일부 케이스
+- 상태: **완화** (`backend/requirements-dev.txt`에서 `-r requirements.txt` 상속)
 
 2. Frontend type environment gap
 - 증상: `npm run type-check`에서 Jest global type 미설정 오류
 - 영향: `frontend/__tests__/*` 전반
+- 상태: **진행 중** (`frontend/package.json`에 `@types/jest` 추가, 로컬 install 필요)
 
 3. Existing test expectation drift
 - 증상: 일부 기존 테스트는 현재 코드 동작과 기대값이 불일치
@@ -260,4 +287,3 @@ Release note 작성 전 최소 충족 조건:
 - `DOCS/testing/infranodus-e2e-test-cases.md`
 - `RELEASE_NOTES_v0.11.0.md`
 - `RELEASE_NOTES_v0.10.2.md`
-

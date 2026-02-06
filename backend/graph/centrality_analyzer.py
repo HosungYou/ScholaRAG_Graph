@@ -8,6 +8,7 @@ Provides methods for computing various centrality metrics and graph slicing.
 import logging
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from collections import OrderedDict
 
 import networkx as nx
 import numpy as np
@@ -50,8 +51,11 @@ class CentralityAnalyzer:
     - K-means clustering
     """
 
+    CACHE_MAX_ENTRIES = 20
+
     def __init__(self):
-        self._cache: Dict[str, CentralityMetrics] = {}
+        # Bound cache size to prevent unbounded memory growth across many projects.
+        self._cache: "OrderedDict[str, CentralityMetrics]" = OrderedDict()
 
     def build_graph(
         self,
@@ -109,7 +113,9 @@ class CentralityAnalyzer:
             CentralityMetrics with all computed metrics
         """
         if cache_key and cache_key in self._cache:
-            return self._cache[cache_key]
+            metrics = self._cache[cache_key]
+            self._cache.move_to_end(cache_key)
+            return metrics
 
         G = self.build_graph(nodes, edges)
 
@@ -164,7 +170,11 @@ class CentralityAnalyzer:
         )
 
         if cache_key:
+            if cache_key in self._cache:
+                self._cache.move_to_end(cache_key)
             self._cache[cache_key] = metrics
+            while len(self._cache) > self.CACHE_MAX_ENTRIES:
+                self._cache.popitem(last=False)
 
         return metrics
 

@@ -87,6 +87,9 @@ const defaultFilters: FilterState = {
   searchQuery: '',
 };
 
+// Prevent repeated heavy gap re-analysis calls on every project reopen.
+const gapAutoRefreshAttempted = new Set<string>();
+
 export const useGraphStore = create<GraphStore>((set, get) => ({
   // Initial state
   graphData: null,
@@ -232,7 +235,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
       // v0.9.0: Auto-refresh when no gaps but clusters exist
       // This handles the case where gap analysis wasn't computed yet
-      if (analysis.gaps.length === 0 && analysis.clusters.length > 1) {
+      if (
+        analysis.gaps.length === 0 &&
+        analysis.clusters.length > 1 &&
+        !gapAutoRefreshAttempted.has(projectId)
+      ) {
+        gapAutoRefreshAttempted.add(projectId);
         console.log('[GapAnalysis] No gaps found with multiple clusters, triggering refresh...');
         try {
           analysis = await api.refreshGapAnalysis(projectId);

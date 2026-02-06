@@ -369,6 +369,7 @@ async def get_visualization_data(
     project_id: UUID,
     entity_types: Optional[List[str]] = Query(None),
     max_nodes: int = Query(1000, le=5000),
+    max_edges: int = Query(15000, ge=1000, le=50000),
     database=Depends(get_db),
     current_user: Optional[User] = Depends(require_auth_if_configured),
 ):
@@ -425,11 +426,13 @@ async def get_visualization_data(
                 WHERE project_id = $1
                 AND source_id = ANY($2::uuid[])
                 AND target_id = ANY($2::uuid[])
+                LIMIT $3
             """
             edge_rows = await database.fetch(
                 edges_query,
                 str(project_id),
                 node_ids,
+                max_edges,
             )
 
             edges = [

@@ -83,6 +83,23 @@ ScholaRAG_Graph is an AGENTiGraph-style **Concept-Centric Knowledge Graph** plat
 | Concurrent Users | 50+ | Tested up to 100 |
 | Graph Visualization Smoothness | 60 FPS | 55-60 FPS |
 
+### 1.5 Runtime Stability Focus (v0.11.1)
+
+Render Starter 환경에서 관찰된 `memory limit exceeded` 이슈 대응을 위해,
+아래 3개를 단기 안정화 우선순위로 정의한다.
+
+1. **Request shaping**
+- `/api/graph/visualization/{project_id}`에 edge 상한(`max_edges`)을 적용해
+  고밀도 그래프 응답의 메모리 피크를 제한한다.
+
+2. **In-process cache bounding**
+- centrality cache를 bounded LRU(최대 20개 프로젝트)로 제한해
+  장시간 가동 시 누적 메모리 증가를 억제한다.
+
+3. **Reopen-triggered heavy recomputation guard**
+- 프론트의 gap auto-refresh를 project 단위 single-attempt로 제한해
+  “프로젝트 재진입 시 refresh 재실행” 패턴을 차단한다.
+
 ---
 
 ## 2. Architecture Overview
