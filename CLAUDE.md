@@ -681,6 +681,33 @@ When making architectural changes:
 
 ---
 
+## 📊 v0.14.0 Release Notes
+
+> **Version**: 0.14.0 | **Date**: 2026-02-07
+> **Full Notes**: See `RELEASE_NOTES_v0.14.0.md`
+
+### Critical Fixes
+- **WebGL Crash (A1)**: Three.js resource disposal on unmount + texture/node caching
+- **Hover Jitter (A2)**: Decoupled highlight from nodeThreeObject deps, highlight-only material updates
+- **Broken Labels (A3)**: Filter empty concept names in backend + frontend (6 files)
+- **Panel Overlap (A4)**: Global z-index counter + bring-to-front on click
+- **S2 API Key (A5)**: `get_effective_api_key()` for per-user key with server fallback
+
+### UX Improvements
+- **Auto-Load Papers**: Recommendations auto-fetch on gap expansion
+- **Toast Notifications**: New `Toast.tsx` component with `useToast()` hook
+- **Find Papers Promoted**: Accessible in ≤2 clicks from gap list header
+- **Topic Labels**: 16px sans-serif, concept preview on hover, scale effect
+- **Gaps View**: Wider sidebar (w-72 → w-80), bold badges, gap count, empty state
+
+### Technical
+- `frontend/components/ui/Toast.tsx`: New toast notification system
+- `backend/routers/integrations.py`: `get_effective_api_key()` helper across 8 S2 endpoints
+- `backend/graph/gap_detector.py`: Empty keyword filtering in label generation
+- WebGL cleanup: -200MB memory on 3D view remount
+
+---
+
 ## 📊 v0.12.1 Release Notes
 
 > **Version**: 0.12.1 | **Date**: 2026-02-07

@@ -1248,7 +1248,22 @@ app.add_middleware(
 
 ## 7. Change Log
 
-### Version 0.13.1 (2026-02-07) - Current
+### Version 0.14.0 (2026-02-07) — Stability Hotfix + Gap Analysis UX
+
+**Stability & UX Enhancement Release (5 fixes + 3 features)**:
+
+- **Graph3D**: WebGL resource disposal on unmount, texture/node caching, highlight-only updates (fixes WebGL crash A1)
+- **DraggablePanel**: Global z-index counter with bring-to-front on click (fixes panel overlap A4)
+- **GapPanel**: Auto-load paper recommendations, Find Papers in header, toast feedback (gap discoverability)
+- **Toast**: New notification component (`Toast.tsx`) with success/error/warning/info types and `ToastProvider`
+- **Labels**: Empty keyword filtering in backend (`gap_detector.py`, `graph.py`) and frontend (4 components) (fixes broken labels A3)
+- **S2 API Key**: `get_effective_api_key()` helper — user preference > server env > fallback (fixes unused API key A5)
+- **TopicView**: 16px sans-serif labels, scale hover effect, concept preview on hover (fixes hover jitter A2)
+- **GapsView**: w-80 sidebar (w-72 → w-80), bold strength badges, gap count badge, empty state messaging
+
+Files changed: 12 total — `Graph3D.tsx`, `KnowledgeGraph3D.tsx`, `DraggablePanel.tsx`, `Toast.tsx`, `layout.tsx`, `GapPanel.tsx`, `GapsViewMode.tsx`, `TopicViewMode.tsx`, `ClusterPanel.tsx`, `gap_detector.py`, `graph.py`, `integrations.py`
+
+### Version 0.13.1 (2026-02-07)
 
 **API Key Settings UI Release (1 feature)**:
 
