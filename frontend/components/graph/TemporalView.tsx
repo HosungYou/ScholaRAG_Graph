@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { graphApi } from '@/lib/api';
+import { api } from '@/lib/api';
 
 interface TimelineBucket {
   year: number;
@@ -39,7 +39,7 @@ export function TemporalView({ projectId }: TemporalViewProps) {
       setLoading(true);
       setError(null);
       try {
-        const result = await graphApi.getTemporalTimeline(projectId);
+        const result = await api.getTemporalTimeline(projectId);
         if (!cancelled) {
           setData(result);
         }
