@@ -415,3 +415,92 @@
 
 **Expected Results:**
 - [ ] 404 에러 반환 ("No gap analysis data. Run gap detection first.")
+
+---
+
+## Test Suite 10: Citation Network (v0.13.0)
+
+### Traceability
+
+| Endpoint | Method | Test Cases |
+|----------|--------|------------|
+| `/api/graph/citation/{pid}/build` | POST | TC-10.1, TC-10.2, TC-10.5, TC-10.7 |
+| `/api/graph/citation/{pid}/status` | GET | TC-10.3 |
+| `/api/graph/citation/{pid}/network` | GET | TC-10.4, TC-10.6 |
+
+### TC-10.1: Build Citation Network (Happy Path)
+
+**Steps:**
+1. POST `/api/graph/citation/{project_id}/build` with valid auth token
+2. Poll GET `/api/graph/citation/{project_id}/status` every 2s
+
+**Expected Results:**
+- [ ] 200 응답: `{"message": "Building citation network for N papers", "state": "building"}`
+- [ ] Status transitions: `building` → `completed`
+- [ ] Phase transitions: `matching` → `references`
+- [ ] Progress increases monotonically
+
+### TC-10.2: Auth/Permission Denied
+
+**Steps:**
+1. POST `/api/graph/citation/{project_id}/build` without auth token
+2. POST with token for user without project access
+
+**Expected Results:**
+- [ ] 401 Unauthorized (no token)
+- [ ] 403 Forbidden (no access)
+
+### TC-10.3: Status Endpoint Auth Check
+
+**Steps:**
+1. GET `/api/graph/citation/{project_id}/status` without auth token
+
+**Expected Results:**
+- [ ] 401 Unauthorized
+
+### TC-10.4: Cache Expiry and Rebuild
+
+**Steps:**
+1. Build network successfully
+2. Wait for cache TTL (1 hour) or simulate expiry
+3. GET `/api/graph/citation/{project_id}/network`
+
+**Expected Results:**
+- [ ] 404 반환 ("Citation network not built. Click 'Build Citation Network' first.")
+
+### TC-10.5: Concurrent Build Rejection
+
+**Steps:**
+1. POST build while another build is in progress
+
+**Expected Results:**
+- [ ] 200 응답: `{"message": "Build already in progress", "state": "building"}`
+
+### TC-10.6: DOI-less Papers Skipped
+
+**Steps:**
+1. Project with papers that have no DOIs
+2. POST build
+
+**Expected Results:**
+- [ ] 404 반환 ("No papers with DOIs found.")
+
+### TC-10.7: Max Papers Guard (100 limit)
+
+**Steps:**
+1. Project with 150+ papers with DOIs
+2. POST build
+
+**Expected Results:**
+- [ ] Response `total_papers` ≤ 100
+- [ ] Build completes successfully with truncated set
+
+### TC-10.8: 429 Recovery
+
+**Steps:**
+1. Trigger build with rate limiting causing 429 from S2 API
+
+**Expected Results:**
+- [ ] Client waits for `Retry-After` header duration
+- [ ] Build eventually completes (may be slower)
+- [ ] No crash or permanent failure state
