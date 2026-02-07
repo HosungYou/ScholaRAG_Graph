@@ -1,8 +1,8 @@
 # Test Design Document (TDD)
 
 **Project**: ScholaRAG_Graph
-**Version**: 0.11.2
-**Last Updated**: 2026-02-06  
+**Version**: 0.12.1
+**Last Updated**: 2026-02-07  
 **Status**: Active  
 **Document Type**: Test Design & Verification Specification
 
@@ -71,6 +71,10 @@
 | Gap Panel UX | 리사이즈/UUID 라벨 처리 | Unit (component) | `frontend/__tests__/components/graph/GapPanel.test.tsx` |
 | Chat Dynamic Questions | 그래프 데이터 기반 질문 생성 | Unit (component) | `frontend/__tests__/components/chat/ChatInterface.test.tsx` |
 | Hover Debounce | 50ms 디바운스/ref 기반 최적화 | Unit (component) | `frontend/__tests__/components/graph/Graph3D.test.tsx` |
+| LLM Cluster Labels | LLM 기반 3-5 단어 클러스터 레이블 생성 | Unit/Integration | `backend/tests/test_gap_detector.py` |
+| Paper Recommendations | Semantic Scholar 기반 gap 논문 추천 | Integration | `backend/tests/test_graph_router.py` |
+| Gap Report Export | Markdown 리포트 스트리밍 다운로드 | Integration | `backend/tests/test_graph_router.py` |
+| Temporal Timeline | 연도별 개념 집계 + 누적선 | Integration/Unit | `backend/tests/test_graph_router.py`, `frontend/__tests__/components/graph/TemporalView.test.tsx` |
 
 ---
 
@@ -298,21 +302,104 @@
 
 ---
 
+### 5.9 v0.12.0 Gap Analysis Enhancement Regression Design
+
+#### 5.9.1 Backend
+
+1. LLM cluster label generation
+- 대상: `backend/graph/gap_detector.py` (`_generate_cluster_label`)
+- 목적: LLM 기반 3-5 단어 클러스터 레이블 생성 확인
+- 전략:
+  - LLM 미설정 시 fallback (keyword join) 동작 확인
+  - LLM 타임아웃 (>5초) 시 fallback 동작 확인
+  - 정상 응답 시 레이블 길이 3-60자 검증
+  - `refresh_gap_analysis`에서 `get_llm_provider()` 주입 확인
+
+2. Gap-based paper recommendations
+- 대상: `backend/routers/graph.py` (`get_gap_recommendations`)
+- 목적: Semantic Scholar 검색 결과 정상 반환 확인
+- 전략:
+  - `bridge_candidates[:3] + cluster_a_names[:2] + cluster_b_names[:2]` 쿼리 조합 확인
+  - 프로젝트 소속 검증 (`WHERE id = $1 AND project_id = $2`) 확인
+  - Semantic Scholar 타임아웃 시 빈 papers 배열 반환 (500이 아닌 200) 확인
+  - 존재하지 않는 gap_id 시 404 반환 확인
+
+3. Gap report export
+- 대상: `backend/routers/graph.py` (`export_gap_report`)
+- 목적: Markdown 리포트 생성 및 스트리밍 응답 확인
+- 전략:
+  - 클러스터 테이블 + 갭 섹션 포함 확인
+  - Content-Disposition 헤더에 파일명 포함 확인
+  - gap 데이터 없을 때 404 + 안내 메시지 확인
+  - research_questions, bridge_candidates 포함 확인
+
+#### 5.9.2 Frontend
+
+1. GapPanel paper recommendations UI
+- 대상: `frontend/components/graph/GapPanel.tsx`
+- 목적: "Find Papers" 버튼 동작 및 추천 카드 표시 확인
+- 전략:
+  - 버튼 클릭 시 로딩 스피너 표시 확인
+  - 논문 카드에 title, year, citation_count 표시 확인
+  - DOI/arXiv URL 링크 동작 확인
+  - 빈 결과 시 "No papers found" 메시지 표시 확인
+
+2. GapPanel export button
+- 대상: `frontend/components/graph/GapPanel.tsx`
+- 목적: "Export Report" 버튼 클릭 시 .md 파일 다운로드 확인
+- 전략:
+  - 클릭 시 blob 다운로드 트리거 확인
+  - 다운로드 파일명 `gap_report.md` 확인
+
+### 5.10 v0.12.1 Temporal Timeline Regression Design
+
+#### 5.10.1 Backend
+
+1. Timeline aggregation endpoint
+- 대상: `backend/routers/graph.py` (`get_temporal_timeline`)
+- 목적: 연도별 개념 집계 및 누적 계산 확인
+- 전략:
+  - `first_seen_year` 기반 집계 동작 확인
+  - `first_seen_year` 없을 시 `source_year` fallback 확인
+  - TTL 캐시 히트/미스 동작 확인
+  - `top_concepts` (상위 5개) 반환 확인
+  - `total_with_year`, `total_without_year` 카운트 정확성 확인
+
+#### 5.10.2 Frontend
+
+1. TemporalView D3 timeline
+- 대상: `frontend/components/graph/TemporalView.tsx`
+- 목적: D3.js 바 차트 + 누적선 렌더링 확인
+- 전략:
+  - 연도 버킷 바 차트 렌더링 확인
+  - 누적 개념 라인 오버레이 확인
+  - 호버 시 툴팁 (연도, 개수, 상위 개념) 표시 확인
+  - 데이터 없을 때 빈 상태 메시지 확인
+
+2. KnowledgeGraph3D temporal view integration
+- 대상: `frontend/components/graph/KnowledgeGraph3D.tsx`
+- 목적: 뷰 모드 전환에 TemporalView 포함 확인
+- 전략:
+  - Temporal 탭 선택 시 TemporalView 컴포넌트 렌더링 확인
+  - 다른 뷰 모드 전환 후 복귀 시 정상 동작 확인
+
+---
+
 ## 6. Test Execution Policy
 
 ### Required Local Checks (for release candidates)
 
 ```bash
-# Backend syntax (v0.11.1)
-python3 -m py_compile backend/routers/graph.py backend/routers/chat.py backend/importers/zotero_rdf_importer.py backend/agents/query_execution_agent.py
+# Backend syntax (v0.12.1)
+python3 -m py_compile backend/routers/graph.py backend/graph/gap_detector.py backend/routers/chat.py backend/importers/zotero_rdf_importer.py backend/agents/query_execution_agent.py
 
 # Backend regression tests
 pytest -q backend/tests/test_graph_router.py backend/tests/test_zotero_rdf_importer.py
 pytest -q backend/tests/test_graph_router.py -k MetricsCacheHelpers
 
-# Frontend changed-file lint (v0.11.1)
+# Frontend changed-file lint (v0.12.1)
 cd frontend
-npm run -s lint -- --file components/graph/GapPanel.tsx --file components/graph/Graph3D.tsx --file components/graph/KnowledgeGraph3D.tsx --file components/graph/InsightHUD.tsx --file components/ui/DraggablePanel.tsx
+npm run -s lint -- --file components/graph/GapPanel.tsx --file components/graph/Graph3D.tsx --file components/graph/KnowledgeGraph3D.tsx --file components/graph/InsightHUD.tsx --file components/ui/DraggablePanel.tsx --file components/graph/TemporalView.tsx
 ```
 
 ### Recommended Extended Checks

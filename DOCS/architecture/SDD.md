@@ -1196,7 +1196,16 @@ app.add_middleware(
 
 ## 7. Change Log
 
-### Version 0.12.0 (2026-02-07) - Current
+### Version 0.12.1 (2026-02-07) - Current
+
+**Temporal Timeline View Release (1 feature)**:
+
+- **Temporal Timeline API**: `GET /temporal/{project_id}/timeline` aggregates concepts by `first_seen_year` (fallback `source_year`), returns year buckets with new/cumulative counts and top concepts. TTL cached via `metrics_cache`.
+- **D3 Timeline View**: `TemporalView.tsx` renders D3.js bar chart with year buckets, cumulative line overlay, and hover tooltips. Integrated into `KnowledgeGraph3D.tsx` view mode switching.
+
+Files changed: `backend/routers/graph.py`, `frontend/components/graph/TemporalView.tsx`, `frontend/components/graph/KnowledgeGraph3D.tsx`, `frontend/lib/api.ts`, `frontend/types/graph.ts`
+
+### Version 0.12.0 (2026-02-07)
 
 **Gap Analysis Enhancement Release (3 features)**:
 
