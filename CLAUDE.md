@@ -1,7 +1,7 @@
 # CLAUDE.md - ScholaRAG_Graph Project Instructions
 
-> **Last Updated**: 2026-02-06
-> **Version**: 3.6.0 (v0.11.0 Comprehensive Bug Fix & UX Enhancement)
+> **Last Updated**: 2026-02-07
+> **Version**: 3.7.0 (v0.12.1 Gap Analysis Enhancement)
 
 ## Project Overview
 
@@ -519,14 +519,16 @@ GET  /api/graph/visualization/{project_id}  # Graph visualization (InfraNodus st
 GET  /api/integrations/zotero/collections  # Zotero collections
 
 # InfraNodus Integration (v0.4.0)
-GET  /api/graph/relationships/{id}/evidence    # Relationship evidence
-GET  /api/graph/temporal/{project_id}          # Temporal graph stats
-POST /api/graph/temporal/{project_id}/migrate  # Trigger temporal migration
-POST /api/graph/gaps/{project_id}/refresh      # Refresh gap analysis
-GET  /api/graph/gaps/{project_id}/analysis     # Get gap analysis data
-POST /api/graph/gaps/{id}/generate-bridge      # AI bridge hypotheses
-GET  /api/graph/diversity/{project_id}         # Diversity metrics
-GET  /api/graph/compare/{a}/{b}                # Project comparison
+GET  /api/graph/relationships/{id}/evidence         # Relationship evidence
+GET  /api/graph/temporal/{project_id}               # Temporal graph stats
+POST /api/graph/temporal/{project_id}/migrate       # Trigger temporal migration
+POST /api/graph/gaps/{project_id}/refresh           # Refresh gap analysis
+GET  /api/graph/gaps/{project_id}/analysis          # Get gap analysis data
+POST /api/graph/gaps/{id}/generate-bridge           # AI bridge hypotheses
+GET  /api/graph/gaps/{project_id}/recommendations   # Gap-based paper recommendations (v0.12.1)
+GET  /api/graph/gaps/{project_id}/export            # Export gap report as Markdown (v0.12.1)
+GET  /api/graph/diversity/{project_id}              # Diversity metrics
+GET  /api/graph/compare/{a}/{b}                     # Project comparison
 ```
 
 > **Full API Documentation**: See `DOCS/api/infranodus-api.md` for detailed schemas.
@@ -676,6 +678,23 @@ When making architectural changes:
 | Container Diagram | `DOCS/architecture/diagrams/container-diagram.mmd` | Internal architecture |
 | Overview | `DOCS/architecture/overview.md` | Detailed architecture |
 | ADRs | `DOCS/.meta/decisions/` | Decision records |
+
+---
+
+## 📊 v0.12.1 Release Notes
+
+> **Version**: 0.12.1 | **Date**: 2026-02-07
+> **Full Notes**: See `RELEASE_NOTES_v0.12.1.md`
+
+### Added
+- **LLM-Summarized Cluster Labels**: `POST /api/graph/gaps/{project_id}/label-clusters` generates human-readable labels from top concepts (Phase 1)
+- **Gap-Based Paper Recommendations**: `GET /api/graph/gaps/{project_id}/recommendations` suggests papers bridging structural gaps (Phase 2)
+- **Gap Analysis Report Export**: `GET /api/graph/gaps/{project_id}/export` exports Markdown reports with clusters, gaps, and bridge candidates (Phase 3)
+
+### Technical
+- `backend/routers/graph.py`: 3 new endpoints with LLM-powered labeling and paper ranking
+- `backend/graph/gap_detector.py`: Gap-aware paper scoring using PageRank and embeddings
+- Export format: Markdown with cluster tables, gap sections, and research questions
 
 ---
 
