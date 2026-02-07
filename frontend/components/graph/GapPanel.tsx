@@ -440,7 +440,7 @@ export function GapPanel({
                             className="w-3 h-3"
                             style={{ backgroundColor: getClusterColor(gap.cluster_a_id) }}
                           />
-                          <span className="font-mono text-xs text-ink dark:text-paper truncate max-w-[70px]">
+                          <span className="font-mono text-xs text-ink dark:text-paper truncate max-w-[120px]" title={getClusterLabel(gap.cluster_a_id)}>
                             {getClusterLabel(gap.cluster_a_id)}
                           </span>
                           <ArrowRight className="w-3 h-3 text-muted" />
@@ -448,7 +448,7 @@ export function GapPanel({
                             className="w-3 h-3"
                             style={{ backgroundColor: getClusterColor(gap.cluster_b_id) }}
                           />
-                          <span className="font-mono text-xs text-ink dark:text-paper truncate max-w-[70px]">
+                          <span className="font-mono text-xs text-ink dark:text-paper truncate max-w-[120px]" title={getClusterLabel(gap.cluster_b_id)}>
                             {getClusterLabel(gap.cluster_b_id)}
                           </span>
                         </div>
@@ -472,9 +472,14 @@ export function GapPanel({
                                   ...prev,
                                   [gap.id]: { papers: result.papers, query_used: result.query_used },
                                 }));
-                              } catch (err) {
+                              } catch (err: any) {
                                 console.error('Failed to fetch recommendations:', err);
-                                showToast('Failed to find papers. Check your connection.', 'error');
+                                const status = err?.response?.status || err?.status;
+                                if (status === 429) {
+                                  showToast('Semantic Scholar rate limited. Please wait 60s and try again.', 'error');
+                                } else {
+                                  showToast('Failed to find papers. Check your connection.', 'error');
+                                }
                               } finally {
                                 setLoadingRecsFor(null);
                               }
@@ -494,8 +499,8 @@ export function GapPanel({
 
                       {/* Gap Preview */}
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted truncate flex-1 mr-2">
-                          {gap.cluster_a_names.slice(0, 2).join(', ')} ↔ {gap.cluster_b_names.slice(0, 2).join(', ')}
+                        <p className="text-xs text-muted truncate flex-1 mr-2" title={`${(gap.cluster_a_names || []).join(', ')} ↔ ${(gap.cluster_b_names || []).join(', ')}`}>
+                          {(gap.cluster_a_names?.length ? gap.cluster_a_names.slice(0, 2).join(', ') : getClusterLabel(gap.cluster_a_id))} ↔ {(gap.cluster_b_names?.length ? gap.cluster_b_names.slice(0, 2).join(', ') : getClusterLabel(gap.cluster_b_id))}
                         </p>
                         {isExpandedItem ? (
                           <ChevronUp className="w-3 h-3 text-muted flex-shrink-0" />

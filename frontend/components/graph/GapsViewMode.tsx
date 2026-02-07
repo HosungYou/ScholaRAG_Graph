@@ -205,7 +205,7 @@ export const GapsViewMode = forwardRef<Graph3DRef, GapsViewModeProps>(({
                   <span className="text-xs text-amber-400 font-mono">
                     Gap {currentGapIndex + 1} of {gaps.length}
                   </span>
-                  <span className="text-sm text-white truncate">
+                  <span className="text-sm text-white truncate" title={`${getClusterName(selectedGap.cluster_a_id)} ↔ ${getClusterName(selectedGap.cluster_b_id)}`}>
                     {getClusterName(selectedGap.cluster_a_id)} ↔ {getClusterName(selectedGap.cluster_b_id)}
                   </span>
                 </div>
@@ -279,7 +279,7 @@ export const GapsViewMode = forwardRef<Graph3DRef, GapsViewModeProps>(({
                     {(gap.gap_strength * 100).toFixed(0)}%
                   </span>
                 </div>
-                <div className="text-sm text-white truncate">
+                <div className="text-sm text-white truncate" title={`${getClusterName(gap.cluster_a_id)} ↔ ${getClusterName(gap.cluster_b_id)}`}>
                   {getClusterName(gap.cluster_a_id)} ↔ {getClusterName(gap.cluster_b_id)}
                 </div>
                 <div className="text-xs text-muted mt-1">
