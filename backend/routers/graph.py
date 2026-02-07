@@ -1256,9 +1256,29 @@ async def refresh_gap_analysis(
                 for pe in (gap.potential_edges or [])
             ]
 
-            # Convert concept IDs to strings
-            concept_a_ids_str = [str(cid) for cid in gap.concept_a_ids]
-            concept_b_ids_str = [str(cid) for cid in gap.concept_b_ids]
+            # Convert concept IDs to sets for efficient lookup
+            concept_ids_a = set(str(cid) for cid in gap.concept_a_ids)
+            concept_ids_b = set(str(cid) for cid in gap.concept_b_ids)
+            a_names = [c["name"] for c in concepts if c["id"] in concept_ids_a and c["name"]][:5]
+            b_names = [c["name"] for c in concepts if c["id"] in concept_ids_b and c["name"]][:5]
+
+            # Fallback 1: cluster keywords
+            if not a_names:
+                cl_a = next((cl for cl in analysis.get("clusters", [])
+                             if cl.id == gap.cluster_a_id), None)
+                if cl_a and cl_a.keywords:
+                    a_names = [k for k in cl_a.keywords[:3] if k and k.strip()]
+            if not b_names:
+                cl_b = next((cl for cl in analysis.get("clusters", [])
+                             if cl.id == gap.cluster_b_id), None)
+                if cl_b and cl_b.keywords:
+                    b_names = [k for k in cl_b.keywords[:3] if k and k.strip()]
+
+            # Fallback 2: default label
+            if not a_names:
+                a_names = [f"Cluster {gap.cluster_a_id + 1}"]
+            if not b_names:
+                b_names = [f"Cluster {gap.cluster_b_id + 1}"]
 
             await database.execute(
                 """
@@ -1272,10 +1292,10 @@ async def refresh_gap_analysis(
                 str(project_id),
                 gap.cluster_a_id,
                 gap.cluster_b_id,
-                concept_a_ids_str,
-                concept_b_ids_str,
-                [c["name"] for c in concepts if c["id"] in concept_a_ids_str][:5],
-                [c["name"] for c in concepts if c["id"] in concept_b_ids_str][:5],
+                list(concept_ids_a),
+                list(concept_ids_b),
+                a_names,
+                b_names,
                 gap.gap_strength,
                 gap.bridge_concepts or [],
                 gap.suggested_research_questions or [],
@@ -1433,7 +1453,7 @@ async def generate_bridge_hypotheses(
         await verify_project_access(database, project_id, current_user, "access")
 
         # Get LLM provider
-        from llm.base import get_llm_provider
+        from dependencies import get_llm_provider
 
         llm = get_llm_provider()
 
@@ -3102,7 +3122,7 @@ async def get_relationship_evidence(
             else:
                 # Try LLM-based explanation if available
                 try:
-                    from llm.base import get_llm_provider
+                    from dependencies import get_llm_provider
                     llm = get_llm_provider()
                     if llm:
                         ai_explanation = await llm.generate(
