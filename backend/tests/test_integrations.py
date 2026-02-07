@@ -450,3 +450,94 @@ class TestOpenAlexLive:
         async with OpenAlexClient() as client:
             work = await client.get_work("https://doi.org/10.1038/nature14539")
             assert work is not None
+
+
+# ==================== v0.14.0: get_effective_api_key Tests ====================
+
+# Import the function we're testing
+from routers.integrations import get_effective_api_key
+
+
+@pytest.mark.asyncio
+async def test_get_effective_api_key_user_key_priority():
+    """User API key should take priority over server fallback."""
+    mock_user = MagicMock()
+    mock_user.id = "user-123"
+
+    with patch("routers.integrations.db") as mock_db:
+        mock_db.fetch_one = AsyncMock(return_value={
+            "preferences": {"api_keys": {"semantic_scholar": "user-key-abc"}}
+        })
+
+        result = await get_effective_api_key(mock_user, "semantic_scholar", "server-key-xyz")
+        assert result == "user-key-abc"
+
+
+@pytest.mark.asyncio
+async def test_get_effective_api_key_fallback_when_no_user():
+    """Should return fallback when no user is authenticated."""
+    result = await get_effective_api_key(None, "semantic_scholar", "server-key-xyz")
+    assert result == "server-key-xyz"
+
+
+@pytest.mark.asyncio
+async def test_get_effective_api_key_fallback_when_no_user_key():
+    """Should return fallback when user has no key for this provider."""
+    mock_user = MagicMock()
+    mock_user.id = "user-123"
+
+    with patch("routers.integrations.db") as mock_db:
+        mock_db.fetch_one = AsyncMock(return_value={
+            "preferences": {"api_keys": {}}
+        })
+
+        result = await get_effective_api_key(mock_user, "semantic_scholar", "server-key-xyz")
+        assert result == "server-key-xyz"
+
+
+@pytest.mark.asyncio
+async def test_get_effective_api_key_fallback_when_empty_user_key():
+    """Should return fallback when user key is empty string."""
+    mock_user = MagicMock()
+    mock_user.id = "user-123"
+
+    with patch("routers.integrations.db") as mock_db:
+        mock_db.fetch_one = AsyncMock(return_value={
+            "preferences": {"api_keys": {"semantic_scholar": ""}}
+        })
+
+        result = await get_effective_api_key(mock_user, "semantic_scholar", "server-key-xyz")
+        assert result == "server-key-xyz"
+
+
+@pytest.mark.asyncio
+async def test_get_effective_api_key_fallback_when_no_preferences():
+    """Should return fallback when user profile has no preferences."""
+    mock_user = MagicMock()
+    mock_user.id = "user-123"
+
+    with patch("routers.integrations.db") as mock_db:
+        mock_db.fetch_one = AsyncMock(return_value={"preferences": None})
+
+        result = await get_effective_api_key(mock_user, "semantic_scholar", "server-key-xyz")
+        assert result == "server-key-xyz"
+
+
+@pytest.mark.asyncio
+async def test_get_effective_api_key_fallback_when_db_error():
+    """Should return fallback gracefully when DB query fails."""
+    mock_user = MagicMock()
+    mock_user.id = "user-123"
+
+    with patch("routers.integrations.db") as mock_db:
+        mock_db.fetch_one = AsyncMock(side_effect=Exception("DB connection error"))
+
+        result = await get_effective_api_key(mock_user, "semantic_scholar", "server-key-xyz")
+        assert result == "server-key-xyz"
+
+
+@pytest.mark.asyncio
+async def test_get_effective_api_key_none_fallback():
+    """Should return None when no user and no fallback."""
+    result = await get_effective_api_key(None, "semantic_scholar", None)
+    assert result is None
