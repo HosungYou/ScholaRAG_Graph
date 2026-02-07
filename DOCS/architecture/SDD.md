@@ -42,7 +42,7 @@ ScholaRAG_Graph is an AGENTiGraph-style **Concept-Centric Knowledge Graph** plat
 - Full-text paper search (only metadata and extracted entities)
 - Real-time collaborative editing
 - Mobile native applications
-- Paper recommendation algorithms
+- Paper recommendation algorithms (moved to In Scope v0.12.0 — MVP via Semantic Scholar)
 
 ### 1.3 Key Features
 
@@ -990,6 +990,23 @@ Response: {
     { concept: "peer feedback", relevance: 0.78, reasoning: "..." }
   ]
 }
+
+GET /api/graph/gaps/{project_id}/recommendations
+Query: ?min_strength=0.6&max_recommendations=5
+Response: {
+  recommendations: [{
+    gap_id, cluster_a_names, cluster_b_names, gap_strength,
+    recommended_papers: [{
+      paper_id, title, authors, year, relevance_score, reason
+    }]
+  }]
+}
+
+GET /api/graph/gaps/{project_id}/export
+Query: ?format=markdown
+Response: Markdown file download
+Content-Type: text/markdown
+Content-Disposition: attachment; filename="gap_report_ProjectName.md"
 ```
 
 #### Chat (6-Agent RAG)
@@ -1179,7 +1196,17 @@ app.add_middleware(
 
 ## 7. Change Log
 
-### Version 0.11.1 (2026-02-06) - Current
+### Version 0.12.0 (2026-02-07) - Current
+
+**Gap Analysis Enhancement Release (3 features)**:
+
+- **LLM-Summarized Cluster Labels**: `_generate_cluster_label()` in `GapDetector` uses LLM to generate 3-5 word topic labels from cluster keywords with 5s timeout and keyword-join fallback. LLM injected into `refresh_gap_analysis` via `get_llm_provider()`.
+- **Gap-Based Paper Recommendations**: `GET /gaps/{project_id}/recommendations/{gap_id}` queries Semantic Scholar using bridge candidates and cluster names. 15s timeout, graceful empty-result fallback. Frontend "Find Papers" button in GapPanel with recommendation cards.
+- **Gap Analysis Report Export**: `GET /gaps/{project_id}/export` generates Markdown report with cluster table, structural gaps, bridge candidates, and research questions. StreamingResponse with file attachment. Frontend "Export Report" button in GapPanel.
+
+Files changed: `backend/graph/gap_detector.py`, `backend/routers/graph.py`, `frontend/lib/api.ts`, `frontend/components/graph/GapPanel.tsx`
+
+### Version 0.11.1 (2026-02-06)
 
 **Production Bug Fix Release (5 issues)**:
 
