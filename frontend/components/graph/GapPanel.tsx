@@ -26,6 +26,7 @@ import type { StructuralGap, ConceptCluster, GraphEntity, BridgeHypothesis, Brid
 import { api } from '@/lib/api';
 import { BridgeHypothesisList } from './BridgeHypothesisCard';
 import { DragHandle } from '../ui/DraggablePanel';
+import { useToast } from '../ui/Toast';
 
 /* ============================================================
    GapPanel - VS Design Diverge Style
@@ -98,6 +99,9 @@ export function GapPanel({
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
 
+  // v0.14.0: Toast notifications
+  const { showToast } = useToast();
+
   // v0.11.0: Resizable panel
   const [panelWidth, setPanelWidth] = useState(320);
   const isResizing = useRef(false);
@@ -163,8 +167,9 @@ export function GapPanel({
 
   // Handle gap click
   const handleGapClick = useCallback((gap: StructuralGap) => {
+    const isToggling = gap.id === expandedGapId;
     setSelectedGap(gap);
-    setExpandedGapId(gap.id === expandedGapId ? null : gap.id);
+    setExpandedGapId(isToggling ? null : gap.id);
     onGapSelect(gap);
 
     // Highlight all concepts in both clusters
@@ -174,7 +179,21 @@ export function GapPanel({
       ...gap.bridge_candidates,
     ];
     onHighlightNodes(allConceptIds);
-  }, [expandedGapId, onGapSelect, onHighlightNodes]);
+
+    // v0.14.0: Auto-load paper recommendations when expanding
+    if (!isToggling && !recommendations[gap.id] && loadingRecsFor !== gap.id) {
+      setLoadingRecsFor(gap.id);
+      api.getGapRecommendations(projectId, gap.id, 5)
+        .then(result => {
+          setRecommendations(prev => ({
+            ...prev,
+            [gap.id]: { papers: result.papers, query_used: result.query_used },
+          }));
+        })
+        .catch(err => console.error('Auto-load papers failed:', err))
+        .finally(() => setLoadingRecsFor(null));
+    }
+  }, [expandedGapId, onGapSelect, onHighlightNodes, recommendations, loadingRecsFor, projectId]);
 
   // Handle clear highlights
   const handleClearHighlights = useCallback(() => {
@@ -371,14 +390,24 @@ export function GapPanel({
 
           {/* Gaps List */}
           {gaps.length === 0 ? (
-            <div className="p-8 text-center">
-              <div className="w-16 h-16 flex items-center justify-center bg-surface/5 mx-auto mb-4">
-                <Sparkles className="w-8 h-8 text-muted" />
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 flex items-center justify-center bg-accent-amber/5 border border-accent-amber/20 mx-auto mb-4">
+                <Sparkles className="w-7 h-7 text-accent-amber/50" />
               </div>
               <p className="font-mono text-xs text-muted uppercase tracking-wider mb-2">No Gaps Detected</p>
-              <p className="text-sm text-muted">
-                Import more papers to discover potential research opportunities
+              <p className="text-xs text-muted leading-relaxed mb-4">
+                Gaps appear when your knowledge graph has distinct topic clusters with weak connections between them.
               </p>
+              {onRefresh && (
+                <button
+                  onClick={onRefresh}
+                  disabled={isLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal transition-colors disabled:opacity-50"
+                >
+                  {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  Refresh Analysis
+                </button>
+              )}
             </div>
           ) : (
             <div className="p-3 space-y-2">
@@ -445,6 +474,7 @@ export function GapPanel({
                                 }));
                               } catch (err) {
                                 console.error('Failed to fetch recommendations:', err);
+                                showToast('Failed to find papers. Check your connection.', 'error');
                               } finally {
                                 setLoadingRecsFor(null);
                               }
@@ -629,6 +659,7 @@ export function GapPanel({
                                   }));
                                 } catch (err) {
                                   console.error('Failed to fetch recommendations:', err);
+                                  showToast('Failed to find papers. Check your connection.', 'error');
                                 } finally {
                                   setLoadingRecsFor(null);
                                 }
@@ -682,6 +713,9 @@ export function GapPanel({
                               <p className="text-xs text-muted font-mono mt-1">
                                 Query: &quot;{recommendations[gap.id].query_used}&quot;
                               </p>
+                              <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-ink/5 dark:border-paper/5">
+                                <span className="text-[10px] text-muted/60 font-mono">Powered by Semantic Scholar</span>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -809,9 +843,11 @@ export function GapPanel({
                 try {
                   await api.exportGapReport(projectId);
                   setExportSuccess(true);
+                  showToast('Gap report downloaded successfully', 'success');
                   setTimeout(() => setExportSuccess(false), 3000);
                 } catch (err) {
                   console.error('Failed to export report:', err);
+                  showToast('Failed to export report. Please try again.', 'error');
                 } finally {
                   setIsExporting(false);
                 }

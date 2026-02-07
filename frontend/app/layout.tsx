@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono, Crimson_Pro } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
+import { ToastProvider } from '@/components/ui/Toast';
 
 /* ============================================================
    ScholaRAG Graph - "Editorial Research" Typography Setup
@@ -74,7 +75,9 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="font-body antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          <ToastProvider>{children}</ToastProvider>
+        </Providers>
       </body>
     </html>
   );
