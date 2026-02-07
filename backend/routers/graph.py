@@ -1698,6 +1698,104 @@ async def generate_gap_questions(
 
 
 # ============================================================
+# Gap-Based Paper Recommendations
+# ============================================================
+
+class RecommendedPaperResponse(BaseModel):
+    title: str
+    year: Optional[int] = None
+    citation_count: int = 0
+    url: Optional[str] = None
+    abstract_snippet: str = ""
+
+class GapRecommendationsResponse(BaseModel):
+    gap_id: str
+    query_used: str
+    papers: List[RecommendedPaperResponse]
+
+
+@router.get("/gaps/{project_id}/recommendations/{gap_id}",
+            response_model=GapRecommendationsResponse)
+async def get_gap_recommendations(
+    project_id: UUID,
+    gap_id: UUID,
+    limit: int = Query(5, ge=1, le=10),
+    database=Depends(get_db),
+    current_user: Optional[User] = Depends(require_auth_if_configured),
+):
+    """Get paper recommendations for a structural gap via Semantic Scholar."""
+    await verify_project_access(database, project_id, current_user, "access")
+
+    try:
+        # Fetch gap with project ownership check
+        row = await database.fetchrow(
+            """
+            SELECT bridge_candidates, cluster_a_names, cluster_b_names
+            FROM structural_gaps
+            WHERE id = $1 AND project_id = $2
+            """,
+            str(gap_id),
+            str(project_id),
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Gap not found in this project")
+
+        # Build search query from bridge candidates + cluster names
+        bridge = row["bridge_candidates"] or []
+        a_names = row["cluster_a_names"] or []
+        b_names = row["cluster_b_names"] or []
+
+        query_parts = bridge[:3] + a_names[:2] + b_names[:2]
+        query = " ".join(query_parts) if query_parts else "research gap"
+
+        # Search Semantic Scholar
+        import asyncio
+        from integrations.semantic_scholar import SemanticScholarClient
+
+        papers = []
+        try:
+            async with SemanticScholarClient() as client:
+                results = await asyncio.wait_for(
+                    client.search_papers(query=query, limit=limit),
+                    timeout=15.0,
+                )
+                for p in results:
+                    url = None
+                    if p.doi:
+                        url = f"https://doi.org/{p.doi}"
+                    elif p.arxiv_id:
+                        url = f"https://arxiv.org/abs/{p.arxiv_id}"
+
+                    snippet = ""
+                    if p.abstract:
+                        snippet = p.abstract[:200] + ("..." if len(p.abstract) > 200 else "")
+
+                    papers.append(RecommendedPaperResponse(
+                        title=p.title,
+                        year=p.year,
+                        citation_count=p.citation_count,
+                        url=url,
+                        abstract_snippet=snippet,
+                    ))
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning(f"Semantic Scholar search failed: {e}")
+            # Return empty papers gracefully, not 500
+
+        return GapRecommendationsResponse(
+            gap_id=str(gap_id),
+            query_used=query,
+            papers=papers,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get gap recommendations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get recommendations")
+
+
+# ============================================================
 # Centrality Analysis & Slicing Endpoints
 # ============================================================
 

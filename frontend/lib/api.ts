@@ -534,6 +534,27 @@ class ApiClient {
     );
   }
 
+  // Gap-Based Paper Recommendations (v0.12.0)
+  async getGapRecommendations(
+    projectId: string,
+    gapId: string,
+    limit: number = 5
+  ): Promise<{
+    gap_id: string;
+    query_used: string;
+    papers: Array<{
+      title: string;
+      year: number | null;
+      citation_count: number;
+      url: string | null;
+      abstract_snippet: string;
+    }>;
+  }> {
+    return this.request(
+      `/api/graph/gaps/${projectId}/recommendations/${gapId}?limit=${limit}`
+    );
+  }
+
   // Centrality Analysis
   async getCentrality(
     projectId: string,

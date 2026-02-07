@@ -18,6 +18,7 @@ import {
   Check,
   Hexagon,
   Zap,
+  BookOpen,
 } from 'lucide-react';
 import type { StructuralGap, ConceptCluster, GraphEntity, BridgeHypothesis, BridgeGenerationResult } from '@/types';
 import { api } from '@/lib/api';
@@ -80,6 +81,18 @@ export function GapPanel({
   const [bridgeResults, setBridgeResults] = useState<Record<string, BridgeGenerationResult>>({});
   const [generatingBridgeFor, setGeneratingBridgeFor] = useState<string | null>(null);
   const [showBridgeFor, setShowBridgeFor] = useState<string | null>(null);
+  // v0.12.0: Paper recommendations
+  const [recommendations, setRecommendations] = useState<Record<string, {
+    papers: Array<{
+      title: string;
+      year: number | null;
+      citation_count: number;
+      url: string | null;
+      abstract_snippet: string;
+    }>;
+    query_used: string;
+  }>>({});
+  const [loadingRecsFor, setLoadingRecsFor] = useState<string | null>(null);
 
   // v0.11.0: Resizable panel
   const [panelWidth, setPanelWidth] = useState(320);
@@ -564,6 +577,81 @@ export function GapPanel({
                             </div>
                           </div>
                         )}
+
+                        {/* Paper Recommendations (v0.12.0) */}
+                        <div className="pt-4 mt-4 border-t border-ink/10 dark:border-paper/10">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="font-mono text-xs uppercase tracking-wider text-accent-teal flex items-center gap-1">
+                              <BookOpen className="w-3 h-3" />
+                              Related Papers
+                            </p>
+                            <button
+                              onClick={async () => {
+                                setLoadingRecsFor(gap.id);
+                                try {
+                                  const result = await api.getGapRecommendations(projectId, gap.id, 5);
+                                  setRecommendations(prev => ({
+                                    ...prev,
+                                    [gap.id]: { papers: result.papers, query_used: result.query_used },
+                                  }));
+                                } catch (err) {
+                                  console.error('Failed to fetch recommendations:', err);
+                                } finally {
+                                  setLoadingRecsFor(null);
+                                }
+                              }}
+                              disabled={loadingRecsFor === gap.id}
+                              className="flex items-center gap-1 px-2 py-1 font-mono text-xs bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal transition-colors disabled:opacity-50"
+                            >
+                              {loadingRecsFor === gap.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <BookOpen className="w-3 h-3" />
+                              )}
+                              Find Papers
+                            </button>
+                          </div>
+                          {recommendations[gap.id] && (
+                            <div className="space-y-2">
+                              {recommendations[gap.id].papers.length === 0 ? (
+                                <p className="text-xs text-muted font-mono">No papers found for this gap.</p>
+                              ) : (
+                                recommendations[gap.id].papers.map((paper, pIdx) => (
+                                  <div key={pIdx} className="p-2 bg-surface/5 border border-ink/5 dark:border-paper/5">
+                                    <div className="flex items-start justify-between gap-2">
+                                      {paper.url ? (
+                                        <a
+                                          href={paper.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-xs font-medium text-accent-teal hover:underline leading-tight"
+                                        >
+                                          {paper.title}
+                                        </a>
+                                      ) : (
+                                        <span className="text-xs font-medium text-ink dark:text-paper leading-tight">
+                                          {paper.title}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1 font-mono text-xs text-muted">
+                                      {paper.year && <span>{paper.year}</span>}
+                                      <span>{paper.citation_count} citations</span>
+                                    </div>
+                                    {paper.abstract_snippet && (
+                                      <p className="text-xs text-muted mt-1 line-clamp-2">
+                                        {paper.abstract_snippet}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))
+                              )}
+                              <p className="text-xs text-muted font-mono mt-1">
+                                Query: &quot;{recommendations[gap.id].query_used}&quot;
+                              </p>
+                            </div>
+                          )}
+                        </div>
 
                         {/* Concepts in each cluster */}
                         <div className="grid grid-cols-2 gap-3">
