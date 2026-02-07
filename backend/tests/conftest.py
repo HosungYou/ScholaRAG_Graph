@@ -75,3 +75,61 @@ def sample_edge():
         "properties": {},
         "weight": 1.0,
     }
+
+
+@pytest.fixture
+def mock_user():
+    """Create a mock authenticated user."""
+    from auth.models import User
+    return User(
+        id="test-user-123",
+        email="test@example.com",
+        email_confirmed=True,
+        created_at="2024-01-01T00:00:00Z"
+    )
+
+
+@pytest_asyncio.fixture
+async def async_client_no_auth(app):
+    """Create async HTTP client with no authentication required."""
+    from auth.dependencies import require_auth_if_configured
+    from unittest.mock import patch
+
+    # Patch settings to disable auth requirement at import time
+    with patch("config.settings") as mock_settings:
+        mock_settings.require_auth = False
+
+        # Return None to simulate no user
+        def no_auth():
+            return None
+
+        app.dependency_overrides[require_auth_if_configured] = no_auth
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+
+        app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def async_client_with_auth(app, mock_user):
+    """Create async HTTP client with a mock authenticated user."""
+    from auth.dependencies import require_auth_if_configured
+    from unittest.mock import patch
+
+    # Patch settings but keep require_auth=True (since we have a user)
+    with patch("config.settings") as mock_settings:
+        mock_settings.require_auth = False  # Don't enforce auth since we're providing a user
+
+        # Simply return the mock user, bypassing all auth checks
+        def return_user():
+            return mock_user
+
+        app.dependency_overrides[require_auth_if_configured] = return_user
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+
+        app.dependency_overrides.clear()

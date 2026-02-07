@@ -190,12 +190,15 @@ async def update_api_keys(
         preferences_update: Dict[str, Any] = {}
 
         # Process API keys
+        # Track which keys to delete (empty string = delete)
+        keys_to_delete = []
         if api_keys:
             api_keys_update = {}
             for provider, key in api_keys.items():
                 if key:  # Non-empty string = set key
                     api_keys_update[provider] = key
-                # Empty string = key will be removed via selective merge below
+                else:  # Empty string = mark for deletion
+                    keys_to_delete.append(provider)
 
             if api_keys_update:
                 preferences_update["api_keys"] = api_keys_update
@@ -220,14 +223,15 @@ async def update_api_keys(
         # Merge updates
         merged_prefs = {**current_prefs}
 
-        # Update API keys
-        if "api_keys" in preferences_update:
+        # Update API keys (handle both additions and deletions)
+        if "api_keys" in preferences_update or keys_to_delete:
             current_api_keys = current_prefs.get("api_keys", {})
-            updated_api_keys = {**current_api_keys, **preferences_update["api_keys"]}
+            new_keys = preferences_update.get("api_keys", {})
+            updated_api_keys = {**current_api_keys, **new_keys}
 
             # Remove keys that were set to empty string
-            for provider, key in api_keys.items():
-                if not key and provider in updated_api_keys:
+            for provider in keys_to_delete:
+                if provider in updated_api_keys:
                     del updated_api_keys[provider]
 
             merged_prefs["api_keys"] = updated_api_keys
