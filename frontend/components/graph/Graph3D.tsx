@@ -179,7 +179,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
 }, ref) => {
   const fgRef = useRef<any>(null);
   const textureCache = useRef(new Map<string, THREE.CanvasTexture>());
-  const nodeObjectCache = useRef(new Map<string, THREE.Group>());
+  // v0.14.1: nodeObjectCache removed — it cached grey nodes before cluster colors arrived
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
   // v0.11.0: Debounced hover to prevent jitter
@@ -521,12 +521,6 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   const nodeThreeObject = useCallback((nodeData: unknown) => {
     const node = nodeData as ForceGraphNode;
 
-    // v0.14.0: Return cached object to prevent recreation on every render
-    const cached = nodeObjectCache.current.get(node.id);
-    if (cached) {
-      return cached;
-    }
-
     const group = new THREE.Group();
     group.userData.nodeId = node.id;
     const nodeSize = node.val || 5;
@@ -695,7 +689,6 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       }
     }
 
-    nodeObjectCache.current.set(node.id, group);
     return group;
   }, [bloomEnabled, bloomIntensity, glowSize, createTextSprite, labelVisibility, centralityPercentileMap]);
   // ⚠️ CRITICAL FIX: hoveredNode removed from dependencies to prevent full graph rebuild on hover
@@ -1110,60 +1103,53 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     };
   }, []);
 
-  // v0.14.0: Dispose Three.js resources on unmount to prevent WebGL context exhaustion
+  // v0.14.1: Hardened WebGL cleanup — try-catch prevents INVALID_OPERATION on context change
   useEffect(() => {
     return () => {
-      // Dispose all cached textures
+      // 1. Dispose all cached textures
       textureCache.current.forEach((texture) => {
-        texture.dispose();
+        try { texture.dispose(); } catch { /* context changed */ }
       });
       textureCache.current.clear();
 
-      // Dispose all cached node objects
-      nodeObjectCache.current.forEach((group) => {
-        group.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry?.dispose();
-            if (child.material instanceof THREE.Material) {
-              child.material.dispose();
-            } else if (Array.isArray(child.material)) {
-              child.material.forEach((m) => m.dispose());
-            }
-          }
-          if (child instanceof THREE.Sprite) {
-            child.material.map?.dispose();
-            child.material.dispose();
-          }
-        });
-      });
-      nodeObjectCache.current.clear();
-
-      // Dispose scene resources
+      // 2. Dispose scene resources
       if (fgRef.current) {
-        const scene = fgRef.current.scene();
-        if (scene) {
-          scene.traverse((obj: THREE.Object3D) => {
-            if (obj instanceof THREE.Mesh) {
-              obj.geometry?.dispose();
-              if (obj.material instanceof THREE.Material) {
-                (obj.material as THREE.MeshStandardMaterial).map?.dispose();
-                obj.material.dispose();
-              } else if (Array.isArray(obj.material)) {
-                obj.material.forEach((m: THREE.Material) => {
-                  (m as THREE.MeshStandardMaterial).map?.dispose();
-                  m.dispose();
-                });
-              }
-            }
-            if (obj instanceof THREE.Sprite) {
-              obj.material.map?.dispose();
-              obj.material.dispose();
-            }
-          });
-        }
+        try {
+          const scene = fgRef.current.scene();
+          if (scene) {
+            scene.traverse((obj: THREE.Object3D) => {
+              try {
+                if (obj instanceof THREE.Mesh) {
+                  obj.geometry?.dispose();
+                  if (obj.material instanceof THREE.Material) {
+                    (obj.material as any).map?.dispose();
+                    obj.material.dispose();
+                  } else if (Array.isArray(obj.material)) {
+                    obj.material.forEach((m) => {
+                      try { (m as any).map?.dispose(); m.dispose(); } catch { /* already disposed */ }
+                    });
+                  }
+                }
+                if (obj instanceof THREE.Sprite) {
+                  obj.material.map?.dispose();
+                  obj.material.dispose();
+                }
+              } catch { /* disposed or wrong context */ }
+            });
+          }
+        } catch { /* scene unavailable */ }
+
+        // 3. Renderer explicit disposal
+        try {
+          const renderer = fgRef.current.renderer();
+          if (renderer) {
+            renderer.dispose();
+            renderer.forceContextLoss();
+          }
+        } catch { /* already disposed */ }
       }
 
-      // Clear position cache
+      // 4. Clear position cache
       nodePositionsRef.current.clear();
     };
   }, []);
