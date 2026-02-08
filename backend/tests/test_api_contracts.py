@@ -24,6 +24,7 @@ class ChatResponseSchema(BaseModel):
     """Chat response schema matching frontend ChatResponse interface."""
     conversation_id: str
     answer: str
+    intent: Optional[str] = None
     citations: List[CitationSchema] = []
     highlighted_nodes: List[str] = []
     highlighted_edges: List[str] = []
@@ -73,8 +74,39 @@ class ImportJobResponseSchema(BaseModel):
     message: str
     project_id: Optional[UUID] = None
     stats: Optional[dict] = None
+    reliability_summary: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
+
+
+class GapReproBridgeRelationshipSchema(BaseModel):
+    relationship_id: str
+    source_name: str
+    target_name: str
+    confidence: float
+    hypothesis_title: Optional[str] = None
+    ai_generated: bool
+
+
+class GapReproRecommendationTraceSchema(BaseModel):
+    status: str
+    query_used: str
+    retry_after_seconds: Optional[int] = None
+    error: Optional[str] = None
+    papers: List[dict] = []
+
+
+class GapReproReportSchema(BaseModel):
+    project_id: str
+    gap_id: str
+    generated_at: str
+    gap_strength: float
+    cluster_a_names: List[str]
+    cluster_b_names: List[str]
+    bridge_candidates: List[str]
+    research_questions: List[str]
+    bridge_relationships: List[GapReproBridgeRelationshipSchema]
+    recommendation: GapReproRecommendationTraceSchema
 
 
 class TestChatAPIContract:
@@ -85,6 +117,7 @@ class TestChatAPIContract:
         valid_response = {
             "conversation_id": "conv-123",
             "answer": "Based on the literature review...",
+            "intent": "identify_gaps",
             "citations": [
                 {"id": "paper-1", "label": "Smith et al. 2024", "entity_type": "Paper"},
             ],
@@ -95,6 +128,7 @@ class TestChatAPIContract:
 
         result = ChatResponseSchema(**valid_response)
         assert result.answer == "Based on the literature review..."
+        assert result.intent == "identify_gaps"
         assert len(result.citations) == 1
         assert result.citations[0].entity_type == "Paper"
 
@@ -278,6 +312,7 @@ class TestFrontendBackendAlignment:
         backend_response = {
             "conversation_id": "conv-1",
             "answer": "The answer",
+            "intent": "search",
             "citations": [],
             "highlighted_nodes": [],
             "highlighted_edges": [],
@@ -290,6 +325,7 @@ class TestFrontendBackendAlignment:
         expected_fields = [
             "conversation_id",
             "answer",
+            "intent",
             "citations",
             "highlighted_nodes",
             "highlighted_edges",
@@ -313,3 +349,40 @@ class TestFrontendBackendAlignment:
         result = NodeResponseSchema(**backend_node)
         assert result.id == "n1"
         assert result.entity_type == "Concept"
+
+    def test_gap_repro_report_alignment(self):
+        """
+        Frontend/Backend: Gap reproducibility report contract.
+        """
+        backend_report = {
+            "project_id": "proj-1",
+            "gap_id": "gap-1",
+            "generated_at": "2026-02-08T00:00:00Z",
+            "gap_strength": 0.62,
+            "cluster_a_names": ["self-supervised learning"],
+            "cluster_b_names": ["causal inference"],
+            "bridge_candidates": ["representation learning"],
+            "research_questions": ["How does representation learning bridge SSL and causal inference?"],
+            "bridge_relationships": [
+                {
+                    "relationship_id": "rel-1",
+                    "source_name": "self-supervised learning",
+                    "target_name": "representation learning",
+                    "confidence": 0.74,
+                    "hypothesis_title": "Bridge hypothesis A",
+                    "ai_generated": True,
+                }
+            ],
+            "recommendation": {
+                "status": "success",
+                "query_used": "representation learning self-supervised learning causal inference",
+                "retry_after_seconds": None,
+                "error": None,
+                "papers": [],
+            },
+        }
+
+        result = GapReproReportSchema(**backend_report)
+        assert result.gap_id == "gap-1"
+        assert len(result.bridge_relationships) == 1
+        assert result.recommendation.status == "success"

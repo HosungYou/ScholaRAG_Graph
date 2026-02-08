@@ -124,6 +124,18 @@ psql scholarag_graph < database/migrations/003_graph_tables.sql
 psql scholarag_graph < database/migrations/004_concept_centric.sql
 ```
 
+### Standardized Test Commands
+
+```bash
+# from repository root
+make verify-env
+make test-backend-core
+make test-frontend-core
+make test-frontend-e2e
+make test-frontend-visual
+make test-all-core
+```
+
 ## 🏗️ Architecture
 
 ```

@@ -36,6 +36,7 @@ import fitz  # PyMuPDF
 from database import Database
 from graph.graph_store import GraphStore
 from graph.entity_extractor import EntityExtractor, ExtractedEntity, EntityType
+from graph.entity_resolution import EntityResolutionService
 from graph.relationship_builder import ConceptCentricRelationshipBuilder
 from importers.semantic_chunker import SemanticChunker
 
@@ -128,6 +129,7 @@ class ZoteroRDFImporter:
 
         # Initialize processors
         self.entity_extractor = EntityExtractor(llm_provider=llm_provider)
+        self.entity_resolution = EntityResolutionService(llm_provider=llm_provider)
         self.relationship_builder = ConceptCentricRelationshipBuilder(llm_provider=llm_provider)
         self.semantic_chunker = SemanticChunker()
 
@@ -155,6 +157,28 @@ class ZoteroRDFImporter:
             self.progress_callback(self.progress)
 
         logger.info(f"[{self.progress.status}] {self.progress.progress:.0%} - {self.progress.message}")
+
+    def _accumulate_resolution_stats(self, stats: Dict[str, Any], resolution) -> None:
+        """Accumulate shared entity-resolution metrics into import results."""
+        stats["raw_entities_extracted"] = stats.get("raw_entities_extracted", 0) + int(resolution.raw_entities)
+        stats["entities_after_resolution"] = stats.get("entities_after_resolution", 0) + int(
+            resolution.resolved_entities
+        )
+        stats["merges_applied"] = stats.get("merges_applied", 0) + int(resolution.merged_entities)
+        stats["llm_pairs_reviewed"] = stats.get("llm_pairs_reviewed", 0) + int(
+            getattr(resolution, "llm_pairs_reviewed", 0)
+        )
+        stats["llm_pairs_confirmed"] = stats.get("llm_pairs_confirmed", 0) + int(
+            getattr(resolution, "llm_pairs_confirmed", 0)
+        )
+        stats["potential_false_merge_count"] = stats.get("potential_false_merge_count", 0) + int(
+            getattr(resolution, "potential_false_merge_count", 0)
+        )
+        stats.setdefault("potential_false_merge_samples", [])
+        samples = getattr(resolution, "potential_false_merge_samples", []) or []
+        if samples:
+            stats["potential_false_merge_samples"].extend(samples)
+            stats["potential_false_merge_samples"] = stats["potential_false_merge_samples"][:15]
 
     def _parse_rdf_file(self, rdf_path: Path) -> List[ZoteroItem]:
         """Parse Zotero RDF/XML export file."""
@@ -755,6 +779,14 @@ class ZoteroRDFImporter:
             "papers_imported": 0,
             "pdfs_processed": 0,
             "concepts_extracted": 0,
+            "raw_entities_extracted": 0,
+            "entities_after_resolution": 0,
+            "entities_stored_unique": 0,
+            "merges_applied": 0,
+            "llm_pairs_reviewed": 0,
+            "llm_pairs_confirmed": 0,
+            "potential_false_merge_count": 0,
+            "potential_false_merge_samples": [],
             "relationships_created": 0,
             "chunks_created": 0,
             "errors": [],
@@ -862,25 +894,45 @@ class ZoteroRDFImporter:
                             item=item,
                             research_question=research_question,
                         )
+                        resolved_entities, resolution = await self.entity_resolution.resolve_entities_async(
+                            entities,
+                            use_llm_confirmation=True,
+                        )
+                        self._accumulate_resolution_stats(results, resolution)
 
                         # Track entities per paper for co-occurrence relationships
                         paper_entity_tracker = PaperEntities(paper_id=paper_id)
 
                         # Store entities
-                        for entity in entities:
+                        for entity in resolved_entities:
                             if self.graph_store:
-                                entity_id = await self.graph_store.store_entity(
-                                    project_id=project_id,
-                                    name=entity.name,
-                                    entity_type=entity.entity_type.value,
-                                    description=entity.description or "",
-                                    source_paper_id=paper_id,
-                                    confidence=entity.confidence,
-                                    properties=entity.properties or {},
+                                entity_type = (
+                                    entity.entity_type.value
+                                    if hasattr(entity.entity_type, "value")
+                                    else str(entity.entity_type)
                                 )
+                                canonical_name = self.entity_resolution.canonicalize_name(entity.name)
+                                cache_key = f"{entity_type}:{canonical_name}"
+
+                                if cache_key in self._concept_cache:
+                                    entity_id = self._concept_cache[cache_key]["entity_id"]
+                                    results["merges_applied"] += 1
+                                else:
+                                    entity_id = await self.graph_store.store_entity(
+                                        project_id=project_id,
+                                        name=canonical_name,
+                                        entity_type=entity_type,
+                                        description=entity.description or "",
+                                        source_paper_id=paper_id,
+                                        confidence=entity.confidence,
+                                        properties=entity.properties or {},
+                                    )
+                                    self._concept_cache[cache_key] = {"entity_id": entity_id}
+                                    results["entities_stored_unique"] += 1
 
                                 # Track entity ID for co-occurrence relationships
-                                paper_entity_tracker.entity_ids.append(entity_id)
+                                if entity_id not in paper_entity_tracker.entity_ids:
+                                    paper_entity_tracker.entity_ids.append(entity_id)
 
                                 self.progress.concepts_extracted += 1
                                 results["concepts_extracted"] += 1
@@ -1178,6 +1230,13 @@ class ZoteroRDFImporter:
 
         self._update_progress("complete", 1.0, "Import complete!")
 
+        if results["raw_entities_extracted"] > 0:
+            results["canonicalization_rate"] = (
+                results["merges_applied"] / results["raw_entities_extracted"]
+            )
+        else:
+            results["canonicalization_rate"] = 0.0
+
         return results
 
 
@@ -1266,6 +1325,14 @@ class ZoteroRDFImporter:
             "items_skipped": len(existing_keys),
             "pdfs_processed": 0,
             "concepts_extracted": 0,
+            "raw_entities_extracted": 0,
+            "entities_after_resolution": 0,
+            "entities_stored_unique": 0,
+            "merges_applied": 0,
+            "llm_pairs_reviewed": 0,
+            "llm_pairs_confirmed": 0,
+            "potential_false_merge_count": 0,
+            "potential_false_merge_samples": [],
             "relationships_created": 0,
             "errors": [],
         }
@@ -1319,22 +1386,43 @@ class ZoteroRDFImporter:
                             item=item,
                             research_question=None,  # sync_folder doesn't have research_question
                         )
+                        resolved_entities, resolution = await self.entity_resolution.resolve_entities_async(
+                            entities,
+                            use_llm_confirmation=True,
+                        )
+                        self._accumulate_resolution_stats(results, resolution)
 
                         # Track entities per paper for co-occurrence relationships
                         paper_entity_tracker = PaperEntities(paper_id=paper_id)
 
-                        for entity in entities:
+                        for entity in resolved_entities:
                             if self.graph_store:
-                                entity_id = await self.graph_store.store_entity(
-                                    project_id=project_id,
-                                    name=entity.name,
-                                    entity_type=entity.entity_type.value,
-                                    description=entity.description or "",
-                                    source_paper_id=paper_id,
-                                    confidence=entity.confidence,
-                                    properties=entity.properties or {},
+                                entity_type = (
+                                    entity.entity_type.value
+                                    if hasattr(entity.entity_type, "value")
+                                    else str(entity.entity_type)
                                 )
-                                paper_entity_tracker.entity_ids.append(entity_id)
+                                canonical_name = self.entity_resolution.canonicalize_name(entity.name)
+                                cache_key = f"{entity_type}:{canonical_name}"
+
+                                if cache_key in self._concept_cache:
+                                    entity_id = self._concept_cache[cache_key]["entity_id"]
+                                    results["merges_applied"] += 1
+                                else:
+                                    entity_id = await self.graph_store.store_entity(
+                                        project_id=project_id,
+                                        name=canonical_name,
+                                        entity_type=entity_type,
+                                        description=entity.description or "",
+                                        source_paper_id=paper_id,
+                                        confidence=entity.confidence,
+                                        properties=entity.properties or {},
+                                    )
+                                    self._concept_cache[cache_key] = {"entity_id": entity_id}
+                                    results["entities_stored_unique"] += 1
+
+                                if entity_id not in paper_entity_tracker.entity_ids:
+                                    paper_entity_tracker.entity_ids.append(entity_id)
                                 results["concepts_extracted"] += 1
 
                         # Store paper entities for later co-occurrence building
@@ -1371,6 +1459,13 @@ class ZoteroRDFImporter:
                 logger.warning(f"Co-occurrence relationship building failed: {e}")
 
         self._update_progress("complete", 1.0, "Sync complete!")
+
+        if results["raw_entities_extracted"] > 0:
+            results["canonicalization_rate"] = (
+                results["merges_applied"] / results["raw_entities_extracted"]
+            )
+        else:
+            results["canonicalization_rate"] = 0.0
         
         return results
 

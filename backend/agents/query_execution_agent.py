@@ -6,6 +6,7 @@ Supports all task types from TaskPlanningAgent: search, retrieve, analyze, compa
 """
 
 import logging
+import json
 from typing import Any, Optional
 from pydantic import BaseModel
 
@@ -18,7 +19,7 @@ class QueryResult(BaseModel):
     task_index: int
     success: bool
     data: Any = None
-    error: str | None = None
+    error: Optional[str] = None
 
 
 class ExecutionResult(BaseModel):
@@ -42,6 +43,77 @@ class QueryExecutionAgent:
         
         # Initialize hierarchical retriever for chunk-based search
         self.hierarchical_retriever = HierarchicalRetriever(graph_store=graph_store) if graph_store else None
+
+    def _extract_confidence(self, item: dict) -> Optional[float]:
+        """
+        Extract normalized confidence score from result items.
+
+        Priority:
+        1. item["confidence"]
+        2. item["properties"]["confidence"]
+        3. item["weight"]
+        4. item["score"] (chunk/vector search)
+        """
+        if not isinstance(item, dict):
+            return None
+
+        candidate = item.get("confidence")
+        if isinstance(candidate, (int, float)):
+            return float(candidate)
+
+        props = item.get("properties")
+        if isinstance(props, str):
+            try:
+                props = json.loads(props)
+            except Exception:
+                props = None
+        if isinstance(props, dict):
+            props_conf = props.get("confidence")
+            if isinstance(props_conf, (int, float)):
+                return float(props_conf)
+
+        for key in ("weight", "score"):
+            value = item.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+
+        return None
+
+    def _apply_low_trust_filter(self, items: list, params: dict) -> list:
+        """
+        Optionally filter out low-trust results.
+
+        Params:
+        - exclude_low_trust: bool (default False)
+        - min_confidence: float (default 0.6 when exclude_low_trust=True)
+        """
+        if not isinstance(items, list):
+            return items
+
+        exclude_low_trust = bool(params.get("exclude_low_trust", False))
+        if not exclude_low_trust:
+            return items
+
+        min_confidence = float(params.get("min_confidence", 0.6))
+        filtered: list = []
+        dropped = 0
+
+        for item in items:
+            confidence = self._extract_confidence(item) if isinstance(item, dict) else None
+            if confidence is not None and confidence < min_confidence:
+                dropped += 1
+                continue
+            filtered.append(item)
+
+        if dropped > 0:
+            logger.info(
+                "Low-trust filter applied: dropped %s/%s items (min_confidence=%.2f)",
+                dropped,
+                len(items),
+                min_confidence,
+            )
+
+        return filtered
 
     async def execute(self, task_plan) -> ExecutionResult:
         """
@@ -144,18 +216,20 @@ class QueryExecutionAgent:
                     limit=limit,
                 )
                 # Convert to serializable format
-                return [
+                chunk_results = [
                     {
                         "chunk_id": r.chunk_id,
                         "text": r.text,
                         "summary": r.summary,
                         "section_type": r.section_type,
                         "score": r.score,
+                        "confidence": r.score,
                         "paper_id": r.paper_id,
                         "parent_context": r.parent_context.text if r.parent_context else None,
                     }
                     for r in retrieval_result.results
                 ]
+                return self._apply_low_trust_filter(chunk_results, params)
             except Exception as e:
                 logger.warning(f"Hierarchical retrieval failed: {e}")
                 # Fall through to entity search
@@ -169,7 +243,7 @@ class QueryExecutionAgent:
                     entity_types=entity_types,
                     limit=limit,
                 )
-                return results
+                return self._apply_low_trust_filter(results, params)
             except Exception as e:
                 logger.warning(f"Graph store search failed: {e}")
 
@@ -186,13 +260,30 @@ class QueryExecutionAgent:
             try:
                 entity = await self.graph_store.get_entity(entity_id)
                 if entity:
+                    if bool(params.get("exclude_low_trust", False)):
+                        min_confidence = float(params.get("min_confidence", 0.6))
+                        confidence = self._extract_confidence(entity)
+                        if confidence is not None and confidence < min_confidence:
+                            return {
+                                "status": "filtered_low_trust",
+                                "entity_id": entity_id,
+                                "confidence": confidence,
+                                "min_confidence": min_confidence,
+                            }
                     return entity
             except Exception as e:
                 logger.warning(f"Entity retrieval failed: {e}")
 
         # Fallback: search by query
         if self.graph_store and query and project_id:
-            results = await self._execute_search({"query": query, "limit": 1, "project_id": project_id})
+            fallback_params = {
+                "query": query,
+                "limit": 1,
+                "project_id": project_id,
+                "exclude_low_trust": params.get("exclude_low_trust", False),
+                "min_confidence": params.get("min_confidence", 0.6),
+            }
+            results = await self._execute_search(fallback_params)
             if results:
                 return results[0]
 
@@ -358,6 +449,8 @@ class QueryExecutionAgent:
         Queries structural_gaps and entities tables for real gap data.
         """
         project_id = params.get("project_id")
+        exclude_low_trust = bool(params.get("exclude_low_trust", False))
+        min_confidence = float(params.get("min_confidence", 0.6))
 
         gaps = {
             "identified_gaps": [],
@@ -425,7 +518,9 @@ class QueryExecutionAgent:
                 SELECT e.name, e.entity_type::text as entity_type,
                        COUNT(r.id) as rel_count
                 FROM entities e
-                LEFT JOIN relationships r ON (r.source_id = e.id OR r.target_id = e.id)
+                LEFT JOIN relationships r
+                    ON (r.source_id = e.id OR r.target_id = e.id)
+                    AND ($2::boolean = false OR COALESCE(r.weight, 1.0) >= $3)
                 WHERE e.project_id = $1
                   AND e.entity_type::text IN ('Concept', 'Method', 'Finding')
                 GROUP BY e.id, e.name, e.entity_type
@@ -434,6 +529,8 @@ class QueryExecutionAgent:
                 LIMIT 10
                 """,
                 str(project_id),
+                exclude_low_trust,
+                min_confidence,
             )
 
             for row in underexplored_rows:
@@ -448,7 +545,9 @@ class QueryExecutionAgent:
                 """
                 SELECT e.name, COUNT(r.id) as usage_count
                 FROM entities e
-                LEFT JOIN relationships r ON (r.source_id = e.id OR r.target_id = e.id)
+                LEFT JOIN relationships r
+                    ON (r.source_id = e.id OR r.target_id = e.id)
+                    AND ($2::boolean = false OR COALESCE(r.weight, 1.0) >= $3)
                 WHERE e.project_id = $1
                   AND e.entity_type::text = 'Method'
                 GROUP BY e.id, e.name
@@ -456,6 +555,8 @@ class QueryExecutionAgent:
                 LIMIT 5
                 """,
                 str(project_id),
+                exclude_low_trust,
+                min_confidence,
             )
 
             for row in method_rows:
@@ -493,6 +594,10 @@ class QueryExecutionAgent:
             gaps["status"] = "analysis_complete"
             gaps["total_gaps"] = len(gaps["identified_gaps"])
             gaps["total_underexplored"] = len(gaps["underexplored_concepts"])
+            gaps["trust_filter"] = {
+                "exclude_low_trust": exclude_low_trust,
+                "min_confidence": min_confidence,
+            }
 
         except Exception as e:
             logger.error(f"Gap analysis query failed: {e}")

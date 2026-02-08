@@ -61,6 +61,7 @@ CRITICAL RULES:
 - If research gap data is provided in the context below, you MUST analyze and present it. NEVER claim the graph is unavailable or not initialized when data is present.
 - Base your response ONLY on the provided data. Do not fabricate error messages.
 - If data shows gaps between clusters, describe them clearly with the cluster names.
+- If evidence is sparse, add a short 'Reliability note' warning in the final conclusion.
 
 Apply step-by-step reasoning to answer the user's question.
 When relevant, identify research gaps - areas where concept clusters have weak connections.
@@ -106,6 +107,28 @@ Respond with JSON:
     def __init__(self, llm_provider=None, db_connection=None):
         self.llm = llm_provider
         self.db = db_connection
+
+    def _build_provenance_warning(self, execution_result) -> Optional[str]:
+        """
+        Build a reliability warning when provenance/evidence signals are weak.
+        """
+        results = execution_result.results or []
+        successful_with_data = sum(1 for r in results if r.success and r.data)
+        signal_count = len(execution_result.nodes_accessed) + len(execution_result.edges_traversed)
+
+        if successful_with_data == 0:
+            return (
+                "Reliability note: No directly supporting graph evidence was retrieved for this answer. "
+                "Treat this as exploratory guidance."
+            )
+
+        if signal_count < 3:
+            return (
+                "Reliability note: Evidence coverage is limited (few supporting nodes/edges). "
+                "Please verify with additional sources."
+            )
+
+        return None
 
     async def reason(
         self,
@@ -237,7 +260,14 @@ Data: {results_summary[:3]}"""
 
             return ReasoningResult(
                 steps=steps,
-                final_conclusion=data.get("final_conclusion", "Analysis complete."),
+                final_conclusion=(
+                    data.get("final_conclusion", "Analysis complete.")
+                    + (
+                        "\n\n" + warning
+                        if (warning := self._build_provenance_warning(execution_result))
+                        else ""
+                    )
+                ),
                 confidence=float(data.get("confidence", 0.7)),
                 supporting_nodes=execution_result.nodes_accessed,
                 supporting_edges=execution_result.edges_traversed,
@@ -358,7 +388,14 @@ Data: {results_summary[:3]}"""
 
         return ReasoningResult(
             steps=steps,
-            final_conclusion=conclusion,
+            final_conclusion=(
+                conclusion
+                + (
+                    "\n\n" + warning
+                    if (warning := self._build_provenance_warning(execution_result))
+                    else ""
+                )
+            ),
             confidence=confidence,
             supporting_nodes=execution_result.nodes_accessed,
             supporting_edges=execution_result.edges_traversed,

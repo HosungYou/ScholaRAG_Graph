@@ -35,6 +35,8 @@ interface EdgeContextModalProps {
   sourceName?: string;
   targetName?: string;
   relationshipType?: string;
+  relationshipConfidence?: number;
+  isLowTrust?: boolean;
 }
 
 // Highlight text that matches entity names
@@ -256,6 +258,8 @@ export function EdgeContextModal({
   sourceName: initialSourceName,
   targetName: initialTargetName,
   relationshipType: initialRelationshipType,
+  relationshipConfidence,
+  isLowTrust = false,
 }: EdgeContextModalProps) {
   const [evidence, setEvidence] = useState<RelationshipEvidence | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -395,6 +399,8 @@ export function EdgeContextModal({
   const sourceName = evidence?.source_name || initialSourceName || 'Source';
   const targetName = evidence?.target_name || initialTargetName || 'Target';
   const relationshipType = evidence?.relationship_type || initialRelationshipType || 'RELATED_TO';
+  const shouldShowReliabilityWarning =
+    isLowTrust || (!!evidence && evidence.evidence_chunks.length === 0);
 
   return (
     <div
@@ -432,6 +438,11 @@ export function EdgeContextModal({
               >
                 Relationship Evidence
               </span>
+              {typeof relationshipConfidence === 'number' && (
+                <span className="px-2 py-0.5 font-mono text-xs bg-accent-teal/10 text-accent-teal">
+                  {Math.round(relationshipConfidence * 100)}% confidence
+                </span>
+              )}
             </div>
 
             {/* Relationship visualization */}
@@ -491,6 +502,15 @@ export function EdgeContextModal({
 
           {!isLoading && !error && evidence && (
             <>
+              {shouldShowReliabilityWarning && (
+                <div className="bg-accent-amber/10 border border-accent-amber/20 p-4 mb-4">
+                  <p className="text-sm text-accent-amber">
+                    Reliability warning: this relationship has limited or low-confidence support.
+                    Verify with cited passages before using it as strong evidence.
+                  </p>
+                </div>
+              )}
+
               {/* v0.9.0: Error code based user-friendly messages */}
               {evidence.error_code === 'table_missing' && (
                 <div className="bg-accent-amber/10 border border-accent-amber/20 p-4 mb-4">

@@ -151,6 +151,7 @@ export interface Citation {
 export interface ChatResponse {
   conversation_id: string;
   answer: string;
+  intent?: string;
   citations: Citation[];
   highlighted_nodes: string[];
   highlighted_edges: string[];
@@ -185,17 +186,31 @@ export interface ImportCheckpoint {
 export interface ImportJob {
   job_id: string;
   // BUG-028: Added 'interrupted' status for jobs killed by server restart
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'interrupted';
+  status:
+    | 'pending'
+    | 'running'
+    | 'validating'
+    | 'extracting'
+    | 'processing'
+    | 'building_graph'
+    | 'completed'
+    | 'failed'
+    | 'interrupted';
   progress: number;
   current_step?: string;
   total_steps?: number;
   completed_steps?: number;
   message?: string;
   error?: string;
+  project_id?: string;
+  stats?: Record<string, unknown>;
+  reliability_summary?: ImportReliabilitySummary;
   result?: {
-    project_id: string;
-    nodes_created: number;
-    edges_created: number;
+    project_id?: string;
+    nodes_created?: number;
+    edges_created?: number;
+    reliability_summary?: ImportReliabilitySummary;
+    stats?: Record<string, unknown>;
   };
   // BUG-028 Extension: Checkpoint for resume support
   checkpoint?: ImportCheckpoint;
@@ -208,6 +223,30 @@ export interface ImportJob {
     checkpoint?: ImportCheckpoint;
     [key: string]: unknown;
   };
+}
+
+export interface ImportReliabilitySummary {
+  raw_entities_extracted: number;
+  entities_after_resolution: number;
+  merges_applied: number;
+  canonicalization_rate: number;
+  llm_pairs_reviewed: number;
+  llm_pairs_confirmed: number;
+  llm_confirmation_accept_rate: number;
+  potential_false_merge_count: number;
+  potential_false_merge_ratio: number;
+  potential_false_merge_samples: Array<{
+    entity_type: string;
+    context_bucket: string;
+    left: string;
+    right: string;
+    similarity: number;
+  }>;
+  relationships_created: number;
+  evidence_backed_relationships: number;
+  provenance_coverage: number;
+  low_trust_edges: number;
+  low_trust_edge_ratio: number;
 }
 
 // BUG-028 Extension: Resume info response
@@ -296,6 +335,42 @@ export interface GapAnalysisResult {
   centrality_metrics: CentralityMetrics[];
   total_concepts: number;
   total_relationships: number;
+}
+
+export interface GapReproBridgeRelationship {
+  relationship_id: string;
+  source_name: string;
+  target_name: string;
+  confidence: number;
+  hypothesis_title?: string | null;
+  ai_generated: boolean;
+}
+
+export interface GapReproRecommendationTrace {
+  status: 'success' | 'rate_limited' | 'timeout' | 'failed' | string;
+  query_used: string;
+  retry_after_seconds?: number | null;
+  error?: string | null;
+  papers: Array<{
+    title: string;
+    year: number | null;
+    citation_count: number;
+    url: string | null;
+    abstract_snippet: string;
+  }>;
+}
+
+export interface GapReproReport {
+  project_id: string;
+  gap_id: string;
+  generated_at: string;
+  gap_strength: number;
+  cluster_a_names: string[];
+  cluster_b_names: string[];
+  bridge_candidates: string[];
+  research_questions: string[];
+  bridge_relationships: GapReproBridgeRelationship[];
+  recommendation: GapReproRecommendationTrace;
 }
 
 // Extended Entity Type for Concept-Centric Design

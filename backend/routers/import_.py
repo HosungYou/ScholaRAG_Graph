@@ -259,6 +259,7 @@ class ImportJobResponse(BaseModel):
     project_id: Optional[UUID] = None
     stats: Optional[dict] = None
     result: Optional[dict] = None  # Contains nodes_created, edges_created for frontend
+    reliability_summary: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
     # UI-002: Added metadata for interrupted jobs display (project_name, checkpoint)
@@ -276,6 +277,70 @@ class ImportValidationResponse(BaseModel):
     chroma_db_found: bool
     errors: list = []
     warnings: list = []
+
+
+def _build_reliability_summary(stats: Optional[dict]) -> dict:
+    """
+    Build a normalized reliability summary from importer stats.
+
+    This keeps API responses consistent across ScholaRAG/PDF/Zotero import paths.
+    """
+    stats = stats or {}
+
+    raw_entities = int(stats.get("raw_entities_extracted", 0) or 0)
+    resolved_entities = int(stats.get("entities_after_resolution", 0) or 0)
+    merges_applied = int(stats.get("merges_applied", 0) or 0)
+    relationships_created = int(stats.get("relationships_created", 0) or 0)
+    low_trust_edges = int(stats.get("low_trust_edges", 0) or 0)
+    evidence_backed_relationships = int(stats.get("evidence_backed_relationships", 0) or 0)
+    llm_pairs_reviewed = int(stats.get("llm_pairs_reviewed", 0) or 0)
+    llm_pairs_confirmed = int(stats.get("llm_pairs_confirmed", 0) or 0)
+    potential_false_merge_count = int(stats.get("potential_false_merge_count", 0) or 0)
+    potential_false_merge_samples = stats.get("potential_false_merge_samples", [])
+    if not isinstance(potential_false_merge_samples, list):
+        potential_false_merge_samples = []
+    potential_false_merge_samples = potential_false_merge_samples[:10]
+
+    if "canonicalization_rate" in stats and stats.get("canonicalization_rate") is not None:
+        canonicalization_rate = float(stats.get("canonicalization_rate", 0.0) or 0.0)
+    elif raw_entities > 0:
+        canonicalization_rate = merges_applied / raw_entities
+    else:
+        canonicalization_rate = 0.0
+
+    if relationships_created > 0 and evidence_backed_relationships > 0:
+        provenance_coverage = evidence_backed_relationships / relationships_created
+    elif relationships_created > 0:
+        # Conservative default when evidence counters are unavailable.
+        provenance_coverage = 0.0
+    else:
+        provenance_coverage = 1.0
+
+    low_trust_ratio = (low_trust_edges / relationships_created) if relationships_created > 0 else 0.0
+    llm_confirmation_accept_rate = (
+        llm_pairs_confirmed / llm_pairs_reviewed if llm_pairs_reviewed > 0 else 0.0
+    )
+    potential_false_merge_ratio = (
+        potential_false_merge_count / merges_applied if merges_applied > 0 else 0.0
+    )
+
+    return {
+        "raw_entities_extracted": raw_entities,
+        "entities_after_resolution": resolved_entities,
+        "merges_applied": merges_applied,
+        "canonicalization_rate": canonicalization_rate,
+        "llm_pairs_reviewed": llm_pairs_reviewed,
+        "llm_pairs_confirmed": llm_pairs_confirmed,
+        "llm_confirmation_accept_rate": llm_confirmation_accept_rate,
+        "potential_false_merge_count": potential_false_merge_count,
+        "potential_false_merge_ratio": potential_false_merge_ratio,
+        "potential_false_merge_samples": potential_false_merge_samples,
+        "relationships_created": relationships_created,
+        "evidence_backed_relationships": evidence_backed_relationships,
+        "provenance_coverage": provenance_coverage,
+        "low_trust_edges": low_trust_edges,
+        "low_trust_edge_ratio": low_trust_ratio,
+    }
 
 
 # Job store for persistent tracking
@@ -763,12 +828,14 @@ async def _run_scholarag_import(
         )
 
         if result["success"]:
+            reliability_summary = _build_reliability_summary(result.get("stats", {}))
             # Update job with results
             _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
             _import_jobs[job_id]["progress"] = 1.0
             _import_jobs[job_id]["message"] = "Import completed successfully!"
             _import_jobs[job_id]["project_id"] = result.get("project_id")
             _import_jobs[job_id]["stats"] = result.get("stats", {})
+            _import_jobs[job_id]["reliability_summary"] = reliability_summary
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
             logger.info(f"[Import {job_id}] Completed successfully: {result.get('stats', {})}")
@@ -787,6 +854,9 @@ async def _run_scholarag_import(
                 "concepts_extracted": 0,
                 "relationships_created": 0,
             }
+            _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary(
+                _import_jobs[job_id]["stats"]
+            )
 
             logger.error(f"[Import {job_id}] Failed: {sanitized_error}")
 
@@ -804,6 +874,9 @@ async def _run_scholarag_import(
             "concepts_extracted": 0,
             "relationships_created": 0,
         }
+        _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary(
+            _import_jobs[job_id]["stats"]
+        )
 
 
 def _sanitize_error_message(error: str) -> str:
@@ -877,6 +950,11 @@ async def get_import_status(job_id: str):
             project_id=db_job.result.get("project_id") if db_job.result else None,
             stats=db_job.result.get("stats") if db_job.result else None,
             result=result_data,
+            reliability_summary=(
+                db_job.result.get("reliability_summary")
+                if db_job.result and db_job.result.get("reliability_summary")
+                else _build_reliability_summary(db_job.result.get("stats") if db_job.result else None)
+            ),
             created_at=db_job.created_at,
             updated_at=db_job.updated_at,
         )
@@ -932,6 +1010,11 @@ async def list_import_jobs(
             message=job.message,
             project_id=job.result.get("project_id") if job.result else None,
             stats=job.result.get("stats") if job.result else None,
+            reliability_summary=(
+                job.result.get("reliability_summary")
+                if job.result and job.result.get("reliability_summary")
+                else _build_reliability_summary(job.result.get("stats") if job.result else None)
+            ),
             created_at=job.created_at,
             updated_at=job.updated_at,
             # UI-002: Include metadata for frontend (project_name, checkpoint)
@@ -1003,6 +1086,7 @@ class PDFImportResponse(BaseModel):
     message: str
     filename: str
     project_id: Optional[str] = None
+    reliability_summary: Optional[dict] = None
 
 
 @router.post("/pdf", response_model=PDFImportResponse)
@@ -1184,11 +1268,13 @@ async def _run_pdf_import(
         )
 
         if result["success"]:
+            reliability_summary = _build_reliability_summary(result.get("stats", {}))
             _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
             _import_jobs[job_id]["progress"] = 1.0
             _import_jobs[job_id]["message"] = "PDF import completed successfully!"
             _import_jobs[job_id]["project_id"] = result.get("project_id")
             _import_jobs[job_id]["stats"] = result.get("stats", {})
+            _import_jobs[job_id]["reliability_summary"] = reliability_summary
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
             await progress_updater.flush_and_close()
@@ -1202,6 +1288,7 @@ async def _run_pdf_import(
                 result={
                     "project_id": str(result.get("project_id")) if result.get("project_id") else None,
                     "stats": result.get("stats", {}),
+                    "reliability_summary": reliability_summary,
                 },
             )
 
@@ -1212,6 +1299,7 @@ async def _run_pdf_import(
 
             _import_jobs[job_id]["status"] = ImportStatus.FAILED
             _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+            _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary({})
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
             await progress_updater.flush_and_close()
@@ -1232,6 +1320,7 @@ async def _run_pdf_import(
 
         _import_jobs[job_id]["status"] = ImportStatus.FAILED
         _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+        _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary({})
         _import_jobs[job_id]["updated_at"] = datetime.now()
 
         await progress_updater.flush_and_close()
@@ -1411,11 +1500,13 @@ async def _run_multiple_pdf_import(
         )
 
         if result["success"]:
+            reliability_summary = _build_reliability_summary(result.get("stats", {}))
             _import_jobs[job_id]["status"] = ImportStatus.COMPLETED
             _import_jobs[job_id]["progress"] = 1.0
             _import_jobs[job_id]["message"] = f"Imported {result['stats']['papers_imported']} PDFs successfully!"
             _import_jobs[job_id]["project_id"] = result.get("project_id")
             _import_jobs[job_id]["stats"] = result.get("stats", {})
+            _import_jobs[job_id]["reliability_summary"] = reliability_summary
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
             await progress_updater.flush_and_close()
@@ -1429,6 +1520,7 @@ async def _run_multiple_pdf_import(
                 result={
                     "project_id": str(result.get("project_id")) if result.get("project_id") else None,
                     "stats": result.get("stats", {}),
+                    "reliability_summary": reliability_summary,
                 },
             )
 
@@ -1439,6 +1531,7 @@ async def _run_multiple_pdf_import(
 
             _import_jobs[job_id]["status"] = ImportStatus.FAILED
             _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+            _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary({})
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
             await progress_updater.flush_and_close()
@@ -1459,6 +1552,7 @@ async def _run_multiple_pdf_import(
 
         _import_jobs[job_id]["status"] = ImportStatus.FAILED
         _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+        _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary({})
         _import_jobs[job_id]["updated_at"] = datetime.now()
 
         await progress_updater.flush_and_close()
@@ -1524,6 +1618,7 @@ class ZoteroImportResponse(BaseModel):
     message: str
     items_count: int = 0
     project_id: Optional[str] = None
+    reliability_summary: Optional[dict] = None
 
 
 @router.post("/zotero/validate", response_model=ZoteroValidationResponse)
@@ -1876,6 +1971,7 @@ async def _run_zotero_import(
         if result.get("success"):
             concepts_count = result.get("concepts_extracted", 0)
             relationships_count = result.get("relationships_created", 0)
+            reliability_summary = _build_reliability_summary(result)
 
             await checkpoint_saver.flush_and_close()
             await progress_updater.flush_and_close()
@@ -1889,14 +1985,21 @@ async def _run_zotero_import(
                 "pdfs_processed": result.get("pdfs_processed", 0),
                 "concepts_extracted": concepts_count,
                 "relationships_created": relationships_count,
+                "raw_entities_extracted": result.get("raw_entities_extracted", 0),
+                "entities_after_resolution": result.get("entities_after_resolution", 0),
+                "entities_stored_unique": result.get("entities_stored_unique", 0),
+                "merges_applied": result.get("merges_applied", 0),
+                "canonicalization_rate": result.get("canonicalization_rate", 0.0),
                 # Frontend-compatible field names
                 "nodes_created": concepts_count,
                 "edges_created": relationships_count,
             }
+            _import_jobs[job_id]["reliability_summary"] = reliability_summary
             _import_jobs[job_id]["result"] = {
                 "project_id": str(result.get("project_id")) if result.get("project_id") else None,
                 "nodes_created": concepts_count,
                 "edges_created": relationships_count,
+                "reliability_summary": reliability_summary,
             }
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
@@ -1911,6 +2014,7 @@ async def _run_zotero_import(
                     "stats": _import_jobs[job_id]["stats"],
                     "nodes_created": concepts_count,
                     "edges_created": relationships_count,
+                    "reliability_summary": reliability_summary,
                 },
             )
 
@@ -1925,6 +2029,7 @@ async def _run_zotero_import(
 
             _import_jobs[job_id]["status"] = ImportStatus.FAILED
             _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+            _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary({})
             _import_jobs[job_id]["updated_at"] = datetime.now()
 
             # Update JobStore with failure
@@ -1946,6 +2051,7 @@ async def _run_zotero_import(
 
         _import_jobs[job_id]["status"] = ImportStatus.FAILED
         _import_jobs[job_id]["message"] = f"Import failed: {sanitized_error}"
+        _import_jobs[job_id]["reliability_summary"] = _build_reliability_summary({})
         _import_jobs[job_id]["updated_at"] = datetime.now()
 
         # Update JobStore with exception

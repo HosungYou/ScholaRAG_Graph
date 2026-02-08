@@ -150,9 +150,9 @@ describe('Graph3D Configuration', () => {
 
   describe('Camera zoom bucketing (v0.10.0)', () => {
     it('should bucket zoom to 50-unit increments', () => {
-      // Tests the new bucket-based zoom from PR-D
+      // Tests nearest-50 bucketing (Math.round(distance / 50) * 50)
       const distances = [123, 150, 175, 200, 487, 501, 549];
-      const expected = [150, 150, 200, 200, 500, 500, 550];
+      const expected = [100, 150, 200, 200, 500, 500, 550];
 
       distances.forEach((distance, i) => {
         const bucket = Math.round(distance / 50) * 50;

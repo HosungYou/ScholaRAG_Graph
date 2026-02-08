@@ -1,0 +1,310 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`KnowledgeGraph3D snapshots matches 3D view shell snapshot 1`] = `
+<div
+  class="relative w-full h-full"
+>
+  <div
+    data-testid="entity-type-legend"
+  >
+    EntityTypeLegend
+  </div>
+  <div
+    data-testid="graph3d"
+  >
+    Graph3D
+  </div>
+  <div
+    class="absolute top-4 right-4 flex gap-2"
+  >
+    <div
+      class="bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 p-1 flex gap-1"
+    >
+      <div
+        class="p-2 bg-accent-teal text-white relative"
+        title="3D Graph View - Drag nodes to explore, scroll to zoom"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+        <div
+          class="absolute bottom-0 left-0 right-0 h-0.5 bg-white"
+        />
+      </div>
+      <div
+        class="w-px bg-ink/10 dark:bg-paper/10"
+      />
+      <button
+        class="p-2 transition-colors hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper"
+        title="Enable bloom effect (highlight important nodes)"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <button
+        class="p-2 transition-colors bg-accent-teal/10 text-accent-teal"
+        title="Labels: Top 20% nodes (click to toggle)"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <div
+        class="w-px bg-ink/10 dark:bg-paper/10"
+      />
+      <button
+        class="p-2 hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper transition-colors"
+        data-testid="kg-reset-camera"
+        title="Reset Camera"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <button
+        class="p-2 transition-colors bg-accent-teal/10 text-accent-teal"
+        title="Toggle Entity Type Legend"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <button
+        class="p-2 transition-colors bg-accent-amber/10 text-accent-amber"
+        title="Toggle Research Gaps Panel"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <button
+        class="p-2 transition-colors hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper"
+        title="Toggle Centrality Panel"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <button
+        class="p-2 transition-colors hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper"
+        title="Toggle Cluster Panel"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <button
+        class="p-2 transition-colors bg-accent-teal/10 text-accent-teal"
+        title="Toggle Analysis HUD"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <button
+        class="p-2 transition-colors hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper"
+        title="Toggle Top Topics Panel"
+      >
+        <svg
+          class="w-4 h-4"
+          data-testid="icon"
+        />
+      </button>
+      <div
+        class="w-px bg-ink/10 dark:bg-paper/10"
+      />
+      <div
+        class="flex items-center bg-ink/15 dark:bg-paper/15 rounded-lg p-1 gap-1 border border-ink/20 dark:border-paper/20"
+      >
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all bg-accent-teal text-white shadow-sm"
+          title="3D Graph View - Physics-based knowledge graph"
+        >
+          <svg
+            class="w-4 h-4"
+            data-testid="icon"
+          />
+          <span
+            class="font-mono text-xs uppercase tracking-wider"
+          >
+            3D
+          </span>
+        </button>
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all text-ink/70 dark:text-paper/70 hover:text-ink dark:hover:text-paper hover:bg-ink/10 dark:hover:bg-paper/10"
+          title="Topic View - Cluster and community visualization"
+        >
+          <svg
+            class="w-4 h-4"
+            data-testid="icon"
+          />
+          <span
+            class="font-mono text-xs uppercase tracking-wider"
+          >
+            Topics
+          </span>
+        </button>
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all text-ink/70 dark:text-paper/70 hover:text-ink dark:hover:text-paper hover:bg-ink/10 dark:hover:bg-paper/10"
+          title="Gaps View - Research gaps and bridge hypothesis exploration"
+        >
+          <svg
+            class="w-4 h-4"
+            data-testid="icon"
+          />
+          <span
+            class="font-mono text-xs uppercase tracking-wider"
+          >
+            Gaps
+          </span>
+        </button>
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-all text-ink/70 dark:text-paper/70 hover:text-ink dark:hover:text-paper hover:bg-ink/10 dark:hover:bg-paper/10"
+          title="시간축 시각화 (Temporal)"
+        >
+          <svg
+            class="w-4 h-4"
+            data-testid="icon"
+          />
+          <span
+            class="font-mono text-xs uppercase tracking-wider"
+          >
+            Temporal
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div
+    data-testid="draggable"
+  >
+    <div
+      data-testid="gap-panel"
+    >
+      GapPanel
+    </div>
+  </div>
+  <div
+    data-testid="graph-legend"
+  >
+    GraphLegend
+  </div>
+  <div
+    data-testid="status-bar"
+  >
+    StatusBar
+  </div>
+  <div
+    data-testid="draggable"
+  >
+    <div
+      data-testid="insight-hud"
+    >
+      InsightHUD
+    </div>
+  </div>
+  <div
+    class="absolute top-4 left-4 bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 px-3 py-1.5"
+  >
+    <div
+      class="flex items-center gap-2"
+    >
+      <div
+        class="relative flex items-center justify-center"
+      >
+        <div
+          class="absolute w-2 h-2 bg-accent-teal rounded-full animate-ping opacity-75"
+        />
+        <div
+          class="w-2 h-2 bg-accent-teal rounded-full"
+        />
+      </div>
+      <svg
+        class="w-4 h-4 text-accent-teal"
+        data-testid="icon"
+      />
+      <span
+        class="font-mono text-xs uppercase tracking-wider text-muted"
+      >
+        3D Mode
+      </span>
+      <span
+        class="text-xs text-muted"
+      >
+        • 
+        2
+         nodes
+      </span>
+    </div>
+  </div>
+  <div
+    data-testid="edge-context-modal"
+  >
+    EdgeContextModal
+  </div>
+</div>
+`;
+
+exports[`KnowledgeGraph3D snapshots matches error state snapshot 1`] = `
+<div
+  class="flex items-center justify-center h-full bg-[#0d1117]"
+>
+  <div
+    class="text-center"
+  >
+    <div
+      class="w-16 h-16 flex items-center justify-center bg-accent-red/10 mx-auto mb-4"
+    >
+      <span
+        class="text-accent-red text-3xl"
+      >
+        !
+      </span>
+    </div>
+    <p
+      class="font-mono text-xs uppercase tracking-wider text-accent-red mb-2"
+    >
+      Failed to load graph
+    </p>
+    <p
+      class="text-sm text-muted"
+    >
+      Graph API unavailable
+    </p>
+  </div>
+</div>
+`;
+
+exports[`KnowledgeGraph3D snapshots matches loading state snapshot 1`] = `
+<div
+  class="flex items-center justify-center h-full bg-[#0d1117]"
+>
+  <div
+    class="text-center"
+  >
+    <div
+      class="w-16 h-16 flex items-center justify-center mx-auto mb-4"
+    >
+      <svg
+        class="w-10 h-10 text-accent-teal animate-pulse"
+        data-testid="icon"
+      />
+    </div>
+    <p
+      class="font-mono text-xs uppercase tracking-wider text-muted"
+    >
+      Loading 3D knowledge graph...
+    </p>
+  </div>
+</div>
+`;

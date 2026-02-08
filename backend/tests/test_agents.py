@@ -143,6 +143,40 @@ class TestTaskPlanningAgent:
         task_types = [t.task_type for t in plan.tasks]
         assert "compare" in task_types or "search" in task_types
 
+    @pytest.mark.asyncio
+    async def test_plan_gap_analysis_enables_low_trust_filter(self, task_agent):
+        """Gap intent should enforce low-trust filtering in execution params."""
+        from agents.intent_agent import IntentType
+
+        plan = await task_agent.plan(
+            "What research gaps exist?",
+            IntentType.IDENTIFY_GAPS,
+            [],
+        )
+
+        assert len(plan.tasks) >= 1
+        gap_task = plan.tasks[0]
+        assert gap_task.task_type == "analyze_gaps"
+        assert gap_task.parameters.get("exclude_low_trust") is True
+        assert gap_task.parameters.get("min_confidence") == 0.6
+
+    @pytest.mark.asyncio
+    async def test_plan_search_enables_filter_when_user_requests_reliability(self, task_agent):
+        """Search intent should activate reliability filtering for explicit trust requests."""
+        from agents.intent_agent import IntentType
+
+        plan = await task_agent.plan(
+            "Find reliable evidence about transfer learning",
+            IntentType.SEARCH,
+            [],
+        )
+
+        assert len(plan.tasks) >= 1
+        first_task = plan.tasks[0]
+        assert first_task.task_type == "search"
+        assert first_task.parameters.get("exclude_low_trust") is True
+        assert first_task.parameters.get("min_confidence") == 0.65
+
 
 class TestQueryExecutionAgent:
     """Test Query Execution Agent functionality."""
@@ -206,6 +240,41 @@ class TestQueryExecutionAgent:
         assert hasattr(result, 'nodes_accessed')
         assert isinstance(result.nodes_accessed, list)
 
+    @pytest.mark.asyncio
+    async def test_execute_search_excludes_low_trust(self, query_agent):
+        """Test low-trust filter removes low-confidence entity results."""
+        from agents.task_planning_agent import TaskPlan, SubTask
+        from agents.intent_agent import IntentType
+
+        query_agent.graph_store.search_entities = AsyncMock(return_value=[
+            {"id": "e1", "name": "High Trust", "properties": {"confidence": 0.91}},
+            {"id": "e2", "name": "Low Trust", "properties": {"confidence": 0.42}},
+        ])
+
+        task = SubTask(
+            task_type="search",
+            description="Search with trust filter",
+            parameters={
+                "query": "trust",
+                "project_id": "project-1",
+                "exclude_low_trust": True,
+                "min_confidence": 0.6,
+            },
+        )
+        task_plan = TaskPlan(
+            original_query="trust query",
+            intent=IntentType.SEARCH,
+            tasks=[task],
+            estimated_complexity="low",
+        )
+
+        result = await query_agent.execute(task_plan)
+        assert result.results[0].success
+        data = result.results[0].data
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["id"] == "e1"
+
 
 class TestReasoningAgent:
     """Test Reasoning Agent functionality."""
@@ -261,6 +330,26 @@ class TestReasoningAgent:
         )
 
         assert hasattr(result, 'research_gaps') or hasattr(result, 'final_conclusion')
+
+    @pytest.mark.asyncio
+    async def test_reasoning_includes_reliability_warning_when_evidence_sparse(self, reasoning_agent):
+        """Fallback conclusion should include reliability warning for sparse evidence."""
+        from agents.intent_agent import IntentType
+        from agents.query_execution_agent import ExecutionResult, QueryResult
+
+        execution_result = ExecutionResult(
+            results=[QueryResult(task_index=0, success=True, data={})],
+            nodes_accessed=[],
+            edges_traversed=[],
+        )
+
+        result = await reasoning_agent.reason(
+            query="What does this graph suggest?",
+            intent=IntentType.SEARCH,
+            execution_result=execution_result,
+        )
+
+        assert "Reliability note:" in result.final_conclusion
 
 
 class TestResponseAgent:

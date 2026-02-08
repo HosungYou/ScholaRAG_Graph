@@ -10,7 +10,9 @@
     "type-check": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:e2e": "playwright test -c playwright.config.ts e2e/graph-interactions.spec.ts",
+    "test:visual": "playwright test -c playwright.config.ts e2e/visual-regression.spec.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
@@ -39,6 +41,7 @@
     "3d-force-graph": "1.70.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.1",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^14.2.0",
     "@testing-library/user-event": "^14.5.0",

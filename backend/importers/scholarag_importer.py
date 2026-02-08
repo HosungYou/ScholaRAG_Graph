@@ -40,6 +40,7 @@ from graph.relationship_builder import (
     RelationshipCandidate,
 )
 from graph.gap_detector import GapDetector, ConceptCluster, StructuralGap
+from graph.entity_resolution import EntityResolutionService
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ class ConceptCentricScholarAGImporter:
         self.entity_extractor = EntityExtractor(llm_provider=llm_provider)
         self.relationship_builder = ConceptCentricRelationshipBuilder(llm_provider=llm_provider)
         self.gap_detector = GapDetector(llm_provider=llm_provider)
+        self.entity_resolution = EntityResolutionService(llm_provider=llm_provider)
 
         # Caches for deduplication
         self._concept_cache: dict[str, dict] = {}  # normalized_name -> entity_data
@@ -280,6 +282,15 @@ class ConceptCentricScholarAGImporter:
             self._update_progress("processing", 0.25, "Extracting concepts with LLM...")
             all_entities = []
             paper_entities_map = {}  # paper_id -> {type: [entity_ids]}
+            resolution_stats = {
+                "raw_entities_extracted": 0,
+                "entities_after_resolution": 0,
+                "merges_applied": 0,
+                "llm_pairs_reviewed": 0,
+                "llm_pairs_confirmed": 0,
+                "potential_false_merge_count": 0,
+                "potential_false_merge_samples": [],
+            }
 
             for i, paper in enumerate(papers):
                 if extract_concepts and paper.abstract:
@@ -288,18 +299,35 @@ class ConceptCentricScholarAGImporter:
                         abstract=paper.abstract,
                         paper_id=paper.paper_id,
                     )
+                    resolved_entities, resolved_metrics = await self.entity_resolution.resolve_entities_async(
+                        entities,
+                        use_llm_confirmation=True,
+                    )
+                    resolution_stats["raw_entities_extracted"] += resolved_metrics.raw_entities
+                    resolution_stats["entities_after_resolution"] += resolved_metrics.resolved_entities
+                    resolution_stats["merges_applied"] += resolved_metrics.merged_entities
+                    resolution_stats["llm_pairs_reviewed"] += resolved_metrics.llm_pairs_reviewed
+                    resolution_stats["llm_pairs_confirmed"] += resolved_metrics.llm_pairs_confirmed
+                    resolution_stats["potential_false_merge_count"] += resolved_metrics.potential_false_merge_count
+                    if resolved_metrics.potential_false_merge_samples:
+                        resolution_stats["potential_false_merge_samples"].extend(
+                            resolved_metrics.potential_false_merge_samples
+                        )
+                        resolution_stats["potential_false_merge_samples"] = resolution_stats[
+                            "potential_false_merge_samples"
+                        ][:15]
 
                     # Track entities by paper for relationship building
-                    paper_entities_map[paper.paper_id] = self._group_entities_by_type(entities)
+                    paper_entities_map[paper.paper_id] = self._group_entities_by_type(resolved_entities)
 
-                    for entity in entities:
+                    for entity in resolved_entities:
                         # Deduplicate by name
-                        normalized = entity.name.strip().lower()
+                        normalized = self.entity_resolution.canonicalize_name(entity.name)
                         if normalized not in self._concept_cache:
                             entity_id = str(uuid4())
                             entity_data = {
                                 "id": entity_id,
-                                "name": entity.name,
+                                "name": normalized,
                                 "definition": entity.definition,
                                 "entity_type": entity.entity_type.value,
                                 "confidence": entity.confidence,
@@ -400,6 +428,18 @@ class ConceptCentricScholarAGImporter:
                     "concepts_extracted": len(all_entities),
                     "relationships_created": len(relationships),
                     "gaps_detected": self.progress.gaps_detected,
+                    "raw_entities_extracted": resolution_stats["raw_entities_extracted"],
+                    "entities_after_resolution": resolution_stats["entities_after_resolution"],
+                    "merges_applied": resolution_stats["merges_applied"],
+                    "llm_pairs_reviewed": resolution_stats["llm_pairs_reviewed"],
+                    "llm_pairs_confirmed": resolution_stats["llm_pairs_confirmed"],
+                    "potential_false_merge_count": resolution_stats["potential_false_merge_count"],
+                    "potential_false_merge_samples": resolution_stats["potential_false_merge_samples"],
+                    "canonicalization_rate": (
+                        resolution_stats["merges_applied"] / resolution_stats["raw_entities_extracted"]
+                        if resolution_stats["raw_entities_extracted"] > 0
+                        else 0.0
+                    ),
                 },
             }
 

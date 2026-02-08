@@ -109,6 +109,7 @@ export default function ProjectDetailPage() {
     pinnedNodes,
     setHighlightedNodes,
     setHighlightedEdges,
+    applyRecommendedViewMode,
     setSelectedNode,
     setFilters,
     resetFilters,
@@ -160,6 +161,7 @@ export default function ProjectDetailPage() {
       if (data.highlighted_edges?.length > 0) {
         setHighlightedEdges(data.highlighted_edges);
       }
+      applyRecommendedViewMode(data.intent);
     },
   });
 

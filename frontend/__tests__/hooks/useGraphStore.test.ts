@@ -9,6 +9,10 @@ const mockRefreshGapAnalysis = jest.fn();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
+  api: {
+    getGapAnalysis: (...args: unknown[]) => mockGetGapAnalysis(...args),
+    refreshGapAnalysis: (...args: unknown[]) => mockRefreshGapAnalysis(...args),
+  },
   default: {
     getGapAnalysis: (...args: unknown[]) => mockGetGapAnalysis(...args),
     refreshGapAnalysis: (...args: unknown[]) => mockRefreshGapAnalysis(...args),
@@ -93,5 +97,27 @@ describe('useGraphStore - Gap Analysis', () => {
       // Should not throw even if refresh fails
       await expect(store.fetchGapAnalysis('test-project-id')).resolves.not.toThrow();
     });
+  });
+});
+
+describe('useGraphStore - View Mode Recommendation', () => {
+  it('should recommend gaps mode for gap intent', async () => {
+    const { useGraphStore } = await import('@/hooks/useGraphStore');
+    const store = useGraphStore.getState();
+    expect(store.getRecommendedViewMode('analyze_gaps')).toBe('gaps');
+  });
+
+  it('should apply temporal mode for timeline intent', async () => {
+    const { useGraphStore } = await import('@/hooks/useGraphStore');
+    const store = useGraphStore.getState();
+
+    store.applyRecommendedViewMode('timeline');
+    expect(useGraphStore.getState().viewMode).toBe('temporal');
+  });
+
+  it('should fallback to 3d for unknown intent', async () => {
+    const { useGraphStore } = await import('@/hooks/useGraphStore');
+    const store = useGraphStore.getState();
+    expect(store.getRecommendedViewMode('unclassified_intent')).toBe('3d');
   });
 });

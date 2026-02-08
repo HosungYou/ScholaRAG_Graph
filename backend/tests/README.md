@@ -12,14 +12,15 @@ This directory contains the comprehensive test suite for the ScholaRAG_Graph_Rev
 ## Quick Start
 
 ```bash
-# Install test dependencies
-pip install -r requirements-test.txt
+# Repository root 기준 표준 경로 (권장)
+make verify-env
+make test-backend-core
 
-# Run all tests
-pytest -v
+# backend 디렉터리에서 직접 실행 시
+./venv/bin/pytest -q tests
 
-# Run with coverage
-pytest --cov=importers --cov=integrations --cov-report=html
+# Coverage
+./venv/bin/pytest --cov=importers --cov=integrations --cov-report=html
 
 # Open coverage report
 open htmlcov/index.html

@@ -68,6 +68,8 @@ interface GraphStore {
 
   // View Mode Actions
   setViewMode: (mode: ViewMode) => void;
+  getRecommendedViewMode: (intent?: string | null) => ViewMode;
+  applyRecommendedViewMode: (intent?: string | null) => void;
 
   // Pinned Nodes Actions (Graph-to-Prompt)
   setPinnedNodes: (nodeIds: string[]) => void;
@@ -89,6 +91,19 @@ const defaultFilters: FilterState = {
 
 // Prevent repeated heavy gap re-analysis calls on every project reopen.
 const gapAutoRefreshAttempted = new Set<string>();
+
+function inferViewModeFromIntent(intent?: string | null): ViewMode {
+  if (!intent) return '3d';
+
+  const normalized = intent.toLowerCase();
+
+  // Gap intent takes priority because it needs dedicated bridge context.
+  if (normalized.includes('gap')) return 'gaps';
+  if (normalized.includes('timeline') || normalized.includes('temporal')) return 'temporal';
+  if (normalized.includes('cluster') || normalized.includes('topic')) return 'topic';
+
+  return '3d';
+}
 
 export const useGraphStore = create<GraphStore>((set, get) => ({
   // Initial state
@@ -297,6 +312,12 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   // View Mode Actions
   setViewMode: (mode) => {
     set({ viewMode: mode });
+  },
+
+  getRecommendedViewMode: (intent) => inferViewModeFromIntent(intent),
+
+  applyRecommendedViewMode: (intent) => {
+    set({ viewMode: inferViewModeFromIntent(intent) });
   },
 
   // Pinned Nodes Actions (Graph-to-Prompt)

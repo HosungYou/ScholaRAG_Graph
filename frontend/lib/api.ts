@@ -17,6 +17,7 @@ import type {
   SearchResult,
   EntityType,
   GapAnalysisResult,
+  GapReproReport,
   StructuralGap,
   RelationshipEvidence,
 } from '@/types';
@@ -135,7 +136,29 @@ class ApiClient {
 
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
-          throw new Error(error.detail || `API Error: ${response.status}`);
+          const detail = error?.detail;
+          const message =
+            (typeof detail === 'string' && detail) ||
+            (typeof detail === 'object' && detail?.message) ||
+            error?.message ||
+            `API Error: ${response.status}`;
+
+          const apiError = new Error(message) as Error & {
+            status?: number;
+            retryAfterSeconds?: number;
+            detail?: unknown;
+          };
+          apiError.status = response.status;
+          apiError.detail = detail;
+
+          const retryHeader = response.headers.get('Retry-After');
+          if (retryHeader && !Number.isNaN(Number(retryHeader))) {
+            apiError.retryAfterSeconds = Number(retryHeader);
+          } else if (typeof detail === 'object' && detail?.retry_after_seconds) {
+            apiError.retryAfterSeconds = Number(detail.retry_after_seconds);
+          }
+
+          throw apiError;
         }
 
         return response.json();
@@ -563,6 +586,48 @@ class ApiClient {
     );
   }
 
+  // Gap Reproducibility Report (v0.15.0)
+  async getGapReproReport(
+    projectId: string,
+    gapId: string,
+    limit: number = 5
+  ): Promise<GapReproReport> {
+    return this.request<GapReproReport>(
+      `/api/graph/gaps/${projectId}/repro/${gapId}?limit=${limit}`
+    );
+  }
+
+  async exportGapReproReport(
+    projectId: string,
+    gapId: string,
+    format: 'markdown' | 'json' = 'markdown',
+    limit: number = 5
+  ): Promise<void> {
+    const authHeaders = await this.getAuthHeaders();
+    const response = await fetch(
+      `${this.baseUrl}/api/graph/gaps/${projectId}/repro/${gapId}/export?format=${format}&limit=${limit}`,
+      { headers: { ...authHeaders } }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Export failed' }));
+      throw new Error(error.detail || 'Export failed');
+    }
+
+    if (format === 'json') {
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gap_repro_report_${gapId}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  }
+
   // Gap Analysis Report Export (v0.12.0)
   async exportGapReport(projectId: string): Promise<void> {
     const authHeaders = await this.getAuthHeaders();
@@ -853,3 +918,4 @@ class ApiClient {
 }
 
 export const api = new ApiClient(API_URL);
+export default api;

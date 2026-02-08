@@ -7,11 +7,13 @@ consistent test behavior.
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+import httpx
 
 from integrations.semantic_scholar import (
     SemanticScholarClient,
     SemanticScholarPaper,
     SemanticScholarAuthor,
+    SemanticScholarRateLimitError,
 )
 from integrations.openalex import (
     OpenAlexClient,
@@ -151,6 +153,28 @@ class TestSemanticScholarClient:
 
             assert len(cites) == 1
             assert cites[0].paper_id == "cite1"
+
+    @pytest.mark.asyncio
+    async def test_search_papers_raises_rate_limit_after_retries(self):
+        """429 should surface as SemanticScholarRateLimitError after retries."""
+        request = httpx.Request("GET", "https://api.semanticscholar.org/graph/v1/paper/search")
+        rate_limited_response = httpx.Response(
+            status_code=429,
+            headers={"Retry-After": "0"},
+            request=request,
+            json={"error": "rate_limited"},
+        )
+
+        async with SemanticScholarClient(max_retries=2) as client:
+            with patch.object(client, "_rate_limit", new_callable=AsyncMock) as mock_rate_limit:
+                mock_rate_limit.return_value = None
+                with patch.object(client._client, "request", new_callable=AsyncMock) as mock_request:
+                    mock_request.return_value = rate_limited_response
+
+                    with pytest.raises(SemanticScholarRateLimitError) as exc_info:
+                        await client.search_papers("machine learning", limit=1)
+
+        assert exc_info.value.retry_after == 0
 
 
 # ==================== OpenAlex Tests ====================

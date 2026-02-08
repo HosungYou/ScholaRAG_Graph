@@ -1,0 +1,1100 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`GapPanel snapshots matches collapsed list view snapshot 1`] = `
+<div
+  class="bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 "
+  style="width: 320px;"
+>
+  <div
+    class="flex items-center justify-center py-1.5 cursor-grab active:cursor-grabbing hover:bg-ink/5 dark:hover:bg-paper/5 transition-colors "
+    data-drag-handle="true"
+    title="Drag to move • Double-click to reset"
+  >
+    <div
+      class="w-12 h-1.5 rounded-full transition-colors bg-ink/30 dark:bg-paper/30 hover:bg-ink/50 dark:hover:bg-paper/50"
+    />
+  </div>
+  <div
+    class="absolute top-0 right-0 w-16 h-16 bg-accent-amber/10 transform rotate-45 translate-x-8 -translate-y-8"
+  />
+  <div
+    class="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent-teal/30 active:bg-accent-teal/50 transition-colors z-30"
+    title="Drag to resize"
+  />
+  <div
+    class="w-full flex items-center justify-between p-3 hover:bg-surface/5 transition-colors border-b border-ink/10 dark:border-paper/10 relative cursor-pointer"
+    role="button"
+    tabindex="0"
+  >
+    <div
+      class="flex items-center gap-2"
+    >
+      <div
+        class="w-6 h-6 flex items-center justify-center bg-accent-amber/10"
+      >
+        <svg
+          class="lucide lucide-sparkles w-3 h-3 text-accent-amber"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+          />
+          <path
+            d="M5 3v4"
+          />
+          <path
+            d="M19 17v4"
+          />
+          <path
+            d="M3 5h4"
+          />
+          <path
+            d="M17 19h4"
+          />
+        </svg>
+      </div>
+      <div
+        class="text-left"
+      >
+        <span
+          class="font-mono text-xs uppercase tracking-wider text-ink dark:text-paper block"
+        >
+          Research Gaps
+        </span>
+        <span
+          class="font-mono text-xs text-accent-amber"
+        >
+          1
+           detected
+        </span>
+      </div>
+    </div>
+    <div
+      class="flex items-center gap-1"
+    >
+      <svg
+        class="lucide lucide-chevron-up w-3 h-3 text-muted"
+        fill="none"
+        height="24"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="m18 15-6-6-6 6"
+        />
+      </svg>
+    </div>
+  </div>
+  <div
+    class="overflow-y-auto max-h-[calc(80vh-80px)]"
+  >
+    <div
+      class="p-4 border-b border-ink/10 dark:border-paper/10 relative"
+    >
+      <div
+        class="absolute left-0 top-0 bottom-0 w-0.5 bg-accent-teal/50"
+      />
+      <div
+        class="flex items-start gap-2 pl-3"
+      >
+        <svg
+          class="lucide lucide-help-circle w-4 h-4 text-accent-teal mt-0.5 flex-shrink-0"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+          />
+          <path
+            d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"
+          />
+          <path
+            d="M12 17h.01"
+          />
+        </svg>
+        <p
+          class="text-xs text-muted leading-relaxed"
+        >
+          Research gaps are areas where concept clusters have weak connections. Click a gap to see AI-suggested research questions.
+        </p>
+      </div>
+    </div>
+    <div
+      class="p-3 space-y-2"
+      tabindex="0"
+    >
+      <div
+        class="border transition-all relative  border-ink/10 dark:border-paper/10 hover:border-ink/20 dark:hover:border-paper/20"
+      >
+        <div
+          class="absolute -top-2 -left-2 w-6 h-6 flex items-center justify-center bg-surface text-white font-mono text-xs"
+        >
+          01
+        </div>
+        <div
+          aria-label="Trust Fairness 62%"
+          class="w-full p-4 pt-3 text-left cursor-pointer"
+          data-testid="gap-card-toggle-gap-1"
+          role="button"
+          tabindex="0"
+        >
+          <div
+            class="flex items-center gap-2 flex-wrap mb-1.5"
+          >
+            <span
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 font-mono text-xs truncate max-w-[140px]"
+              style="background-color: rgba(230, 57, 70, 0.082); color: rgb(230, 57, 70); border: 1px solid #e6394630;"
+              title="Trust"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style="background-color: rgb(230, 57, 70);"
+              />
+              Trust
+            </span>
+            <svg
+              class="lucide lucide-arrow-right w-3 h-3 text-muted flex-shrink-0"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M5 12h14"
+              />
+              <path
+                d="m12 5 7 7-7 7"
+              />
+            </svg>
+            <span
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 font-mono text-xs truncate max-w-[140px]"
+              style="background-color: rgba(46, 196, 182, 0.082); color: rgb(46, 196, 182); border: 1px solid #2ec4b630;"
+              title="Fairness"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style="background-color: rgb(46, 196, 182);"
+              />
+              Fairness
+            </span>
+          </div>
+          <div
+            class="flex items-center gap-2 mb-2"
+          >
+            <div
+              class="flex-1 h-1.5 bg-surface/10 overflow-hidden"
+            >
+              <div
+                class="h-full transition-all duration-500"
+                style="width: 62%;"
+              />
+            </div>
+            <span
+              class="font-mono text-xs flex-shrink-0 text-accent-amber"
+            >
+              62%
+            </span>
+            <button
+              aria-label="Find related papers"
+              class="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal rounded transition-colors disabled:opacity-50"
+              title="Find related papers from Semantic Scholar"
+            >
+              <svg
+                class="lucide lucide-search w-3 h-3"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="8"
+                />
+                <path
+                  d="m21 21-4.3-4.3"
+                />
+              </svg>
+            </button>
+          </div>
+          <div
+            class="flex items-center justify-between"
+          >
+            <p
+              class="text-xs text-muted truncate flex-1 mr-2"
+              title="Trust ↔ Fairness"
+            >
+              Trust
+               ↔ 
+              Fairness
+            </p>
+            <svg
+              class="lucide lucide-chevron-down w-3 h-3 text-muted flex-shrink-0"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m6 9 6 6 6-6"
+              />
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="p-4 border-t border-ink/10 dark:border-paper/10"
+    >
+      <div
+        class="flex items-center gap-2 mb-3"
+      >
+        <svg
+          class="lucide lucide-hexagon w-4 h-4 text-accent-teal"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+          />
+        </svg>
+        <p
+          class="font-mono text-xs uppercase tracking-wider text-ink dark:text-paper"
+        >
+          Concept Clusters
+        </p>
+      </div>
+      <div
+        class="grid grid-cols-4 gap-1"
+      >
+        <div
+          class="flex items-center gap-1 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5"
+          title="Trust: 1 concepts"
+        >
+          <div
+            class="w-2 h-2 flex-shrink-0"
+            style="background-color: rgb(230, 57, 70);"
+          />
+          <span
+            class="font-mono text-xs text-muted"
+          >
+            1
+          </span>
+        </div>
+        <div
+          class="flex items-center gap-1 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5"
+          title="Fairness: 1 concepts"
+        >
+          <div
+            class="w-2 h-2 flex-shrink-0"
+            style="background-color: rgb(46, 196, 182);"
+          />
+          <span
+            class="font-mono text-xs text-muted"
+          >
+            1
+          </span>
+        </div>
+      </div>
+      <p
+        class="font-mono text-xs text-muted mt-3"
+      >
+        2
+         concepts in 
+        2
+         clusters
+      </p>
+    </div>
+    <div
+      class="p-4 border-t border-ink/10 dark:border-paper/10"
+    >
+      <button
+        class="w-full py-2.5 px-3 bg-accent-teal/10 hover:bg-accent-teal/20 font-mono text-xs text-accent-teal uppercase tracking-wider transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        <svg
+          class="lucide lucide-download w-4 h-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+          />
+          <polyline
+            points="7 10 12 15 17 10"
+          />
+          <line
+            x1="12"
+            x2="12"
+            y1="15"
+            y2="3"
+          />
+        </svg>
+        Export Report
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`GapPanel snapshots matches expanded gap detail snapshot 1`] = `
+<div
+  class="bg-paper dark:bg-ink border border-ink/10 dark:border-paper/10 max-h-[80vh] overflow-hidden z-20 transition-all duration-300 "
+  style="width: 320px;"
+>
+  <div
+    class="flex items-center justify-center py-1.5 cursor-grab active:cursor-grabbing hover:bg-ink/5 dark:hover:bg-paper/5 transition-colors "
+    data-drag-handle="true"
+    title="Drag to move • Double-click to reset"
+  >
+    <div
+      class="w-12 h-1.5 rounded-full transition-colors bg-ink/30 dark:bg-paper/30 hover:bg-ink/50 dark:hover:bg-paper/50"
+    />
+  </div>
+  <div
+    class="absolute top-0 right-0 w-16 h-16 bg-accent-amber/10 transform rotate-45 translate-x-8 -translate-y-8"
+  />
+  <div
+    class="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent-teal/30 active:bg-accent-teal/50 transition-colors z-30"
+    title="Drag to resize"
+  />
+  <div
+    class="w-full flex items-center justify-between p-3 hover:bg-surface/5 transition-colors border-b border-ink/10 dark:border-paper/10 relative cursor-pointer"
+    role="button"
+    tabindex="0"
+  >
+    <div
+      class="flex items-center gap-2"
+    >
+      <div
+        class="w-6 h-6 flex items-center justify-center bg-accent-amber/10"
+      >
+        <svg
+          class="lucide lucide-sparkles w-3 h-3 text-accent-amber"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+          />
+          <path
+            d="M5 3v4"
+          />
+          <path
+            d="M19 17v4"
+          />
+          <path
+            d="M3 5h4"
+          />
+          <path
+            d="M17 19h4"
+          />
+        </svg>
+      </div>
+      <div
+        class="text-left"
+      >
+        <span
+          class="font-mono text-xs uppercase tracking-wider text-ink dark:text-paper block"
+        >
+          Research Gaps
+        </span>
+        <span
+          class="font-mono text-xs text-accent-amber"
+        >
+          1
+           detected
+        </span>
+      </div>
+    </div>
+    <div
+      class="flex items-center gap-1"
+    >
+      <svg
+        class="lucide lucide-chevron-up w-3 h-3 text-muted"
+        fill="none"
+        height="24"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="m18 15-6-6-6 6"
+        />
+      </svg>
+    </div>
+  </div>
+  <div
+    class="overflow-y-auto max-h-[calc(80vh-80px)]"
+  >
+    <div
+      class="p-4 border-b border-ink/10 dark:border-paper/10 relative"
+    >
+      <div
+        class="absolute left-0 top-0 bottom-0 w-0.5 bg-accent-teal/50"
+      />
+      <div
+        class="flex items-start gap-2 pl-3"
+      >
+        <svg
+          class="lucide lucide-help-circle w-4 h-4 text-accent-teal mt-0.5 flex-shrink-0"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+          />
+          <path
+            d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"
+          />
+          <path
+            d="M12 17h.01"
+          />
+        </svg>
+        <p
+          class="text-xs text-muted leading-relaxed"
+        >
+          Research gaps are areas where concept clusters have weak connections. Click a gap to see AI-suggested research questions.
+        </p>
+      </div>
+    </div>
+    <div
+      class="p-3 space-y-2"
+      tabindex="0"
+    >
+      <div
+        class="border transition-all relative  border-accent-amber/50 bg-accent-amber/5"
+      >
+        <div
+          class="absolute -top-2 -left-2 w-6 h-6 flex items-center justify-center bg-surface text-white font-mono text-xs"
+        >
+          01
+        </div>
+        <div
+          aria-label="Trust Fairness 62%"
+          class="w-full p-4 pt-3 text-left cursor-pointer"
+          data-testid="gap-card-toggle-gap-1"
+          role="button"
+          tabindex="0"
+        >
+          <div
+            class="flex items-center gap-2 flex-wrap mb-1.5"
+          >
+            <span
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 font-mono text-xs truncate max-w-[140px]"
+              style="background-color: rgba(230, 57, 70, 0.082); color: rgb(230, 57, 70); border: 1px solid #e6394630;"
+              title="Trust"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style="background-color: rgb(230, 57, 70);"
+              />
+              Trust
+            </span>
+            <svg
+              class="lucide lucide-arrow-right w-3 h-3 text-muted flex-shrink-0"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M5 12h14"
+              />
+              <path
+                d="m12 5 7 7-7 7"
+              />
+            </svg>
+            <span
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 font-mono text-xs truncate max-w-[140px]"
+              style="background-color: rgba(46, 196, 182, 0.082); color: rgb(46, 196, 182); border: 1px solid #2ec4b630;"
+              title="Fairness"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style="background-color: rgb(46, 196, 182);"
+              />
+              Fairness
+            </span>
+          </div>
+          <div
+            class="flex items-center gap-2 mb-2"
+          >
+            <div
+              class="flex-1 h-1.5 bg-surface/10 overflow-hidden"
+            >
+              <div
+                class="h-full transition-all duration-500"
+                style="width: 62%;"
+              />
+            </div>
+            <span
+              class="font-mono text-xs flex-shrink-0 text-accent-amber"
+            >
+              62%
+            </span>
+            <button
+              aria-label="Find related papers"
+              class="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal rounded transition-colors disabled:opacity-50"
+              title="Find related papers from Semantic Scholar"
+            >
+              <svg
+                class="lucide lucide-search w-3 h-3"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="8"
+                />
+                <path
+                  d="m21 21-4.3-4.3"
+                />
+              </svg>
+            </button>
+          </div>
+          <div
+            class="flex items-center justify-between"
+          >
+            <p
+              class="text-xs text-muted truncate flex-1 mr-2"
+              title="Trust ↔ Fairness"
+            >
+              Trust
+               ↔ 
+              Fairness
+            </p>
+            <svg
+              class="lucide lucide-chevron-up w-3 h-3 text-muted flex-shrink-0"
+              fill="none"
+              height="24"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="m18 15-6-6-6 6"
+              />
+            </svg>
+          </div>
+        </div>
+        <div
+          class="px-4 pb-4 space-y-4 border-t border-ink/10 dark:border-paper/10 pt-4"
+        >
+          <div>
+            <p
+              class="font-mono text-xs uppercase tracking-wider text-accent-amber mb-2 flex items-center gap-1"
+            >
+              <svg
+                class="lucide lucide-sparkles w-3 h-3"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"
+                />
+                <path
+                  d="M5 3v4"
+                />
+                <path
+                  d="M19 17v4"
+                />
+                <path
+                  d="M3 5h4"
+                />
+                <path
+                  d="M17 19h4"
+                />
+              </svg>
+              Bridge Concepts
+            </p>
+            <div
+              class="flex flex-wrap gap-1"
+            >
+              <span
+                class="font-mono text-xs px-2 py-1 bg-accent-amber/10 text-accent-amber border border-accent-amber/30"
+                title="bridge-1"
+              >
+                Calibration
+              </span>
+            </div>
+          </div>
+          <div
+            class="pt-2 border-t border-ink/5 dark:border-paper/5"
+          >
+            <button
+              class="w-full py-2.5 px-4 font-mono text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 bg-accent-amber/10 hover:bg-accent-amber/20 text-accent-amber border border-accent-amber/30"
+            >
+              <svg
+                class="lucide lucide-zap w-4 h-4"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <polygon
+                  points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+                />
+              </svg>
+              Generate Bridge Ideas
+            </button>
+          </div>
+          <div
+            class="pt-4 mt-4 border-t border-ink/10 dark:border-paper/10"
+          >
+            <p
+              class="font-mono text-xs uppercase tracking-wider text-accent-teal mb-2 flex items-center gap-1"
+            >
+              <svg
+                class="lucide lucide-lightbulb w-3 h-3"
+                fill="none"
+                height="24"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"
+                />
+                <path
+                  d="M9 18h6"
+                />
+                <path
+                  d="M10 22h4"
+                />
+              </svg>
+              AI Research Questions
+            </p>
+            <div
+              class="space-y-2"
+            >
+              <div
+                class="relative bg-surface/5 p-3 group border-l-2 border-accent-teal/50"
+              >
+                <div
+                  class="flex items-start justify-between gap-2"
+                >
+                  <p
+                    class="text-xs text-ink dark:text-paper leading-relaxed pr-14"
+                  >
+                    How does trust influence fairness outcomes?
+                  </p>
+                  <div
+                    class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <button
+                      class="p-1 hover:bg-surface/10"
+                      title="Copy question"
+                    >
+                      <svg
+                        class="lucide lucide-copy w-3 h-3 text-muted hover:text-ink dark:hover:text-paper"
+                        fill="none"
+                        height="24"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        viewBox="0 0 24 24"
+                        width="24"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <rect
+                          height="14"
+                          rx="2"
+                          ry="2"
+                          width="14"
+                          x="8"
+                          y="8"
+                        />
+                        <path
+                          d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            class="pt-4 mt-4 border-t border-ink/10 dark:border-paper/10"
+          >
+            <div
+              class="flex items-center justify-between mb-2"
+            >
+              <p
+                class="font-mono text-xs uppercase tracking-wider text-accent-teal flex items-center gap-1"
+              >
+                <svg
+                  class="lucide lucide-book-open w-3 h-3"
+                  fill="none"
+                  height="24"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"
+                  />
+                  <path
+                    d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"
+                  />
+                </svg>
+                Related Papers
+              </p>
+              <button
+                class="flex items-center gap-1 px-2 py-1 font-mono text-xs bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal transition-colors disabled:opacity-50"
+              >
+                <svg
+                  class="lucide lucide-book-open w-3 h-3"
+                  fill="none"
+                  height="24"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"
+                  />
+                  <path
+                    d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"
+                  />
+                </svg>
+                Find Papers
+              </button>
+            </div>
+            <div
+              class="space-y-2"
+            >
+              <p
+                class="text-xs text-muted font-mono"
+              >
+                No papers found for this gap.
+              </p>
+              <p
+                class="text-xs text-muted font-mono mt-1"
+              >
+                Query: "
+                trust fairness bridge
+                "
+              </p>
+              <div
+                class="flex items-center gap-1.5 mt-2 pt-2 border-t border-ink/5 dark:border-paper/5"
+              >
+                <span
+                  class="text-[10px] text-muted/60 font-mono"
+                >
+                  Powered by Semantic Scholar
+                </span>
+              </div>
+            </div>
+          </div>
+          <div
+            class="grid grid-cols-2 gap-3"
+          >
+            <div
+              class="border border-ink/10 dark:border-paper/10 p-2"
+            >
+              <p
+                class="font-mono text-xs text-muted mb-2 flex items-center gap-1"
+              >
+                <span
+                  class="inline-block w-2 h-2"
+                  style="background-color: rgb(230, 57, 70);"
+                />
+                Cluster A (
+                1
+                )
+              </p>
+              <div
+                class="text-xs text-ink dark:text-paper space-y-1 max-h-24 overflow-y-auto"
+              >
+                <div
+                  class="truncate font-mono"
+                >
+                  Trust
+                </div>
+              </div>
+            </div>
+            <div
+              class="border border-ink/10 dark:border-paper/10 p-2"
+            >
+              <p
+                class="font-mono text-xs text-muted mb-2 flex items-center gap-1"
+              >
+                <span
+                  class="inline-block w-2 h-2"
+                  style="background-color: rgb(46, 196, 182);"
+                />
+                Cluster B (
+                1
+                )
+              </p>
+              <div
+                class="text-xs text-ink dark:text-paper space-y-1 max-h-24 overflow-y-auto"
+              >
+                <div
+                  class="truncate font-mono"
+                >
+                  Fairness
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="p-3 border-t border-ink/10 dark:border-paper/10"
+    >
+      <button
+        class="w-full py-2.5 px-3 bg-surface/10 hover:bg-surface/20 font-mono text-xs text-ink dark:text-paper uppercase tracking-wider transition-colors flex items-center justify-center gap-2"
+      >
+        <svg
+          class="lucide lucide-eye-off w-4 h-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M9.88 9.88a3 3 0 1 0 4.24 4.24"
+          />
+          <path
+            d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"
+          />
+          <path
+            d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"
+          />
+          <line
+            x1="2"
+            x2="22"
+            y1="2"
+            y2="22"
+          />
+        </svg>
+        Clear Highlights
+      </button>
+    </div>
+    <div
+      class="p-4 border-t border-ink/10 dark:border-paper/10"
+    >
+      <div
+        class="flex items-center gap-2 mb-3"
+      >
+        <svg
+          class="lucide lucide-hexagon w-4 h-4 text-accent-teal"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+          />
+        </svg>
+        <p
+          class="font-mono text-xs uppercase tracking-wider text-ink dark:text-paper"
+        >
+          Concept Clusters
+        </p>
+      </div>
+      <div
+        class="grid grid-cols-4 gap-1"
+      >
+        <div
+          class="flex items-center gap-1 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5"
+          title="Trust: 1 concepts"
+        >
+          <div
+            class="w-2 h-2 flex-shrink-0"
+            style="background-color: rgb(230, 57, 70);"
+          />
+          <span
+            class="font-mono text-xs text-muted"
+          >
+            1
+          </span>
+        </div>
+        <div
+          class="flex items-center gap-1 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5"
+          title="Fairness: 1 concepts"
+        >
+          <div
+            class="w-2 h-2 flex-shrink-0"
+            style="background-color: rgb(46, 196, 182);"
+          />
+          <span
+            class="font-mono text-xs text-muted"
+          >
+            1
+          </span>
+        </div>
+      </div>
+      <p
+        class="font-mono text-xs text-muted mt-3"
+      >
+        2
+         concepts in 
+        2
+         clusters
+      </p>
+    </div>
+    <div
+      class="p-4 border-t border-ink/10 dark:border-paper/10"
+    >
+      <button
+        class="w-full py-2.5 px-3 bg-accent-teal/10 hover:bg-accent-teal/20 font-mono text-xs text-accent-teal uppercase tracking-wider transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        <svg
+          class="lucide lucide-download w-4 h-4"
+          fill="none"
+          height="24"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+          />
+          <polyline
+            points="7 10 12 15 17 10"
+          />
+          <line
+            x1="12"
+            x2="12"
+            y1="15"
+            y2="3"
+          />
+        </svg>
+        Export Report
+      </button>
+    </div>
+  </div>
+</div>
+`;

@@ -45,9 +45,11 @@ interface ForceGraphLink {
   source: string | ForceGraphNode;
   target: string | ForceGraphNode;
   weight: number;
+  confidence?: number;
   relationshipType: string;
   isHighlighted?: boolean;
   isGhost?: boolean;  // Ghost edge (potential edge) for InfraNodus-style visualization
+  isLowTrust?: boolean;
   similarity?: number;  // Similarity score for ghost edges
 }
 
@@ -114,6 +116,8 @@ const LABEL_CONFIG = {
   hoverRevealPercentile: 0.5,     // Top 50% on hover
 };
 
+const E2E_MOCK_3D = process.env.NEXT_PUBLIC_E2E_MOCK_3D === '1';
+
 export interface Graph3DProps {
   nodes: GraphEntity[];
   edges: GraphEdge[];
@@ -177,6 +181,31 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   onNodeUnpin,
   onClearPinnedNodes,
 }, ref) => {
+  if (E2E_MOCK_3D) {
+    const lowTrustEdgeCount = edges.filter((edge) => {
+      const confidence = typeof edge.properties?.confidence === 'number'
+        ? edge.properties.confidence
+        : (edge.weight || 1);
+      return confidence < 0.6;
+    }).length;
+
+    const ghostEdgeCount = showGhostEdges ? potentialEdges.length : 0;
+
+    return (
+      <div className="w-full h-full bg-[#0d1117] p-4 border border-white/10" data-testid="graph3d-e2e-mock">
+        <div className="font-mono text-xs text-accent-teal uppercase tracking-wide mb-2">
+          Graph3D E2E Mock Mode
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs text-muted">
+          <div data-testid="graph3d-node-count">nodes: {nodes.length}</div>
+          <div data-testid="graph3d-edge-count">edges: {edges.length}</div>
+          <div data-testid="graph3d-low-trust-count">low_trust_edges: {lowTrustEdgeCount}</div>
+          <div data-testid="graph3d-ghost-edge-count">ghost_edges: {ghostEdgeCount}</div>
+        </div>
+      </div>
+    );
+  }
+
   const fgRef = useRef<any>(null);
   const textureCache = useRef(new Map<string, THREE.CanvasTexture>());
   // v0.14.1: nodeObjectCache removed — it cached grey nodes before cluster colors arrived
@@ -427,9 +456,16 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       source: edge.source,
       target: edge.target,
       weight: edge.weight || 1,
+      confidence: typeof edge.properties?.confidence === 'number'
+        ? edge.properties.confidence
+        : (edge.weight || 1),
       relationshipType: edge.relationship_type,
       isHighlighted: false, // Always false here - use edgeStyleMap for actual state
       isGhost: false,
+      isLowTrust: (
+        (typeof edge.properties?.confidence === 'number' && edge.properties.confidence < 0.6) ||
+        ((edge.weight || 1) < 0.6)
+      ),
     }));
 
     // Add ghost edges (potential edges) if enabled
@@ -466,7 +502,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
   }, [baseGraphData.nodes, highlightedNodeSet, pinnedNodeSet]);
 
   const edgeStyleMap = useMemo(() => {
-    const styleMap = new Map<string, { isHighlighted: boolean; isPinnedEdge: boolean }>();
+    const styleMap = new Map<string, { isHighlighted: boolean; isPinnedEdge: boolean; isLowTrust: boolean }>();
     baseGraphData.links.forEach(link => {
       const sourceId = typeof link.source === 'string' ? link.source : (link.source as ForceGraphNode).id;
       const targetId = typeof link.target === 'string' ? link.target : (link.target as ForceGraphNode).id;
@@ -477,6 +513,7 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
       styleMap.set(link.id, {
         isHighlighted: highlightedEdgeSet.has(link.id) || link.isGhost === true,
         isPinnedEdge,
+        isLowTrust: link.isLowTrust === true,
       });
     });
     return styleMap;
@@ -739,10 +776,12 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     const edgeStyle = edgeStyleMap.get(link.id);
     const isHighlighted = edgeStyle?.isHighlighted || false;
     const isPinnedEdge = edgeStyle?.isPinnedEdge || false;
+    const isLowTrust = edgeStyle?.isLowTrust || false;
 
     // v0.7.0: Pinned edges are thicker
     if (isHighlighted) return baseWidth * 2;
     if (isPinnedEdge) return baseWidth * 1.5;
+    if (isLowTrust) return Math.max(0.25, baseWidth * 0.75);
     return baseWidth;
   }, [edgeStyleMap]);
 
@@ -769,6 +808,11 @@ export const Graph3D = forwardRef<Graph3DRef, Graph3DProps>(({
     // v0.7.0: Pinned edges (between pinned nodes) - cyan
     if (edgeStyle?.isPinnedEdge) {
       return 'rgba(0, 229, 255, 0.7)';  // Cyan for pinned edges
+    }
+
+    // Low-trust edges: subdued amber for caution visibility.
+    if (edgeStyle?.isLowTrust) {
+      return 'rgba(245, 158, 11, 0.28)';
     }
 
     // Get source and target node IDs

@@ -78,6 +78,12 @@ export function GapPanel({
   onToggleMinimize,
   onAskQuestion,
 }: GapPanelProps) {
+  type ApiErrorLike = Error & {
+    status?: number;
+    retryAfterSeconds?: number;
+    response?: { status?: number };
+  };
+
   const [isExpanded, setIsExpanded] = useState(true);
   const [selectedGap, setSelectedGap] = useState<StructuralGap | null>(null);
   const [expandedGapId, setExpandedGapId] = useState<string | null>(null);
@@ -201,10 +207,18 @@ export function GapPanel({
             [gap.id]: { papers: result.papers, query_used: result.query_used },
           }));
         })
-        .catch(err => console.error('Auto-load papers failed:', err))
+        .catch((err: unknown) => {
+          const apiErr = err as ApiErrorLike;
+          console.error('Auto-load papers failed:', apiErr);
+          const status = apiErr?.response?.status || apiErr?.status;
+          if (status === 429) {
+            const retryAfter = Math.max(1, Number(apiErr?.retryAfterSeconds || 60));
+            showToast(`Semantic Scholar rate limited. Retry in ${retryAfter}s.`, 'error');
+          }
+        })
         .finally(() => setLoadingRecsFor(null));
     }
-  }, [expandedGapId, onGapSelect, onHighlightNodes, recommendations, loadingRecsFor, projectId]);
+  }, [expandedGapId, onGapSelect, onHighlightNodes, recommendations, loadingRecsFor, projectId, showToast]);
 
   // Handle clear highlights
   const handleClearHighlights = useCallback(() => {
@@ -483,9 +497,19 @@ export function GapPanel({
                     </div>
 
                     {/* Gap Header */}
-                    <button
+                    <div
+                      role="button"
+                      data-testid={`gap-card-toggle-${gap.id}`}
+                      tabIndex={0}
+                      aria-label={`${getClusterLabel(gap.cluster_a_id)} ${getClusterLabel(gap.cluster_b_id)} ${formatGapStrength(gap.gap_strength)}`}
                       onClick={() => handleGapClick(gap)}
-                      className="w-full p-4 pt-3 text-left"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleGapClick(gap);
+                        }
+                      }}
+                      className="w-full p-4 pt-3 text-left cursor-pointer"
                     >
                       {/* Row 1: Cluster labels (Improvement F: Pill-style chips) */}
                       <div className="flex items-center gap-2 flex-wrap mb-1.5">
@@ -551,14 +575,16 @@ export function GapPanel({
                                   ...prev,
                                   [gap.id]: { papers: result.papers, query_used: result.query_used },
                                 }));
-                              } catch (err: any) {
-                                console.error('Failed to fetch recommendations:', err);
-                                const status = err?.response?.status || err?.status;
+                              } catch (err: unknown) {
+                                const apiErr = err as ApiErrorLike;
+                                console.error('Failed to fetch recommendations:', apiErr);
+                                const status = apiErr?.response?.status || apiErr?.status;
                                 if (status === 429) {
-                                  showToast('Semantic Scholar rate limited. Auto-retrying in 60s...', 'error');
+                                  const retryAfter = Math.max(1, Number(apiErr?.retryAfterSeconds || 60));
+                                  showToast(`Semantic Scholar rate limited. Auto-retrying in ${retryAfter}s...`, 'error');
                                   // Start countdown
                                   const gapId = gap.id;
-                                  setRetryCountdown(prev => ({ ...prev, [gapId]: 60 }));
+                                  setRetryCountdown(prev => ({ ...prev, [gapId]: retryAfter }));
 
                                   const interval = setInterval(() => {
                                     setRetryCountdown(prev => {
@@ -596,6 +622,7 @@ export function GapPanel({
                             })();
                           }}
                           disabled={loadingRecsFor === gap.id || retryCountdown[gap.id] > 0}
+                          aria-label="Find related papers"
                           className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono bg-accent-teal/10 hover:bg-accent-teal/20 text-accent-teal rounded transition-colors disabled:opacity-50"
                           title="Find related papers from Semantic Scholar"
                         >
@@ -623,7 +650,7 @@ export function GapPanel({
                           <ChevronDown className="w-3 h-3 text-muted flex-shrink-0" />
                         )}
                       </div>
-                    </button>
+                    </div>
 
                     {/* Expanded Content */}
                     {isExpandedItem && (

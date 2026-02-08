@@ -2,6 +2,7 @@
  * Tests for API client - explainNode signature and conditional body
  * v0.10.0: Verifies v0.9.0 node name/type pass-through
  */
+export {};
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -9,13 +10,9 @@ global.fetch = mockFetch;
 
 // Mock Supabase
 jest.mock('@/lib/supabase', () => ({
-  supabase: {
-    auth: {
-      getSession: jest.fn().mockResolvedValue({
-        data: { session: { access_token: 'test-token' } },
-      }),
-    },
-  },
+  getSession: jest.fn().mockResolvedValue({
+    access_token: 'test-token',
+  }),
 }));
 
 describe('ApiClient', () => {
@@ -80,6 +77,38 @@ describe('ApiClient', () => {
 
       const [, options] = mockFetch.mock.calls[0];
       expect(options.method).toBe('POST');
+    });
+  });
+
+  describe('gap repro report', () => {
+    it('should call repro report endpoint with project and gap ids', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          project_id: 'project-1',
+          gap_id: 'gap-1',
+          generated_at: '2026-02-08T00:00:00Z',
+          gap_strength: 0.5,
+          cluster_a_names: [],
+          cluster_b_names: [],
+          bridge_candidates: [],
+          research_questions: [],
+          bridge_relationships: [],
+          recommendation: {
+            status: 'success',
+            query_used: 'test',
+            papers: [],
+          },
+        }),
+        headers: new Headers({ 'content-type': 'application/json' }),
+      });
+
+      const { default: api } = await import('@/lib/api');
+      await api.getGapReproReport('project-1', 'gap-1', 7);
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/graph/gaps/project-1/repro/gap-1?limit=7');
     });
   });
 });

@@ -44,10 +44,21 @@ function getStepIndex(stepId: string): number {
   return IMPORT_STEPS.findIndex(s => s.id === stepId);
 }
 
+function getCompletedProjectId(job: ImportJob | null): string | null {
+  if (!job) return null;
+  return job.result?.project_id || job.project_id || null;
+}
+
+function formatPercent(value: number | undefined): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '0.0%';
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 export function ImportProgress({ jobId, onComplete, onError }: ImportProgressProps) {
   const [job, setJob] = useState<ImportJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isInterrupted, setIsInterrupted] = useState(false);
+  const [pollEpoch, setPollEpoch] = useState(0);
   const [resumeInfo, setResumeInfo] = useState<ImportResumeInfo | null>(null);
   const [isResuming, setIsResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
@@ -61,7 +72,8 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
       const resumedJob = await api.resumeImport(jobId);
       setJob(resumedJob);
       setIsInterrupted(false);
-      // Polling will restart automatically via useEffect
+      // Restart polling loop after interrupted -> running transition.
+      setPollEpoch(prev => prev + 1);
     } catch (err: any) {
       console.error('Failed to resume import:', err);
       setResumeError(err.message || 'Failed to resume import');
@@ -94,9 +106,11 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
         const status = await api.getImportStatus(jobId);
         setJob(status);
 
-        if (status.status === 'completed' && status.result?.project_id) {
+        const completedProjectId = getCompletedProjectId(status);
+
+        if (status.status === 'completed' && completedProjectId) {
           stopped = true;
-          onComplete?.(status.result.project_id);
+          onComplete?.(completedProjectId);
           return;
         } else if (status.status === 'failed') {
           stopped = true;
@@ -135,7 +149,7 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
       stopped = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [jobId, onComplete, onError]);
+  }, [jobId, onComplete, onError, pollEpoch]);
 
   // BUG-028 Extension: Special UI for interrupted imports with checkpoint info
   if (isInterrupted) {
@@ -213,6 +227,7 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
             <button
               onClick={handleResumeImport}
               disabled={isResuming}
+              aria-label="Resume import"
               className="flex-1 flex items-center justify-center gap-2 py-3 bg-accent-teal text-white font-medium rounded-sm hover:bg-accent-teal/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isResuming ? (
@@ -231,6 +246,7 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
             {/* Secondary: Re-upload files */}
             <button
               onClick={() => router.push('/import')}
+              aria-label="Upload new files"
               className="flex items-center justify-center gap-2 px-4 py-3 border border-ink/20 dark:border-paper/20 text-ink dark:text-paper font-medium rounded-sm hover:bg-ink/5 dark:hover:bg-paper/5 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
@@ -241,6 +257,7 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
             {checkpoint?.project_id && (
               <button
                 onClick={() => router.push(`/projects/${checkpoint.project_id}`)}
+                aria-label="View partial results"
                 className="flex items-center justify-center gap-2 px-4 py-3 border border-ink/20 dark:border-paper/20 text-ink dark:text-paper font-medium rounded-sm hover:bg-ink/5 dark:hover:bg-paper/5 transition-colors"
               >
                 <ArrowRight className="w-4 h-4" />
@@ -265,6 +282,7 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
         </div>
         <button
           onClick={() => router.back()}
+          aria-label="Retry import"
           className="btn btn--secondary"
         >
           Try Again
@@ -286,6 +304,19 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
 
   const currentStepIndex = job.current_step ? getStepIndex(job.current_step) : 0;
   const isComplete = job.status === 'completed';
+  const completedProjectId = getCompletedProjectId(job);
+  const reliabilitySummary = job.reliability_summary || job.result?.reliability_summary;
+  const summaryText = (() => {
+    const nodesCreated = job.result?.nodes_created;
+    const edgesCreated = job.result?.edges_created;
+    if (typeof nodesCreated === 'number' || typeof edgesCreated === 'number') {
+      return `Created ${nodesCreated || 0} nodes and ${edgesCreated || 0} edges`;
+    }
+    if (reliabilitySummary) {
+      return `Resolved ${reliabilitySummary.entities_after_resolution || 0} entities and ${reliabilitySummary.relationships_created || 0} relationships`;
+    }
+    return 'Knowledge graph import completed';
+  })();
 
   // BUG-027 FIX: Backend sends progress as 0.0-1.0 fraction, convert to 0-100 percent
   // Without this, Math.round(0.1) = 0 and width: "0.1%" makes the bar invisible
@@ -325,7 +356,7 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
             </h3>
             <p className="text-white/80 text-sm mt-2">
               {isComplete
-                ? `Created ${job.result?.nodes_created || 0} nodes and ${job.result?.edges_created || 0} edges`
+                ? summaryText
                 : IMPORT_STEPS[currentStepIndex]?.description || 'Processing...'}
             </p>
           </div>
@@ -435,11 +466,53 @@ export function ImportProgress({ jobId, onComplete, onError }: ImportProgressPro
           })}
         </div>
 
+        {isComplete && reliabilitySummary && (
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="border border-accent-teal/20 bg-accent-teal/5 p-3 rounded-sm">
+              <p className="font-mono text-xs uppercase tracking-wider text-muted">Canonicalization</p>
+              <p className="font-mono text-sm text-accent-teal mt-1">
+                {formatPercent(reliabilitySummary.canonicalization_rate)} ({reliabilitySummary.merges_applied} merges)
+              </p>
+            </div>
+            <div className="border border-accent-teal/20 bg-accent-teal/5 p-3 rounded-sm">
+              <p className="font-mono text-xs uppercase tracking-wider text-muted">Provenance Coverage</p>
+              <p className="font-mono text-sm text-accent-teal mt-1">
+                {formatPercent(reliabilitySummary.provenance_coverage)}
+              </p>
+            </div>
+            <div className="border border-ink/10 dark:border-paper/10 bg-surface/60 p-3 rounded-sm">
+              <p className="font-mono text-xs uppercase tracking-wider text-muted">Entities</p>
+              <p className="font-mono text-sm text-ink dark:text-paper mt-1">
+                {reliabilitySummary.raw_entities_extracted} {'->'} {reliabilitySummary.entities_after_resolution}
+              </p>
+            </div>
+            <div className="border border-ink/10 dark:border-paper/10 bg-surface/60 p-3 rounded-sm">
+              <p className="font-mono text-xs uppercase tracking-wider text-muted">Low-Trust Edges</p>
+              <p className="font-mono text-sm text-ink dark:text-paper mt-1">
+                {reliabilitySummary.low_trust_edges} ({formatPercent(reliabilitySummary.low_trust_edge_ratio)})
+              </p>
+            </div>
+            <div className="border border-ink/10 dark:border-paper/10 bg-surface/60 p-3 rounded-sm">
+              <p className="font-mono text-xs uppercase tracking-wider text-muted">LLM Merge Reviews</p>
+              <p className="font-mono text-sm text-ink dark:text-paper mt-1">
+                {reliabilitySummary.llm_pairs_confirmed}/{reliabilitySummary.llm_pairs_reviewed} ({formatPercent(reliabilitySummary.llm_confirmation_accept_rate)})
+              </p>
+            </div>
+            <div className="border border-ink/10 dark:border-paper/10 bg-surface/60 p-3 rounded-sm">
+              <p className="font-mono text-xs uppercase tracking-wider text-muted">Potential False Merges</p>
+              <p className="font-mono text-sm text-ink dark:text-paper mt-1">
+                {reliabilitySummary.potential_false_merge_count} ({formatPercent(reliabilitySummary.potential_false_merge_ratio)})
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Complete action */}
-        {isComplete && job.result?.project_id && (
+        {isComplete && completedProjectId && (
           <div className="mt-6 pt-6 border-t-2 border-accent-teal/20">
             <button
-              onClick={() => router.push(`/projects/${job.result!.project_id}`)}
+              onClick={() => router.push(`/projects/${completedProjectId}`)}
+              aria-label="Open project"
               className="group relative w-full py-4 bg-accent-teal text-white font-medium rounded-sm overflow-hidden transition-all hover:bg-accent-teal/90 hover:shadow-lg hover:shadow-accent-teal/20"
             >
               {/* Animated shine effect */}

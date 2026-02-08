@@ -21,6 +21,14 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+class SemanticScholarRateLimitError(Exception):
+    """Raised when Semantic Scholar keeps returning 429 after retries."""
+
+    def __init__(self, retry_after: int = 60):
+        self.retry_after = retry_after
+        super().__init__(f"Semantic Scholar rate limit exceeded (retry_after={retry_after}s)")
+
+
 @dataclass
 class SemanticScholarPaper:
     """Semantic Scholar paper data model."""
@@ -219,6 +227,7 @@ class SemanticScholarClient:
         """Make an API request with retry logic."""
         await self._rate_limit()
 
+        last_retry_after = 60
         for attempt in range(self.max_retries):
             try:
                 response = await self._client.request(method, url, **kwargs)
@@ -226,6 +235,9 @@ class SemanticScholarClient:
                 if response.status_code == 429:
                     # Rate limited
                     retry_after = int(response.headers.get("Retry-After", 60))
+                    last_retry_after = retry_after
+                    if attempt == self.max_retries - 1:
+                        raise SemanticScholarRateLimitError(retry_after=retry_after)
                     logger.warning(f"Rate limited, waiting {retry_after}s")
                     await asyncio.sleep(retry_after)
                     continue
@@ -233,6 +245,8 @@ class SemanticScholarClient:
                 response.raise_for_status()
                 return response.json()
 
+            except SemanticScholarRateLimitError:
+                raise
             except httpx.HTTPStatusError as e:
                 if attempt == self.max_retries - 1:
                     logger.error(f"HTTP error after {self.max_retries} attempts: {e}")
@@ -245,7 +259,7 @@ class SemanticScholarClient:
                     raise
                 await asyncio.sleep(2 ** attempt)
 
-        return {}
+        raise SemanticScholarRateLimitError(retry_after=last_retry_after)
 
     # ==================== Paper Search ====================
 

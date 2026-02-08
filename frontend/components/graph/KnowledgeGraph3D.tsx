@@ -43,12 +43,16 @@ interface KnowledgeGraph3DProps {
   projectId: string;
   onNodeClick?: (nodeId: string, nodeData: GraphEntity) => void;
   onAskQuestion?: (question: string) => void;
+  onDebugCameraReset?: () => void;
+  onDebugGapFocus?: (gapId: string) => void;
 }
 
 export function KnowledgeGraph3D({
   projectId,
   onNodeClick,
   onAskQuestion,
+  onDebugCameraReset,
+  onDebugGapFocus,
 }: KnowledgeGraph3DProps) {
   const graph3DRef = useRef<Graph3DRef>(null);
   const [selectedNode, setSelectedNode] = useState<GraphEntity | null>(null);
@@ -130,6 +134,7 @@ export function KnowledgeGraph3D({
     };
   }, [getFilteredData, view3D.lodEnabled, centrality, getVisiblePercentage, filters]);
   // Phase 4 FIX: Added `filters` to re-render when filter state changes
+  const displayNodes = displayData?.nodes ?? [];
 
   // Handle node click
   const handleNodeClick = useCallback((node: GraphEntity) => {
@@ -160,6 +165,7 @@ export function KnowledgeGraph3D({
   // Handle gap selection
   const handleGapSelect = useCallback((gap: StructuralGap) => {
     setSelectedGap(gap);
+    onDebugGapFocus?.(gap.id);
 
     // Highlight gap nodes
     const allNodes = [
@@ -171,7 +177,7 @@ export function KnowledgeGraph3D({
 
     // Focus camera on gap
     graph3DRef.current?.focusOnGap(gap);
-  }, [setSelectedGap, setHighlightedNodes]);
+  }, [setSelectedGap, setHighlightedNodes, onDebugGapFocus]);
 
   // Handle gap highlight
   const handleGapHighlight = useCallback((nodeIds: string[]) => {
@@ -192,7 +198,8 @@ export function KnowledgeGraph3D({
   // Handle reset camera
   const handleResetCamera = useCallback(() => {
     graph3DRef.current?.resetCamera();
-  }, []);
+    onDebugCameraReset?.();
+  }, [onDebugCameraReset]);
 
   // Handle background click
   const handleBackgroundClick = useCallback(() => {
@@ -211,6 +218,29 @@ export function KnowledgeGraph3D({
     setEdgeModalOpen(false);
     setSelectedEdge(null);
   }, []);
+
+  const selectedEdgeConfidence = useMemo(() => {
+    if (!selectedEdge) return undefined;
+    const propConfidence = selectedEdge.properties?.confidence;
+    if (typeof propConfidence === 'number') return propConfidence;
+    if (typeof selectedEdge.weight === 'number') return selectedEdge.weight;
+    return undefined;
+  }, [selectedEdge]);
+
+  const selectedEdgeIsLowTrust = useMemo(() => {
+    if (typeof selectedEdgeConfidence !== 'number') return false;
+    return selectedEdgeConfidence < 0.6;
+  }, [selectedEdgeConfidence]);
+
+  const selectedEdgeSourceName = useMemo(() => {
+    if (!selectedEdge) return undefined;
+    return displayNodes.find((node) => node.id === selectedEdge.source)?.name;
+  }, [selectedEdge, displayNodes]);
+
+  const selectedEdgeTargetName = useMemo(() => {
+    if (!selectedEdge) return undefined;
+    return displayNodes.find((node) => node.id === selectedEdge.target)?.name;
+  }, [selectedEdge, displayNodes]);
 
   // Handle close node details
   const handleCloseNodeDetails = useCallback(() => {
@@ -427,6 +457,7 @@ export function KnowledgeGraph3D({
           {/* Reset Camera */}
           <button
             onClick={handleResetCamera}
+            data-testid="kg-reset-camera"
             className="p-2 hover:bg-surface/10 text-muted hover:text-ink dark:hover:text-paper transition-colors"
             title="Reset Camera"
           >
@@ -724,6 +755,11 @@ export function KnowledgeGraph3D({
         isOpen={edgeModalOpen}
         onClose={handleCloseEdgeModal}
         relationshipId={selectedEdge?.id || null}
+        sourceName={selectedEdgeSourceName}
+        targetName={selectedEdgeTargetName}
+        relationshipType={selectedEdge?.relationship_type}
+        relationshipConfidence={selectedEdgeConfidence}
+        isLowTrust={selectedEdgeIsLowTrust}
       />
     </div>
   );

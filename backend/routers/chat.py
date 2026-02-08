@@ -481,6 +481,7 @@ class ChatResponse(BaseModel):
     """Flat response structure aligned with frontend expectations."""
     conversation_id: str
     answer: str
+    intent: Optional[str] = None
     citations: List[SimpleCitation] = []
     highlighted_nodes: List[str] = []
     highlighted_edges: List[str] = []
@@ -597,6 +598,7 @@ async def chat_query(
     orchestrator = get_orchestrator()
 
     answer = ""
+    intent: Optional[str] = None
     citations: List[SimpleCitation] = []
     highlighted_nodes: List[str] = []
     highlighted_edges: List[str] = []
@@ -616,6 +618,7 @@ async def chat_query(
         )
 
         answer = result.content
+        intent = result.intent
         # Convert string citations to SimpleCitation objects
         citations = [
             SimpleCitation(id=str(i), label=cite, entity_type="Concept")  # Concept-centric
@@ -706,6 +709,7 @@ async def chat_query(
     return ChatResponse(
         conversation_id=conversation_id,
         answer=answer,
+        intent=intent,
         citations=citations,
         highlighted_nodes=highlighted_nodes,
         highlighted_edges=highlighted_edges,

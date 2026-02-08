@@ -2,6 +2,7 @@
  * Tests for Settings API client methods
  * v0.13.0: API key management endpoints
  */
+export {};
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -9,13 +10,9 @@ global.fetch = mockFetch;
 
 // Mock Supabase
 jest.mock('@/lib/supabase', () => ({
-  supabase: {
-    auth: {
-      getSession: jest.fn().mockResolvedValue({
-        data: { session: { access_token: 'test-token' } },
-      }),
-    },
-  },
+  getSession: jest.fn().mockResolvedValue({
+    access_token: 'test-token',
+  }),
 }));
 
 describe('ApiClient - Settings API', () => {
@@ -238,7 +235,7 @@ describe('ApiClient - Settings API', () => {
       const mockResponse = {
         provider: 'unsupported_provider',
         valid: false,
-        error: 'Provider not supported',
+        message: 'Provider not supported',
       };
 
       mockFetch.mockResolvedValue({
@@ -252,7 +249,7 @@ describe('ApiClient - Settings API', () => {
       const result = await api.validateApiKey('unsupported_provider', 'test_key');
 
       expect(result.valid).toBe(false);
-      expect(result.error).toBeTruthy();
+      expect(result.message).toBeTruthy();
     });
 
     it('should include authorization header', async () => {

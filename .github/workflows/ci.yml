@@ -12,15 +12,128 @@ on:
 env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "18"
-  PNPM_VERSION: "8"
 
 jobs:
+  # ============================================
+  # Core Gate (Standardized Test Entry)
+  # ============================================
+  core-gate:
+    name: Core Gate (make test-all-core)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_scholarag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies in venv
+        run: |
+          python -m venv backend/venv
+          backend/venv/bin/pip install --upgrade pip
+          backend/venv/bin/pip install -r backend/requirements.txt
+          backend/venv/bin/pip install -r backend/requirements-dev.txt
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run core gate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_scholarag
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: make test-all-core
+
+  # ============================================
+  # Snapshot Triage Gate (PR only)
+  # ============================================
+  snapshot-triage:
+    name: Snapshot Triage Gate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Validate snapshot triage label and checklist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No pull request payload. Skipping triage check.');
+              return;
+            }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            const snapshotPattern = /(^frontend\/__tests__\/components\/.*\.snapshot\.test\.(t|j)sx$)|(\.snap$)|(^frontend\/e2e\/visual-regression\.spec\.ts$)|(^frontend\/e2e\/visual-regression\.spec\.ts-snapshots\/)/;
+            const hasSnapshotChange = files.some((file) => snapshotPattern.test(file.filename));
+
+            if (!hasSnapshotChange) {
+              core.info('No snapshot-related file changes detected.');
+              return;
+            }
+
+            const labels = (pr.labels || []).map((label) => label.name);
+            const allowedLabels = ['snapshot:accept', 'snapshot:fix', 'snapshot:split'];
+            const hasAllowedLabel = labels.some((name) => allowedLabels.includes(name));
+
+            if (!hasAllowedLabel) {
+              core.setFailed(
+                `Snapshot changes detected. Add one label: ${allowedLabels.join(', ')}`
+              );
+              return;
+            }
+
+            const body = pr.body || '';
+            const hasChecklist = /-\s*\[[xX]\]\s*Snapshot triage reviewed/.test(body);
+            if (!hasChecklist) {
+              core.setFailed(
+                'Snapshot changes detected. Check "- [x] Snapshot triage reviewed" in PR template.'
+              );
+              return;
+            }
+
+            core.info('Snapshot triage requirements satisfied.');
+
   # ============================================
   # Backend Tests & Linting
   # ============================================
   backend:
     name: Backend Tests
     runs-on: ubuntu-latest
+    needs: core-gate
     
     services:
       postgres:
@@ -85,47 +198,83 @@ jobs:
   frontend:
     name: Frontend Tests
     runs-on: ubuntu-latest
+    needs: core-gate
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          version: ${{ env.PNPM_VERSION }}
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run linting (ESLint)
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Run type checking
+        run: |
+          cd frontend
+          npm run type-check || true
+
+      - name: Run tests
+        run: |
+          cd frontend
+          npm run test -- --passWithNoTests || true
+
+      - name: Build
+        run: |
+          cd frontend
+          npm run build
+
+  # ============================================
+  # Frontend E2E + Visual Regression (PR only)
+  # ============================================
+  frontend-e2e-visual:
+    name: Frontend E2E + Visual Regression
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [core-gate, snapshot-triage]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: |
           cd frontend
-          pnpm install --frozen-lockfile
+          npm ci
 
-      - name: Run linting (ESLint)
+      - name: Install Playwright Chromium
         run: |
           cd frontend
-          pnpm lint
+          npx playwright install --with-deps chromium
 
-      - name: Run type checking
-        run: |
-          cd frontend
-          pnpm type-check || true
+      - name: Run E2E interaction regression
+        env:
+          NEXT_PUBLIC_E2E_MOCK_3D: "1"
+        run: make test-frontend-e2e
 
-      - name: Run tests
-        run: |
-          cd frontend
-          pnpm test --passWithNoTests || true
-
-      - name: Build
-        run: |
-          cd frontend
-          pnpm build
+      - name: Run visual regression
+        env:
+          NEXT_PUBLIC_E2E_MOCK_3D: "1"
+        run: make test-frontend-visual
 
   # ============================================
   # Docker Build Test
@@ -168,6 +317,7 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    needs: core-gate
 
     steps:
       - name: Checkout code
@@ -192,6 +342,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    needs: core-gate
 
     steps:
       - name: Checkout code

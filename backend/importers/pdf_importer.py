@@ -27,6 +27,7 @@ import fitz  # PyMuPDF
 from database import Database
 from graph.graph_store import GraphStore
 from graph.entity_extractor import EntityExtractor
+from graph.entity_resolution import EntityResolutionService
 from graph.relationship_builder import ConceptCentricRelationshipBuilder
 from importers.semantic_chunker import SemanticChunker
 
@@ -52,6 +53,7 @@ class PDFImporter:
 
         # Initialize entity extractor and semantic chunker
         self.entity_extractor = EntityExtractor(llm_provider=llm_provider)
+        self.entity_resolution = EntityResolutionService(llm_provider=self.entity_extractor.llm)
         self.semantic_chunker = SemanticChunker()
 
     def _update_progress(self, stage: str, progress: float, message: str):
@@ -59,6 +61,26 @@ class PDFImporter:
         if self.progress_callback:
             self.progress_callback(stage, progress, message)
         logger.info(f"[{stage}] {progress:.0%} - {message}")
+
+    def _accumulate_resolution_stats(self, stats: Dict[str, Any], resolution) -> None:
+        """Accumulate shared entity-resolution metrics into importer stats."""
+        stats["raw_entities_extracted"] = stats.get("raw_entities_extracted", 0) + int(resolution.raw_entities)
+        stats["entities_after_resolution"] = stats.get("entities_after_resolution", 0) + int(resolution.resolved_entities)
+        stats["merges_applied"] = stats.get("merges_applied", 0) + int(resolution.merged_entities)
+        stats["llm_pairs_reviewed"] = stats.get("llm_pairs_reviewed", 0) + int(
+            getattr(resolution, "llm_pairs_reviewed", 0)
+        )
+        stats["llm_pairs_confirmed"] = stats.get("llm_pairs_confirmed", 0) + int(
+            getattr(resolution, "llm_pairs_confirmed", 0)
+        )
+        stats["potential_false_merge_count"] = stats.get("potential_false_merge_count", 0) + int(
+            getattr(resolution, "potential_false_merge_count", 0)
+        )
+        stats.setdefault("potential_false_merge_samples", [])
+        samples = getattr(resolution, "potential_false_merge_samples", []) or []
+        if samples:
+            stats["potential_false_merge_samples"].extend(samples)
+            stats["potential_false_merge_samples"] = stats["potential_false_merge_samples"][:15]
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Extract all text from a PDF file."""
@@ -248,6 +270,13 @@ class PDFImporter:
                 "concepts_extracted": 0,
                 "methods_extracted": 0,
                 "findings_extracted": 0,
+                "raw_entities_extracted": 0,
+                "entities_after_resolution": 0,
+                "merges_applied": 0,
+                "llm_pairs_reviewed": 0,
+                "llm_pairs_confirmed": 0,
+                "potential_false_merge_count": 0,
+                "potential_false_merge_samples": [],
             }
 
             if extract_concepts and self.graph_store:
@@ -271,15 +300,20 @@ class PDFImporter:
                         extraction_result.get("methods", []) +
                         extraction_result.get("findings", [])
                     )
+                    resolved_entities, resolution = await self.entity_resolution.resolve_entities_async(
+                        all_entities,
+                        use_llm_confirmation=True,
+                    )
+                    self._accumulate_resolution_stats(stats, resolution)
 
-                    for entity in all_entities:
+                    for entity in resolved_entities:
                         # Get entity type as string
                         entity_type_str = str(entity.entity_type.value) if hasattr(entity.entity_type, 'value') else str(entity.entity_type)
 
                         entity_id = await self.graph_store.add_entity(
                             project_id=project_id,
                             entity_type=entity_type_str,
-                            name=entity.name,
+                            name=self.entity_resolution.canonicalize_name(entity.name),
                             properties={
                                 "definition": getattr(entity, 'definition', ''),
                                 "description": getattr(entity, 'description', ''),
@@ -316,14 +350,22 @@ class PDFImporter:
 
                     # Build additional relationships between entities
                     builder = ConceptCentricRelationshipBuilder(
-                        graph_store=self.graph_store,
-                        llm_provider=self.llm_provider,
+                        llm_provider=self.entity_extractor.llm,
                     )
-                    await builder.build_relationships(project_id=project_id)
+                    # Backward-compatible guard: some builder versions do not expose build_relationships().
+                    if hasattr(builder, "build_relationships"):
+                        await builder.build_relationships(project_id=project_id)
 
                 except Exception as e:
                     logger.warning(f"Entity extraction failed: {e}")
                     # Continue without entities - still create the project
+
+            if stats["raw_entities_extracted"] > 0:
+                stats["canonicalization_rate"] = (
+                    stats["merges_applied"] / stats["raw_entities_extracted"]
+                )
+            else:
+                stats["canonicalization_rate"] = 0.0
 
             self._update_progress("complete", 1.0, "Import complete!")
 
@@ -389,6 +431,13 @@ class PDFImporter:
             "concepts_extracted": 0,
             "methods_extracted": 0,
             "findings_extracted": 0,
+            "raw_entities_extracted": 0,
+            "entities_after_resolution": 0,
+            "merges_applied": 0,
+            "llm_pairs_reviewed": 0,
+            "llm_pairs_confirmed": 0,
+            "potential_false_merge_count": 0,
+            "potential_false_merge_samples": [],
         }
 
         for i, (filename, content) in enumerate(pdf_files):
@@ -409,8 +458,25 @@ class PDFImporter:
 
             if result["success"]:
                 total_stats["papers_imported"] += 1
-                for key in ["authors_extracted", "concepts_extracted", "methods_extracted", "findings_extracted"]:
+                for key in [
+                    "authors_extracted",
+                    "concepts_extracted",
+                    "methods_extracted",
+                    "findings_extracted",
+                    "raw_entities_extracted",
+                    "entities_after_resolution",
+                    "merges_applied",
+                    "llm_pairs_reviewed",
+                    "llm_pairs_confirmed",
+                    "potential_false_merge_count",
+                ]:
                     total_stats[key] += result.get("stats", {}).get(key, 0)
+                samples = result.get("stats", {}).get("potential_false_merge_samples", []) or []
+                if samples:
+                    total_stats["potential_false_merge_samples"].extend(samples)
+                    total_stats["potential_false_merge_samples"] = total_stats[
+                        "potential_false_merge_samples"
+                    ][:15]
             else:
                 total_stats["papers_failed"] += 1
 
@@ -418,10 +484,17 @@ class PDFImporter:
         if extract_concepts and self.graph_store:
             self._update_progress("building", 0.9, "Building cross-paper relationships...")
             builder = ConceptCentricRelationshipBuilder(
-                graph_store=self.graph_store,
-                llm_provider=self.llm_provider,
+                llm_provider=self.entity_extractor.llm,
             )
-            await builder.build_relationships(project_id=project_id)
+            if hasattr(builder, "build_relationships"):
+                await builder.build_relationships(project_id=project_id)
+
+        if total_stats["raw_entities_extracted"] > 0:
+            total_stats["canonicalization_rate"] = (
+                total_stats["merges_applied"] / total_stats["raw_entities_extracted"]
+            )
+        else:
+            total_stats["canonicalization_rate"] = 0.0
 
         self._update_progress("complete", 1.0, "Import complete!")
 
@@ -457,7 +530,15 @@ class PDFImporter:
                 "methods_extracted": 0,
                 "findings_extracted": 0,
                 "chunks_created": 0,
+                "raw_entities_extracted": 0,
+                "entities_after_resolution": 0,
+                "merges_applied": 0,
+                "llm_pairs_reviewed": 0,
+                "llm_pairs_confirmed": 0,
+                "potential_false_merge_count": 0,
+                "potential_false_merge_samples": [],
             }
+            stored_entity_keys = set()
 
             # Create Paper entity using GraphStore
             paper_id = None
@@ -523,14 +604,25 @@ class PDFImporter:
                                     sections=chunked_result["sections"],
                                     paper_id=paper_id,
                                 )
+                                resolved_section_entities, section_resolution = await self.entity_resolution.resolve_entities_async(
+                                    section_entities,
+                                    use_llm_confirmation=True,
+                                )
+                                self._accumulate_resolution_stats(stats, section_resolution)
                                 # Merge section entities into main extraction
-                                if section_entities:
-                                    for entity in section_entities:
+                                if resolved_section_entities:
+                                    for entity in resolved_section_entities:
                                         entity_type_str = str(entity.entity_type.value) if hasattr(entity.entity_type, 'value') else str(entity.entity_type)
+                                        canonical_name = self.entity_resolution.canonicalize_name(entity.name)
+                                        entity_key = f"{entity_type_str}:{canonical_name}"
+                                        if entity_key in stored_entity_keys:
+                                            stats["merges_applied"] += 1
+                                            continue
+
                                         entity_id = await self.graph_store.add_entity(
                                             project_id=project_id,
                                             entity_type=entity_type_str,
-                                            name=entity.name,
+                                            name=canonical_name,
                                             properties={
                                                 "definition": getattr(entity, 'definition', ''),
                                                 "description": getattr(entity, 'description', ''),
@@ -561,6 +653,7 @@ class PDFImporter:
                                             stats["methods_extracted"] += 1
                                         elif entity_type_str == "Finding":
                                             stats["findings_extracted"] += 1
+                                        stored_entity_keys.add(entity_key)
                             except Exception as e:
                                 logger.warning(f"Section-aware extraction failed: {e}")
                 except Exception as e:
@@ -583,15 +676,25 @@ class PDFImporter:
                         extraction_result.get("methods", []) +
                         extraction_result.get("findings", [])
                     )
+                    resolved_entities, resolution = await self.entity_resolution.resolve_entities_async(
+                        all_entities,
+                        use_llm_confirmation=True,
+                    )
+                    self._accumulate_resolution_stats(stats, resolution)
 
-                    for entity in all_entities:
+                    for entity in resolved_entities:
                         # Get entity type as string
                         entity_type_str = str(entity.entity_type.value) if hasattr(entity.entity_type, 'value') else str(entity.entity_type)
+                        canonical_name = self.entity_resolution.canonicalize_name(entity.name)
+                        entity_key = f"{entity_type_str}:{canonical_name}"
+                        if entity_key in stored_entity_keys:
+                            stats["merges_applied"] += 1
+                            continue
 
                         entity_id = await self.graph_store.add_entity(
                             project_id=project_id,
                             entity_type=entity_type_str,
-                            name=entity.name,
+                            name=canonical_name,
                             properties={
                                 "definition": getattr(entity, 'definition', ''),
                                 "description": getattr(entity, 'description', ''),
@@ -622,9 +725,17 @@ class PDFImporter:
                             stats["methods_extracted"] += 1
                         elif entity_type_str == "Finding":
                             stats["findings_extracted"] += 1
+                        stored_entity_keys.add(entity_key)
 
                 except Exception as e:
                     logger.warning(f"Entity extraction failed for {filename}: {e}")
+
+            if stats["raw_entities_extracted"] > 0:
+                stats["canonicalization_rate"] = (
+                    stats["merges_applied"] / stats["raw_entities_extracted"]
+                )
+            else:
+                stats["canonicalization_rate"] = 0.0
 
             return {"success": True, "paper_id": paper_id, "stats": stats}
 
