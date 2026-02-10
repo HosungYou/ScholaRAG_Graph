@@ -96,12 +96,26 @@ export function GapPanel({
   // Get cluster label or generate one
   const getClusterLabel = useCallback((clusterId: number) => {
     const cluster = clusters.find(c => c.cluster_id === clusterId);
-    if (cluster?.label) return cluster.label;
+    // Priority 1: LLM-generated label (skip UUID-like strings)
+    if (cluster?.label && !/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(cluster.label)) {
+      return cluster.label;
+    }
+    // Priority 2: concept_names from cluster
     if (cluster?.concept_names && cluster.concept_names.length > 0) {
-      return cluster.concept_names.slice(0, 2).join(', ');
+      const filtered = cluster.concept_names.filter((n: string) => n && n.trim());
+      if (filtered.length > 0) return filtered.slice(0, 3).join(' / ');
+    }
+    // Priority 3: names from gaps data (always populated)
+    for (const gap of gaps) {
+      if (gap.cluster_a_id === clusterId && gap.cluster_a_names?.length > 0) {
+        return gap.cluster_a_names.slice(0, 3).join(' / ');
+      }
+      if (gap.cluster_b_id === clusterId && gap.cluster_b_names?.length > 0) {
+        return gap.cluster_b_names.slice(0, 3).join(' / ');
+      }
     }
     return `Cluster ${clusterId + 1}`;
-  }, [clusters]);
+  }, [clusters, gaps]);
 
   // Get cluster color
   const getClusterColor = useCallback((clusterId: number) => {
@@ -683,18 +697,21 @@ export function GapPanel({
                   Concept Clusters
                 </p>
               </div>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-2 gap-1">
                 {clusters.slice(0, 12).map((cluster) => (
                   <div
                     key={cluster.cluster_id}
-                    className="flex items-center gap-1 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5"
-                    title={`Cluster ${cluster.cluster_id + 1}: ${cluster.size} concepts`}
+                    className="flex items-center gap-1.5 p-1.5 bg-surface/5 border border-ink/5 dark:border-paper/5 overflow-hidden"
+                    title={`${getClusterLabel(cluster.cluster_id)}: ${cluster.size} concepts`}
                   >
                     <div
-                      className="w-2 h-2 flex-shrink-0"
+                      className="w-2 h-2 flex-shrink-0 rounded-sm"
                       style={{ backgroundColor: getClusterColor(cluster.cluster_id) }}
                     />
-                    <span className="font-mono text-xs text-muted">
+                    <span className="font-mono text-xs text-muted truncate">
+                      {getClusterLabel(cluster.cluster_id)}
+                    </span>
+                    <span className="font-mono text-[10px] text-muted/50 flex-shrink-0 ml-auto">
                       {cluster.size}
                     </span>
                   </div>

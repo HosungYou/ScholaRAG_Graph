@@ -2158,7 +2158,7 @@ async def get_graph_metrics(
                 node_ids=row["concepts"] or [],
                 node_names=[],
                 centroid=None,
-                size=row["size"],
+                size=row["size"] if row["size"] else len(row["concepts"] or []),
             )
             for row in cluster_rows
         ]
