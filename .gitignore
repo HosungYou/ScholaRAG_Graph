@@ -59,3 +59,12 @@ site/
 =*
 .serena/
 .vercel
+
+# oh-my-claudecode state
+.omc/
+
+# MCP local config
+.mcp.json
+
+# Supabase MCP temp
+supabase/.temp/

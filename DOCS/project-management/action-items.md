@@ -2,7 +2,7 @@
 
 > 이 문서는 코드 리뷰, 기능 구현, 버그 수정 등에서 발견된 액션 아이템을 추적합니다.
 >
-> **마지막 업데이트**: 2026-02-07
+> **마지막 업데이트**: 2026-02-09
 > **관리자**: Claude Code
 
 ---
@@ -11,10 +11,10 @@
 
 | Priority | Total | Completed | In Progress | Pending |
 |----------|-------|-----------|-------------|---------|
-| 🔴 High | 19 | 19 | 0 | 0 |
-| 🟡 Medium | 21 | 21 | 0 | 0 |
+| 🔴 High | 20 | 20 | 0 | 0 |
+| 🟡 Medium | 24 | 24 | 0 | 0 |
 | 🟢 Low | 5 | 5 | 0 | 0 |
-| **Total** | **45** | **45** | **0** | **0** |
+| **Total** | **49** | **49** | **0** | **0** |
 
 ---
 
@@ -27,6 +27,53 @@
 ## 🟡 Medium Priority (Short-term)
 
 *모든 Medium Priority 항목이 완료되어 Archive 섹션으로 이동되었습니다.*
+
+---
+
+## 📝 v0.15.1 Release - Infrastructure Maintenance (2026-02-09)
+
+### INFRA-008: Supabase Free Plan 용량 초과 해결 (1월 데이터 삭제)
+- **Source**: Supabase Dashboard 용량 경고 2026-02-09
+- **Status**: ✅ Completed
+- **Priority**: 🔴 High
+- **Description**: Supabase Free Plan 500MB 한도 초과 (671.55 MB). 1월 테스트 프로젝트 26개 및 관련 데이터 ~104만 행 삭제
+- **Solution Applied**:
+  - [x] FK 순서대로 9개 테이블에서 데이터 삭제
+  - [x] 2월 프로젝트 4개 보존 확인
+- **Completed**: 2026-02-09
+
+### INFRA-009: VACUUM FULL 디스크 공간 회수
+- **Source**: INFRA-008 후속 작업
+- **Status**: ✅ Completed
+- **Priority**: 🟡 Medium
+- **Description**: DELETE 후 dead tuple이 차지하는 공간을 VACUUM FULL로 회수
+- **Solution Applied**:
+  - [x] relationships: 404 MB → 8.4 MB
+  - [x] semantic_chunks: 174 MB → 127 MB
+  - [x] entities: 65 MB → 31 MB
+  - [x] **Total: 671 MB → 181 MB (490 MB 회수)**
+- **Completed**: 2026-02-09
+
+### INFRA-010: Migration 021_cross_paper_links.sql 적용
+- **Source**: v0.15.0 릴리즈 마이그레이션
+- **Status**: ✅ Completed
+- **Priority**: 🟡 Medium
+- **Description**: Cross-paper entity linking을 위한 SAME_AS relationship type 추가 및 인덱스 생성
+- **Solution Applied**:
+  - [x] `ALTER TYPE relationship_type ADD VALUE IF NOT EXISTS 'SAME_AS'`
+  - [x] `CREATE INDEX idx_entities_name_type` (Method, Dataset, Concept)
+  - [x] `CREATE INDEX idx_relationships_same_as` (SAME_AS type)
+- **Completed**: 2026-02-09
+
+### INFRA-011: Render DATABASE_URL Session Pooler로 교체
+- **Source**: DB 연결 최적화
+- **Status**: ✅ Completed
+- **Priority**: 🟡 Medium
+- **Description**: Transaction Pooler (port 6543) → Session Pooler (port 5432) 교체. Prepared statement 지원 및 DDL 호환성 개선
+- **Solution Applied**:
+  - [x] Render MCP로 환경변수 업데이트
+  - [x] 자동 배포 트리거 확인 (`dep-d6533q24d50c73dlrid0`)
+- **Completed**: 2026-02-09
 
 ---
 

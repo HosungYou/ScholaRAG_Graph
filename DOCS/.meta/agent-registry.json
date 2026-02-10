@@ -1,10 +1,49 @@
 {
-  "version": "1.10.0",
-  "last_updated": "2026-01-21T09:00:00Z",
+  "version": "1.11.0",
+  "last_updated": "2026-02-09T19:15:00Z",
   "project": "ScholaRAG_Graph",
   "repository": "https://github.com/HosungYou/ScholaRAG_Graph",
 
   "sessions": [
+    {
+      "id": "2026-02-09_db-maintenance-migration-021",
+      "date": "2026-02-09T19:00:00Z",
+      "agents": ["Opus 4.6"],
+      "type": "infrastructure-maintenance",
+      "feature": "db-maintenance-migration-021",
+      "duration_minutes": 25,
+      "skills_used": ["render-mcp", "psql-direct"],
+      "files_read": 5,
+      "files_created": 3,
+      "files_modified": 2,
+      "lines_added": 180,
+      "lines_removed": 6,
+      "artifacts": [
+        ".mcp.json",
+        "RELEASE_NOTES_v0.15.1.md",
+        "DOCS/.meta/sessions/2026-02-09_db-maintenance-migration-021.md",
+        "DOCS/project-management/action-items.md",
+        "DOCS/.meta/agent-registry.json"
+      ],
+      "decisions": [
+        "Use Session Pooler (port 5432) instead of Transaction Pooler (port 6543)",
+        "Install psql via brew for direct DB access when Supabase MCP unavailable",
+        "VACUUM FULL on 3 largest tables instead of whole database"
+      ],
+      "outcome": "completed",
+      "follow_up_required": false,
+      "infrastructure_changes": [
+        "INFRA-008: January test data cleanup (26 projects, ~1M rows)",
+        "INFRA-009: VACUUM FULL space recovery (671 MB → 181 MB)",
+        "INFRA-010: Migration 021 applied (SAME_AS + indexes)",
+        "INFRA-011: Render DATABASE_URL → Session Pooler",
+        "INFRA-012: Supabase MCP config for project root"
+      ],
+      "supabase_migration_executed": true,
+      "db_rows_deleted": 1043953,
+      "disk_space_recovered_mb": 490,
+      "methodology": "render-mcp-and-psql-direct"
+    },
     {
       "id": "2026-01-21_perf-009-memory-optimization",
       "date": "2026-01-21T09:00:00Z",
@@ -515,23 +554,23 @@
   ],
 
   "action_items": {
-    "total": 54,
+    "total": 58,
     "by_priority": {
-      "high": 25,
-      "medium": 20,
+      "high": 26,
+      "medium": 23,
       "low": 9
     },
     "by_status": {
       "pending": 2,
       "in_progress": 0,
-      "completed": 52
+      "completed": 56
     },
     "recently_completed": [
-      "PERF-009: Memory optimization for 512MB Render",
-      "UI-001: Resume button for interrupted imports",
-      "BUG-034: Chunk embedding pgvector format",
-      "BUG-033: semantic_chunks table missing + Groq rate limit",
-      "INFRA-007: Groq Dev Tier upgrade"
+      "INFRA-008: Supabase Free Plan quota cleanup (671→181 MB)",
+      "INFRA-009: VACUUM FULL space recovery (490 MB)",
+      "INFRA-010: Migration 021 cross-paper links",
+      "INFRA-011: Render DATABASE_URL Session Pooler",
+      "INFRA-012: Supabase MCP project root config"
     ],
     "pending_large_tasks": [
       "INFRA-005: Infrastructure as Code",
@@ -541,6 +580,17 @@
   },
 
   "agent_stats": {
+    "Opus 4.6": {
+      "total_sessions": 1,
+      "total_hours": 0.4,
+      "decisions_made": 3,
+      "primary_role": "Infrastructure Maintenance",
+      "features_designed": ["db-maintenance-migration-021"],
+      "infrastructure_changes": 5,
+      "db_rows_deleted": 1043953,
+      "disk_space_recovered_mb": 490,
+      "migrations_applied": 1
+    },
     "Opus 4.5": {
       "total_sessions": 12,
       "total_hours": 13.0,
@@ -621,7 +671,7 @@
     }
   },
 
-  "next_session_id": "2026-01-21_[feature-name]",
+  "next_session_id": "2026-02-09_[feature-name]",
 
   "templates": {
     "session": "DOCS/.meta/templates/session-template.md",

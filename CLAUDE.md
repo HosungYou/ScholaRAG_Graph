@@ -687,6 +687,25 @@ When making architectural changes:
 
 ---
 
+## 📊 v0.15.1 Release Notes
+
+> **Version**: 0.15.1 | **Date**: 2026-02-09
+> **Full Notes**: See `RELEASE_NOTES_v0.15.1.md`
+
+### Infrastructure Maintenance
+- **INFRA-008**: Supabase Free Plan 용량 초과 해결 — 1월 테스트 프로젝트 26개 삭제 (~104만 행)
+- **INFRA-009**: VACUUM FULL 공간 회수 — **671 MB → 181 MB** (490 MB 회수, 73% 감소)
+- **INFRA-010**: Migration 021_cross_paper_links.sql 적용 — `SAME_AS` enum + 2 indexes
+- **INFRA-011**: Render DATABASE_URL — Transaction Pooler (6543) → **Session Pooler (5432)**
+- **INFRA-012**: 프로젝트 루트 Supabase MCP `.mcp.json` 설정
+
+### Technical
+- No code changes, infrastructure-only release
+- No breaking changes, no new env vars
+- 4 February projects preserved (2/4, 2/6 x2, 2/7)
+
+---
+
 ## 📊 v0.15.0 Release Notes
 
 > **Version**: 0.15.0 | **Date**: 2026-02-08
