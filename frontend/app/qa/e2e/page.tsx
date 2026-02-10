@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Graph3D } from '@/components/graph/Graph3D';
 import { KnowledgeGraph3D } from '@/components/graph/KnowledgeGraph3D';
@@ -215,7 +215,7 @@ const QA_EVIDENCE_FIXTURE: RelationshipEvidence = {
   ],
 };
 
-export default function QAE2EPage() {
+function QAE2EContent() {
   const searchParams = useSearchParams();
   const scenario = searchParams.get('scenario') || 'knowledge';
 
@@ -494,5 +494,13 @@ export default function QAE2EPage() {
         </section>
       )}
     </main>
+  );
+}
+
+export default function QAE2EPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0d1117] text-white p-6 font-mono text-sm">Loading QA...</div>}>
+      <QAE2EContent />
+    </Suspense>
   );
 }
