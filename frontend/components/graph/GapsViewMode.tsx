@@ -62,7 +62,7 @@ function GapsMinimap({
     });
 
     // Create 2D positions for minimap (arrange clusters in a circle)
-    const clusterCount = Math.max(clusters.length, 1);
+    const clusterCount = clusters.length > 0 ? clusters.length : 1;
     const centerX = width / 2;
     const centerY = height / 2;
     const radius = Math.min(width, height) * 0.35;

@@ -76,20 +76,28 @@ export function TopicViewMode({
       }
     });
 
+    // Build valid node ID set for link filtering
+    const validNodeIds = new Set(nodes.map((n) => n.id));
+
     // Create links from connections
     const links: TopicLink[] = [];
 
     // Add connection links
     connectionMap.forEach((count, key) => {
       const [a, b] = key.split('-').map(Number);
-      links.push({
-        id: `connection-${key}`,
-        source: `cluster-${a}`,
-        target: `cluster-${b}`,
-        type: 'connection',
-        weight: count,
-        connectionCount: count,
-      });
+      const sourceId = `cluster-${a}`;
+      const targetId = `cluster-${b}`;
+
+      if (validNodeIds.has(sourceId) && validNodeIds.has(targetId)) {
+        links.push({
+          id: `connection-${key}`,
+          source: sourceId,
+          target: targetId,
+          type: 'connection',
+          weight: count,
+          connectionCount: count,
+        });
+      }
     });
 
     // Add gap links
@@ -99,15 +107,17 @@ export function TopicViewMode({
         Math.max(gap.cluster_a_id, gap.cluster_b_id),
       ].join('-');
 
+      const sourceId = `cluster-${gap.cluster_a_id}`;
+      const targetId = `cluster-${gap.cluster_b_id}`;
+
       // Check if there's already a connection link
       const existingLink = links.find((l) => l.id === `connection-${key}`);
 
-      if (!existingLink) {
-        // Add gap as dashed link
+      if (!existingLink && validNodeIds.has(sourceId) && validNodeIds.has(targetId)) {
         links.push({
           id: `gap-${gap.id}`,
-          source: `cluster-${gap.cluster_a_id}`,
-          target: `cluster-${gap.cluster_b_id}`,
+          source: sourceId,
+          target: targetId,
           type: 'gap',
           weight: gap.gap_strength,
           gapId: gap.id,

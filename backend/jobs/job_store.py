@@ -381,6 +381,26 @@ class JobStore:
                 return 0
         return 0
 
+    async def delete_job(self, job_id: str) -> bool:
+        """Delete a job by ID."""
+        if self.db:
+            try:
+                result = await self.db.execute(
+                    "DELETE FROM jobs WHERE id = $1",
+                    job_id,
+                )
+                # Parse "DELETE N" to get count
+                count = int(result.split()[-1]) if result else 0
+                # Also remove from memory if present
+                self._memory_store.pop(job_id, None)
+                return count > 0
+            except Exception as e:
+                logger.warning(f"Failed to delete job {job_id}: {type(e).__name__}: {e}")
+                return False
+
+        # Fallback for memory store
+        return self._memory_store.pop(job_id, None) is not None
+
     async def mark_running_as_interrupted(self) -> int:
         """
         BUG-028: Mark all RUNNING jobs as INTERRUPTED on server startup.
