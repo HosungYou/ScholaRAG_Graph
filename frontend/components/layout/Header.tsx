@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { ScholaRAGLogo } from '@/components/ui/ScholaRAGLogo';
+import { UserMenu } from '@/components/auth';
 
 /* ============================================================
    Header - VS Design Diverge Style
@@ -148,11 +149,10 @@ export function Header({ breadcrumbs, rightContent }: HeaderProps) {
           </nav>
 
           {/* Right Content (custom actions like ThemeToggle) */}
-          {rightContent && (
-            <div className="hidden md:flex items-center ml-4 pl-4 border-l border-ink/10 dark:border-paper/10">
-              {rightContent}
-            </div>
-          )}
+          <div className="hidden md:flex items-center ml-4 pl-4 border-l border-ink/10 dark:border-paper/10 gap-3">
+            {rightContent}
+            <UserMenu />
+          </div>
 
           {/* Mobile Menu Button */}
           <button
@@ -227,11 +227,10 @@ export function Header({ breadcrumbs, rightContent }: HeaderProps) {
           </nav>
 
           {/* Mobile Right Content */}
-          {rightContent && (
-            <div className="px-4 pb-4 pt-2 border-t border-ink/10 dark:border-paper/10">
-              {rightContent}
-            </div>
-          )}
+          <div className="px-4 pb-4 pt-2 border-t border-ink/10 dark:border-paper/10 flex items-center justify-between">
+            {rightContent}
+            <UserMenu />
+          </div>
         </div>
       )}
     </header>

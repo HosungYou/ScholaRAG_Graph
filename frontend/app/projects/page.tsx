@@ -12,6 +12,7 @@ import {
   ProjectListSkeleton,
   ErrorBoundary,
 } from '@/components/ui';
+import { ProtectedRoute } from '@/components/auth';
 import type { Project, ImportJob } from '@/types';
 
 /* ============================================================
@@ -290,45 +291,47 @@ function ProjectsContent() {
 
 export default function ProjectsPage() {
   return (
-    <div className="min-h-screen bg-paper dark:bg-ink flex flex-col">
-      <a href="#main-content" className="skip-link">
-        메인 콘텐츠로 건너뛰기
-      </a>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-paper dark:bg-ink flex flex-col">
+        <a href="#main-content" className="skip-link">
+          메인 콘텐츠로 건너뛰기
+        </a>
 
-      <Header
-        breadcrumbs={[{ label: 'Projects' }]}
-        rightContent={
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <Link
-              href="/import"
-              className="btn btn--primary flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Import Project</span>
-            </Link>
+        <Header
+          breadcrumbs={[{ label: 'Projects' }]}
+          rightContent={
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <Link
+                href="/import"
+                className="btn btn--primary flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Import Project</span>
+              </Link>
+            </div>
+          }
+        />
+
+        <main id="main-content" className="flex-1 max-w-5xl mx-auto px-6 py-8 md:py-12 w-full">
+          {/* Page Header */}
+          <div className="mb-8 md:mb-12">
+            <span className="text-accent-teal font-mono text-sm tracking-widest uppercase">
+              Research Portfolio
+            </span>
+            <h1 className="font-display text-3xl md:text-4xl text-ink dark:text-paper mt-2">
+              Your Projects
+            </h1>
           </div>
-        }
-      />
 
-      <main id="main-content" className="flex-1 max-w-5xl mx-auto px-6 py-8 md:py-12 w-full">
-        {/* Page Header */}
-        <div className="mb-8 md:mb-12">
-          <span className="text-accent-teal font-mono text-sm tracking-widest uppercase">
-            Research Portfolio
-          </span>
-          <h1 className="font-display text-3xl md:text-4xl text-ink dark:text-paper mt-2">
-            Your Projects
-          </h1>
-        </div>
+          <ErrorBoundary>
+            <InterruptedImportsSection />
+            <ProjectsContent />
+          </ErrorBoundary>
+        </main>
 
-        <ErrorBoundary>
-          <InterruptedImportsSection />
-          <ProjectsContent />
-        </ErrorBoundary>
-      </main>
-
-      <Footer minimal />
-    </div>
+        <Footer minimal />
+      </div>
+    </ProtectedRoute>
   );
 }
