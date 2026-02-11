@@ -220,46 +220,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ============================================================================
+# Middleware Stack (INFRA-008)
+# ============================================================================
+# FastAPI middleware is LIFO: last added = outermost = runs first on request.
+# Execution order (request): CORS → ErrorTracking → Quota → Auth → RateLimit → CORSErrorHandler → App
+# Execution order (response): App → CORSErrorHandler → RateLimit → Auth → Quota → ErrorTracking → CORS
+#
+# CRITICAL: CORSMiddleware MUST be outermost so that ALL responses
+# (including Auth 401) get CORS headers. Without this, the browser
+# blocks 401 responses as CORS violations and the frontend cannot
+# distinguish "not logged in" from "server down".
+# ============================================================================
+
+# --- Innermost middleware (added first) ---
+
 # INFRA-007: CORS Error Handler Middleware
-# Must be added BEFORE CORSMiddleware so that error responses
-# pass through CORS and get proper headers added.
-# This handles exceptions from FastAPI routes but NOT Render LB 502/503.
+# Catches unhandled exceptions and converts to JSONResponse so that
+# the response passes through CORS and gets proper headers.
 app.add_middleware(CORSErrorHandlerMiddleware)
 logger.info("CORS Error Handler: enabled (INFRA-007)")
 
-# CORS middleware
-# SECURITY: Use explicit origins + strict regex for Vercel previews.
-# Production origins are configured via CORS_ORIGINS environment variable.
-# Vercel Preview URLs are allowed via strict regex pattern (project/team scoped).
-_cors_origins = settings.cors_origins_list or []
-if settings.environment == "development":
-    # Development mode: allow localhost variants
-    _cors_origins = list(set(_cors_origins + [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-    ]))
-
-# Vercel Preview URL regex pattern
-# Pattern: https://schola-rag-graph-{hash}-hosung-yous-projects.vercel.app
-# This is scoped to specific project/team to minimize security exposure
-_vercel_preview_regex = r"^https://schola-rag-graph-[a-z0-9]+-hosung-yous-projects\.vercel\.app$"
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    # Re-enabled with strict project/team-scoped pattern for Vercel previews
-    # NOTE: This is safer than broad wildcards because it's locked to specific project
-    allow_origin_regex=_vercel_preview_regex,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
-)
-
 # Rate limiting middleware
 # Limits: /api/auth/* - 10/min, /api/chat/* - 30/min, /api/import/* - 5/min
-# Controlled via RATE_LIMIT_ENABLED env var (default: True in production)
-# Set RATE_LIMIT_ENABLED=false for local development
 _rate_limit_enabled = settings.rate_limit_enabled and settings.environment != "development"
 app.add_middleware(RateLimiterMiddleware, enabled=_rate_limit_enabled)
 logger.info(f"Rate Limiting: {'enabled' if _rate_limit_enabled else 'disabled (development mode)'}")
@@ -276,9 +259,33 @@ logger.info(f"Quota Tracking: {'enabled' if _quota_tracking_enabled else 'disabl
 
 # Error tracking middleware (PERF-004)
 # Tracks HTTP errors for monitoring and alerting
-# Always enabled to track errors in all environments
 app.add_middleware(ErrorTrackingMiddleware, enabled=True)
 logger.info("Error Tracking: enabled")
+
+# --- Outermost middleware (added last, runs first on request) ---
+
+# CORS middleware — MUST be outermost (INFRA-008)
+# SECURITY: Use explicit origins + strict regex for Vercel previews.
+_cors_origins = settings.cors_origins_list or []
+if settings.environment == "development":
+    _cors_origins = list(set(_cors_origins + [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+    ]))
+
+# Vercel Preview URL regex pattern (project/team scoped)
+_vercel_preview_regex = r"^https://schola-rag-graph-[a-z0-9]+-hosung-yous-projects\.vercel\.app$"
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_vercel_preview_regex,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+)
+logger.info("CORS: enabled (outermost — INFRA-008)")
 
 # Include routers
 app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
