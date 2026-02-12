@@ -139,7 +139,8 @@ async def list_projects(
                 """
             )
         else:
-            # Filter by user access: owned, collaborated, team-shared, or public
+            # Filter by user access: owned, collaborated, team-shared, public, or unowned
+            # NOTE: owner_id IS NULL covers projects created before auth was added
             rows = await database.fetch(
                 """
                 SELECT DISTINCT p.id, p.name, p.research_question, p.source_path,
@@ -152,6 +153,7 @@ async def list_projects(
                    OR pc.user_id = $1
                    OR tm.user_id = $1
                    OR p.visibility = 'public'
+                   OR p.owner_id IS NULL
                 ORDER BY p.created_at DESC
                 """,
                 current_user.id,
