@@ -137,6 +137,16 @@ class ApiClient {
           continue;
         }
 
+        // Don't retry on auth errors - session is invalid
+        if (response.status === 401) {
+          const error = await response.json().catch(() => ({}));
+          const apiError = new Error(
+            error?.detail || 'Authentication required'
+          ) as Error & { status?: number };
+          apiError.status = 401;
+          throw apiError;
+        }
+
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
           const detail = error?.detail;

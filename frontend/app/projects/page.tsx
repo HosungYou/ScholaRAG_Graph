@@ -13,6 +13,7 @@ import {
   ErrorBoundary,
 } from '@/components/ui';
 import { ProtectedRoute } from '@/components/auth';
+import { useAuth } from '@/lib/auth-context';
 import type { Project, ImportJob } from '@/types';
 
 /* ============================================================
@@ -132,6 +133,7 @@ function EmptyState() {
  * and allows users to resume them.
  */
 function InterruptedImportsSection() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [resumingJobId, setResumingJobId] = useState<string | null>(null);
   const [clearingAll, setClearingAll] = useState(false);
@@ -139,7 +141,16 @@ function InterruptedImportsSection() {
   const { data: interruptedJobs, isLoading } = useQuery({
     queryKey: ['interruptedJobs'],
     queryFn: () => api.getImportJobs('interrupted', 10),
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
+    enabled: !!user,  // Only poll when authenticated
+    retry: (failureCount, error) => {
+      // Don't retry on auth errors (401/403)
+      if (error instanceof Error && 'status' in error) {
+        const status = (error as any).status;
+        if (status === 401 || status === 403) return false;
+      }
+      return failureCount < 2;
+    },
   });
 
   const resumeMutation = useMutation({

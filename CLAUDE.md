@@ -687,6 +687,22 @@ When making architectural changes:
 
 ---
 
+## 📊 v0.16.1 Release Notes
+
+> **Version**: 0.16.1 | **Date**: 2026-02-13
+> **Full Notes**: See `RELEASE_NOTES_v0.16.1.md`
+
+### Bug Fixes
+- **BUG-043**: 401 Unauthorized polling loop — `InterruptedImportsSection` continued polling with expired auth tokens, flooding logs. Fixed with `enabled: !!user` guard, custom retry that skips 401/403, and API client 401 early-exit.
+- **E2-v2**: OpenAI embedding token limit — replaced `MAX_CHARS=30000` (character-based) with **tiktoken-based truncation** (8000 tokens). Previous fix failed for academic/multilingual text where char-to-token ratio is ~2 (30000 chars = ~15000 tokens).
+
+### Technical
+- 3 files changed, +55/-5 lines
+- No database migrations, no new env vars, no breaking changes
+- tiktoken already in requirements.txt (used for `cl100k_base` encoding)
+
+---
+
 ## 📊 v0.15.1 Release Notes
 
 > **Version**: 0.15.1 | **Date**: 2026-02-09

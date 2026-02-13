@@ -11,7 +11,36 @@ import logging
 from typing import List, Optional
 import asyncio
 
+try:
+    import tiktoken
+    _encoder = tiktoken.get_encoding("cl100k_base")  # Used by text-embedding-3-small
+except ImportError:
+    tiktoken = None
+    _encoder = None
+
 logger = logging.getLogger(__name__)
+
+
+def _truncate_to_max_tokens(text: str, max_tokens: int = 8000) -> str:
+    """Truncate text to fit within OpenAI's token limit using tiktoken.
+
+    Uses 8000 as default (safe margin under 8191 limit).
+    Falls back to conservative character truncation if tiktoken unavailable.
+    """
+    if not text.strip():
+        return "empty"
+
+    text = text.strip()
+
+    if _encoder is not None:
+        tokens = _encoder.encode(text)
+        if len(tokens) > max_tokens:
+            text = _encoder.decode(tokens[:max_tokens])
+        return text
+
+    # Fallback: conservative char limit (~2.5 chars/token worst case)
+    max_chars = max_tokens * 2
+    return text[:max_chars]
 
 
 class OpenAIEmbeddingProvider:
@@ -76,11 +105,11 @@ class OpenAIEmbeddingProvider:
                 batch = texts[i:i + batch_size]
 
                 # Clean texts (OpenAI doesn't like empty strings)
-                # E2 fix: Truncate to ~8191 tokens (approx 4 chars/token for English)
-                MAX_CHARS = 30000  # ~7500 tokens, safe margin under 8191 limit
+                # E2 fix v2: Use tiktoken for precise token counting (8000 token limit)
+                # Previous MAX_CHARS=30000 was insufficient for academic/multilingual text
+                # where char-to-token ratio can be ~2 (30000 chars = ~15000 tokens)
                 cleaned_batch = [
-                    (t.strip()[:MAX_CHARS] if t.strip() else "empty")
-                    for t in batch
+                    _truncate_to_max_tokens(t) for t in batch
                 ]
 
                 response = await self.client.embeddings.create(
