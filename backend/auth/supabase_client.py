@@ -5,12 +5,28 @@ Handles connection to Supabase for authentication and database operations.
 """
 
 import logging
-from functools import lru_cache
+import base64
+import json
+import time
 from typing import Optional
 
 from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_jwt_payload(token: str) -> dict:
+    """Decode JWT payload without signature verification for diagnostics only."""
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return {}
+        payload = parts[1]
+        padding = "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload + padding)
+        return json.loads(decoded.decode("utf-8"))
+    except Exception:
+        return {}
 
 
 class SupabaseClient:
@@ -78,6 +94,27 @@ async def verify_jwt(token: str) -> Optional[dict]:
                 "user_metadata": response.user.user_metadata or {},
             }
     except Exception as e:
-        logger.debug(f"JWT verification failed: {e}")
+        payload = _extract_jwt_payload(token)
+        token_iss = payload.get("iss")
+        token_exp = payload.get("exp")
+
+        configured_url = getattr(supabase_client, "_url", None)
+        expected_iss_prefix = f"{configured_url.rstrip('/')}/auth/v1" if configured_url else None
+
+        if token_iss and expected_iss_prefix and not str(token_iss).startswith(expected_iss_prefix):
+            logger.warning(
+                "JWT verification failed: token issuer mismatch "
+                "(token_iss=%s, expected_prefix=%s)",
+                token_iss,
+                expected_iss_prefix,
+            )
+        elif isinstance(token_exp, (int, float)) and int(token_exp) < int(time.time()):
+            logger.info(
+                "JWT verification failed: token expired (exp=%s, now=%s)",
+                int(token_exp),
+                int(time.time()),
+            )
+        else:
+            logger.warning("JWT verification failed: %s", e)
     
     return None

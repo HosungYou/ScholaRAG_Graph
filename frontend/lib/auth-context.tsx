@@ -70,7 +70,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      await supabaseSignIn(email, password);
+      const data = await supabaseSignIn(email, password);
+      if (data.session) {
+        setSession(data.session);
+        setUser(data.session.user ?? null);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -79,7 +83,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = useCallback(async (email: string, password: string, fullName?: string) => {
     setIsLoading(true);
     try {
-      await supabaseSignUp(email, password, fullName);
+      const data = await supabaseSignUp(email, password, fullName);
+      if (data.session) {
+        setSession(data.session);
+        setUser(data.session.user ?? null);
+      }
     } finally {
       setIsLoading(false);
     }

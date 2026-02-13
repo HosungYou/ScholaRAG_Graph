@@ -103,7 +103,11 @@ export async function signIn(email: string, password: string) {
  */
 export async function signInWithOAuth(provider: 'google' | 'github') {
   if (!supabase) throw new Error('Supabase not configured');
-  
+
+  // Clear any stale local session before OAuth redirect.
+  // This prevents reusing an expired token if callback exchange fails.
+  await supabase.auth.signOut({ scope: 'local' });
+
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {

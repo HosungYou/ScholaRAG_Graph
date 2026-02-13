@@ -104,6 +104,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         
         # Verify token if present
         user_data = None
+        token_present = bool(token)
         if token:
             try:
                 user_data = await verify_jwt(token)
@@ -122,7 +123,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 self._record_auth_failure(request)
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={"detail": "Authentication required"},
+                    content={"detail": "Invalid or expired token" if token_present else "Authentication required"},
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
@@ -137,7 +138,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 self._record_auth_failure(request)
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={"detail": "Authentication required"},
+                    content={"detail": "Invalid or expired token" if token_present else "Authentication required"},
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             # Otherwise, proceed with or without auth
@@ -152,7 +153,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 self._record_auth_failure(request)
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={"detail": "Authentication required for this resource"},
+                    content={
+                        "detail": (
+                            "Invalid or expired token"
+                            if token_present
+                            else "Authentication required for this resource"
+                        )
+                    },
                     headers={"WWW-Authenticate": "Bearer"},
                 )
         

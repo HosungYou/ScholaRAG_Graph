@@ -141,7 +141,13 @@ function InterruptedImportsSection() {
   const { data: interruptedJobs, isLoading } = useQuery({
     queryKey: ['interruptedJobs'],
     queryFn: () => api.getImportJobs('interrupted', 10),
-    refetchInterval: 30000,
+    refetchInterval: (query) => {
+      const status = (query.state.error as { status?: number } | null)?.status;
+      if (status === 401 || status === 403) {
+        return false;
+      }
+      return 30000;
+    },
     enabled: !!user,  // Only poll when authenticated
   });
 

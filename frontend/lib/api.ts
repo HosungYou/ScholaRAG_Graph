@@ -82,6 +82,37 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
+  private async buildApiErrorFromResponse(
+    response: Response,
+    fallbackMessage?: string
+  ): Promise<Error & { status?: number; retryAfterSeconds?: number; detail?: unknown }> {
+    const error = await response.json().catch(() => ({}));
+    const detail = error?.detail;
+    const message =
+      (typeof detail === 'string' && detail) ||
+      (typeof detail === 'object' && detail?.message) ||
+      error?.message ||
+      fallbackMessage ||
+      `API Error: ${response.status}`;
+
+    const apiError = new Error(message) as Error & {
+      status?: number;
+      retryAfterSeconds?: number;
+      detail?: unknown;
+    };
+    apiError.status = response.status;
+    apiError.detail = detail;
+
+    const retryHeader = response.headers.get('Retry-After');
+    if (retryHeader && !Number.isNaN(Number(retryHeader))) {
+      apiError.retryAfterSeconds = Number(retryHeader);
+    } else if (typeof detail === 'object' && detail?.retry_after_seconds) {
+      apiError.retryAfterSeconds = Number(detail.retry_after_seconds);
+    }
+
+    return apiError;
+  }
+
   /**
    * Get authentication headers from Supabase session.
    * Returns Authorization header with Bearer token if session exists.
@@ -137,13 +168,19 @@ class ApiClient {
           continue;
         }
 
-        // On 401, attempt one token refresh before giving up
+        // On 401, attempt one token refresh before giving up.
+        // If refresh succeeds but backend still returns 401, do NOT auto-signout
+        // (likely backend/frontend auth config mismatch rather than dead session).
         if (response.status === 401) {
+          let finalResponse = response;
+          let shouldAutoSignOut = true;
+
           if (attempt === 1 && supabase) {
             try {
               const { data } = await supabase.auth.refreshSession();
               if (data.session) {
-                const retryResponse = await fetch(url, {
+                shouldAutoSignOut = false;
+                finalResponse = await fetch(url, {
                   ...options,
                   headers: {
                     'Content-Type': 'application/json',
@@ -151,50 +188,26 @@ class ApiClient {
                     ...options.headers,
                   },
                 });
-                if (retryResponse.ok) {
-                  return retryResponse.json();
+                if (finalResponse.ok) {
+                  return finalResponse.json();
                 }
               }
             } catch {
               // Refresh failed — fall through to throw 401
             }
           }
-          // Session is truly dead — clear cached auth state
-          // This sets user=null, disabling enabled:!!user queries and stopping refetchIntervals
-          supabase?.auth.signOut().catch(() => {});
-          const error = await response.json().catch(() => ({}));
-          const apiError = new Error(
-            error?.detail || 'Authentication required'
-          ) as Error & { status?: number };
-          apiError.status = 401;
-          throw apiError;
+
+          if (shouldAutoSignOut) {
+            // Session is truly dead — clear cached auth state
+            // This sets user=null, disabling enabled:!!user queries and stopping refetchIntervals
+            supabase?.auth.signOut().catch(() => {});
+          }
+
+          throw await this.buildApiErrorFromResponse(finalResponse, 'Authentication required');
         }
 
         if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          const detail = error?.detail;
-          const message =
-            (typeof detail === 'string' && detail) ||
-            (typeof detail === 'object' && detail?.message) ||
-            error?.message ||
-            `API Error: ${response.status}`;
-
-          const apiError = new Error(message) as Error & {
-            status?: number;
-            retryAfterSeconds?: number;
-            detail?: unknown;
-          };
-          apiError.status = response.status;
-          apiError.detail = detail;
-
-          const retryHeader = response.headers.get('Retry-After');
-          if (retryHeader && !Number.isNaN(Number(retryHeader))) {
-            apiError.retryAfterSeconds = Number(retryHeader);
-          } else if (typeof detail === 'object' && detail?.retry_after_seconds) {
-            apiError.retryAfterSeconds = Number(detail.retry_after_seconds);
-          }
-
-          throw apiError;
+          throw await this.buildApiErrorFromResponse(response);
         }
 
         return response.json();
@@ -236,9 +249,11 @@ class ApiClient {
     });
 
     if (response.status === 401 && supabase) {
+      let shouldAutoSignOut = true;
       try {
         const { data } = await supabase.auth.refreshSession();
         if (data.session) {
+          shouldAutoSignOut = false;
           return fetch(url, {
             ...options,
             headers: {
@@ -250,9 +265,12 @@ class ApiClient {
       } catch {
         // Refresh failed
       }
-      // Session is truly dead — clear cached auth state
-      // This sets user=null, disabling enabled:!!user queries and stopping refetchIntervals
-      supabase.auth.signOut().catch(() => {});
+
+      if (shouldAutoSignOut) {
+        // Session is truly dead — clear cached auth state
+        // This sets user=null, disabling enabled:!!user queries and stopping refetchIntervals
+        supabase.auth.signOut().catch(() => {});
+      }
     }
 
     return response;
