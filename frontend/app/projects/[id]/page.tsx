@@ -17,6 +17,7 @@ import {
   PanelLeft,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { KnowledgeGraph3D } from '@/components/graph/KnowledgeGraph3D';
 import { NodeDetails } from '@/components/graph/NodeDetails';
 import { FilterPanel } from '@/components/graph/FilterPanel';
@@ -121,9 +122,18 @@ export default function ProjectDetailPage() {
   } = useGraphStore();
 
   // Fetch project details
+  const { user } = useAuth();
   const { data: project, isLoading: projectLoading, error: projectError, refetch } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => api.getProject(projectId),
+    enabled: !!user && !!projectId,  // BUG-043: Only fetch when authenticated
+    retry: (failureCount, error) => {
+      if (error instanceof Error && 'status' in error) {
+        const status = (error as any).status;
+        if (status === 401 || status === 403) return false;
+      }
+      return failureCount < 2;
+    },
   });
 
   // Auto-scroll to bottom when messages change

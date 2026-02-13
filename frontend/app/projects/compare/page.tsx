@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { Header, Footer } from '@/components/layout';
 import { ThemeToggle, ErrorDisplay, ErrorBoundary } from '@/components/ui';
 import { GraphComparison } from '@/components/graph/GraphComparison';
@@ -20,9 +21,18 @@ import { GitCompare, Loader2 } from 'lucide-react';
    ============================================================ */
 
 function CompareContent() {
+  const { user } = useAuth();
   const { data: projects, isLoading, error, refetch } = useQuery({
     queryKey: ['projects'],
     queryFn: () => api.getProjects(),
+    enabled: !!user,  // BUG-043: Only fetch when authenticated
+    retry: (failureCount, error) => {
+      if (error instanceof Error && 'status' in error) {
+        const status = (error as any).status;
+        if (status === 401 || status === 403) return false;
+      }
+      return failureCount < 2;
+    },
   });
 
   if (isLoading) {

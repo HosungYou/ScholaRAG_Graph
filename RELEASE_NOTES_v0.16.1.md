@@ -15,21 +15,24 @@ Fixes two production issues discovered in v0.16.0: a 401 Unauthorized polling lo
 
 ### BUG-043: 401 Unauthorized Polling Loop (Frontend)
 
-**Problem**: When a user's Supabase auth token expired, the `InterruptedImportsSection` component on the Projects page continued polling `GET /api/import/jobs?status=interrupted` every 30 seconds. React-query's default retry (3 attempts) caused 4 requests per cycle. With 2+ users, this created a continuous flood of 401 errors in production logs.
+**Problem**: When a user's Supabase auth token expired, multiple components with `useQuery` continued firing API requests. React-query's default retry (3 attempts) caused repeated 401 errors across `/api/import/jobs`, `/api/projects/`, and `/api/projects/:id`. With 2+ users, this created a continuous flood of 401 errors in production logs.
 
 **Root Cause**:
-- `useQuery` with `refetchInterval: 30000` ran regardless of auth state
+- `useQuery` calls ran regardless of auth state (no `enabled` guard)
 - React-query retried 401 errors (auth errors should not be retried)
 - `ProtectedRoute` renders children during redirect (user state lag)
+- Project detail and compare pages had no auth protection at all
 
-**Fix** (3 files):
+**Fix** (5 files):
 
 | File | Change |
 |------|--------|
-| `frontend/app/projects/page.tsx` | Added `enabled: !!user` guard + custom `retry` that skips 401/403 |
+| `frontend/app/projects/page.tsx` | `InterruptedImportsSection` + `ProjectsContent`: `enabled: !!user` guard + custom `retry` that skips 401/403 |
+| `frontend/app/projects/[id]/page.tsx` | Added `useAuth`, `enabled: !!user` guard + custom `retry` |
+| `frontend/app/projects/compare/page.tsx` | Added `useAuth`, `enabled: !!user` guard + custom `retry` |
 | `frontend/lib/api.ts` | 401 responses now throw immediately, breaking the retry loop |
 
-**Impact**: Eliminates 401 log spam; reduces unnecessary Supabase auth verification calls.
+**Impact**: Eliminates 401 log spam across all project pages; reduces unnecessary Supabase auth verification calls.
 
 ---
 
@@ -80,7 +83,9 @@ def _truncate_to_max_tokens(text, max_tokens=8000):
 | File | Lines | Change |
 |------|-------|--------|
 | `backend/llm/openai_embeddings.py` | +33/-4 | tiktoken import, `_truncate_to_max_tokens()`, updated `get_embeddings()` |
-| `frontend/app/projects/page.tsx` | +12/-1 | `useAuth()` hook, `enabled` guard, custom `retry` |
+| `frontend/app/projects/page.tsx` | +22/-2 | `useAuth()` hook, `enabled` guard, custom `retry` on both queries |
+| `frontend/app/projects/[id]/page.tsx` | +10/-1 | `useAuth` import + `enabled` guard + custom `retry` |
+| `frontend/app/projects/compare/page.tsx` | +10/-1 | `useAuth` import + `enabled` guard + custom `retry` |
 | `frontend/lib/api.ts` | +10/-0 | 401 early-exit in `request()` method |
 
 ### Dependencies
