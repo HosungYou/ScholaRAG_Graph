@@ -159,6 +159,9 @@ class ApiClient {
               // Refresh failed — fall through to throw 401
             }
           }
+          // Session is truly dead — clear cached auth state
+          // This sets user=null, disabling enabled:!!user queries and stopping refetchIntervals
+          supabase?.auth.signOut().catch(() => {});
           const error = await response.json().catch(() => ({}));
           const apiError = new Error(
             error?.detail || 'Authentication required'
@@ -245,8 +248,11 @@ class ApiClient {
           });
         }
       } catch {
-        // Refresh failed — return original 401 response
+        // Refresh failed
       }
+      // Session is truly dead — clear cached auth state
+      // This sets user=null, disabling enabled:!!user queries and stopping refetchIntervals
+      supabase.auth.signOut().catch(() => {});
     }
 
     return response;
